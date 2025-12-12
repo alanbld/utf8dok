@@ -3,6 +3,21 @@
 utf8dok uses the BRIDGE framework for comprehensive documentation that bridges
 the gap between code and understanding.
 
+## BRIDGE Framework
+
+This project is documented using the BRIDGE (Business-Readiness through Integrated Documentation & Governance Engineering) framework.
+
+For the complete BRIDGE specification and methodology, see the private repository:
+- https://github.com/alanbld/bridge-framework (private - contains strategic documentation methodology)
+
+## How utf8dok Uses BRIDGE
+
+utf8dok serves as a reference implementation of BRIDGE, demonstrating:
+- Architecture Decision Records (ADRs) for all major decisions
+- C4 model for software architecture
+- Integrated documentation that evolves with the code
+- Test-driven documentation where docs ARE the tests
+
 ## What is BRIDGE?
 
 BRIDGE is a documentation methodology that ensures documentation remains:
@@ -24,6 +39,7 @@ Current ADRs:
 - [ADR-001: Why utf8dok](architecture/decisions/adr/ADR-001-why-utf8dok.md)
 - [ADR-002: Rust for AsciiDoc](architecture/decisions/adr/ADR-002-rust-for-asciidoc.md)
 - [ADR-003: Parser Technology](architecture/decisions/adr/ADR-003-parser-technology.md)
+- [ADR-004: TCK-First Development](architecture/decisions/adr/ADR-004-tck-first-development.md)
 
 ### Software Architecture
 
