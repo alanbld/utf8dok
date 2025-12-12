@@ -30,6 +30,11 @@ BRIDGE is a documentation methodology that ensures documentation remains:
 
 ## Documentation Structure
 
+### Technical Specification
+
+The detailed technical design document:
+- [TECHNICAL_SPEC.md](architecture/TECHNICAL_SPEC.md) - Parser, AST, and transformer architecture
+
 ### Architecture Decisions
 
 Located in `architecture/decisions/adr/`, these documents capture significant
