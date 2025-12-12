@@ -1,0 +1,22 @@
+[package]
+name = "utf8dok-cli"
+description = "Command-line interface for utf8dok document processor"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["asciidoc", "cli", "documentation"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "utf8dok"
+path = "src/main.rs"
+
+[dependencies]
+utf8dok-core = { path = "../utf8dok-core" }
+utf8dok-ast = { path = "../utf8dok-ast" }
+clap.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]

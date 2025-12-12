@@ -1,0 +1,15 @@
+[package]
+name = "utf8dok-ast"
+description = "Abstract Syntax Tree definitions for utf8dok"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["asciidoc", "ast", "parser"]
+categories = ["parsing", "data-structures"]
+
+[dependencies]
+serde.workspace = true
+
+[dev-dependencies]
