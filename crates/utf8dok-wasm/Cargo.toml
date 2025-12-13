@@ -13,8 +13,8 @@ categories = ["wasm"]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-utf8dok-core = { version = "0.0.1", path = "../utf8dok-core" }
-utf8dok-ast = { version = "0.0.1", path = "../utf8dok-ast" }
+utf8dok-core = { path = "../utf8dok-core" }
+utf8dok-ast = { path = "../utf8dok-ast" }
 wasm-bindgen = "0.2"
 serde.workspace = true
 serde-wasm-bindgen = "0.6"

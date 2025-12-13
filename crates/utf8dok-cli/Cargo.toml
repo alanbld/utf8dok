@@ -14,8 +14,8 @@ name = "utf8dok"
 path = "src/main.rs"
 
 [dependencies]
-utf8dok-core = { version = "0.0.1", path = "../utf8dok-core" }
-utf8dok-ast = { version = "0.0.1", path = "../utf8dok-ast" }
+utf8dok-core = { path = "../utf8dok-core" }
+utf8dok-ast = { path = "../utf8dok-ast" }
 clap.workspace = true
 anyhow.workspace = true
 

@@ -1,61 +1,89 @@
-# utf8dok 🦀
+# utf8dok
 
-> Plain text, powerful docs. A blazing-fast UTF-8 document processor written in Rust.
+Template-aware document generation from AsciiDoc to corporate-compliant DOCX.
 
-[![Crates.io](https://img.shields.io/crates/v/utf8dok-core.svg)](https://crates.io/crates/utf8dok-core)
-[![Documentation](https://docs.rs/utf8dok-core/badge.svg)](https://docs.rs/utf8dok-core)
-[![Build Status](https://github.com/alanbld/utf8dok/workflows/CI/badge.svg)](https://github.com/alanbld/utf8dok/actions)
-[![License](https://img.shields.io/badge/license-MIT%2FApache-blue.svg)](LICENSE-MIT)
+## Problem
 
-## What is utf8dok?
+Existing AsciiDoc → DOCX tools generate generic, unstyled documents. Organizations need output that matches approved corporate templates with:
 
-A high-performance UTF-8 document processor targeting **Eclipse AsciiDoc TCK compliance** from day one.
+- Custom heading styles, colors, and numbering
+- Logo placements and branding
+- Proper TOC, headers, footers
+- Metadata tables and revision history
 
-### Goals
+## Solution
 
-- 🎯 **Eclipse AsciiDoc TCK compliant** - Standards-first approach
-- 🚀 **50x faster** than Ruby implementations
-- 📦 **Single binary** - No runtime dependencies
-- 🦀 **Pure Rust** - Memory safe, parallel processing
-- 📚 **Multi-format future** - AsciiDoc today, Markdown tomorrow
-- 🏗️ **BRIDGE documented** - Practicing what we preach
+utf8dok injects content into Word templates (.dotx) instead of generating OOXML from scratch.
+
+## Workflows
+
+### Extract (Bootstrap)
+
+Convert existing Word documents to AsciiDoc for editing:
+
+```bash
+utf8dok extract existing.docx --output project/
+# Creates:
+#   project/document.adoc    (editable content)
+#   project/template.dotx    (preserved styling)
+#   project/utf8dok.toml     (style mappings)
+```
+
+### Render (Generate)
+
+Generate corporate-compliant DOCX from AsciiDoc:
+
+```bash
+utf8dok render project/document.adoc --output final.docx
+```
+
+## Building
+
+```bash
+cargo build --workspace
+cargo test --workspace
+```
+
+## Project Structure
+
+```
+crates/
+├── utf8dok-ooxml/    # OOXML parsing and generation
+├── utf8dok-ast/      # AST type definitions (planned)
+├── utf8dok-core/     # AsciiDoc parser (planned)
+└── utf8dok-cli/      # CLI commands (planned)
+```
+
+## Configuration
+
+```toml
+# utf8dok.toml
+
+[template]
+path = "templates/design-document.dotx"
+
+[styles]
+heading1 = "Heading 1"
+heading2 = "Heading 2"
+paragraph = "Normal"
+table = "Table Grid"
+
+[placeholders]
+title = "{{TITLE}}"
+version = "{{VERSION}}"
+```
 
 ## Status
 
-🚧 **Early Development** - Building TCK adapter and ASG implementation
-
-## Architecture
-
-Documented using [BRIDGE Framework](./BRIDGE.md):
-- Architecture decisions: [`architecture/decisions/adr/`](./architecture/decisions/adr/)
-- C4 models: [`architecture/software/`](./architecture/software/)
-- All documentation is tested
-
-## Standards Compliance
-
-Building against Eclipse AsciiDoc specification:
-- TCK (Technology Compatibility Kit) adapter mode
-- ASG (Abstract Semantic Graph) JSON output
-- Contributing learnings back to specification
-
-## Related Projects
-
-Learning from and potentially contributing to:
-- [`asciidocr`](https://github.com/asciidoc-rust/asciidocr) - TCK implementation
-- [`asciidork`](https://github.com/jirutka/asciidork) - Performance focused
-- [Eclipse AsciiDoc WG](https://gitlab.eclipse.org/eclipse-wg/asciidoc) - Standards work
-
-## Installation
-```bash
-cargo install utf8dok-cli
-```
-
-## Usage
-```bash
-# Coming soon
-utf8dok input.adoc -o output.html
-```
+- [x] OOXML archive handling (ZIP read/write)
+- [x] Document parsing (paragraphs, tables, runs)
+- [x] Style parsing (heading detection, inheritance)
+- [x] Basic extraction (DOCX → AsciiDoc)
+- [ ] AsciiDoc parser
+- [ ] Template injection
+- [ ] TOC update
+- [ ] CLI
 
 ## License
 
-Dual-licensed under [MIT](LICENSE-MIT) OR [Apache-2.0](LICENSE-APACHE)
+MIT OR Apache-2.0
