@@ -99,6 +99,10 @@ impl Document {
         let mut current_run: Option<RunBuilder> = None;
         let mut current_table: Option<TableBuilder> = None;
 
+        // Field code tracking (for TOC, REF, HYPERLINK, etc.)
+        let mut field_depth: u32 = 0;
+        let mut in_field_instruction = false;
+
         loop {
             match reader.read_event_into(&mut buf) {
                 Ok(Event::Start(ref e)) => {
@@ -188,6 +192,10 @@ impl Document {
                                 }
                             }
                         }
+                        b"instrText" => {
+                            // Field instruction text (like "TOC \o "1-3"") - skip it
+                            in_field_instruction = true;
+                        }
                         _ => {}
                     }
                 }
@@ -237,6 +245,10 @@ impl Document {
                             let table = current_table.take().unwrap().build();
                             blocks.push(Block::Table(table));
                         }
+                        b"instrText" => {
+                            // End of field instruction text
+                            in_field_instruction = false;
+                        }
                         _ => {}
                     }
                 }
@@ -279,13 +291,36 @@ impl Document {
                         b"i" if current_run.is_some() => {
                             current_run.as_mut().unwrap().italic = true;
                         }
+                        b"fldChar" => {
+                            // Handle field character markers (begin, separate, end)
+                            if let Some(fld_type) = get_attr(e, b"w:fldCharType") {
+                                match fld_type.as_str() {
+                                    "begin" => {
+                                        field_depth += 1;
+                                        in_field_instruction = true;
+                                    }
+                                    "separate" => {
+                                        // Between instruction and result - start capturing text
+                                        in_field_instruction = false;
+                                    }
+                                    "end" => {
+                                        field_depth = field_depth.saturating_sub(1);
+                                        in_field_instruction = false;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
                         _ => {}
                     }
                 }
                 Ok(Event::Text(ref e)) => {
-                    if let Some(ref mut run) = current_run {
-                        let text = e.unescape().unwrap_or_default();
-                        run.text.push_str(&text);
+                    // Skip text inside field instructions (TOC, REF, etc.)
+                    if !in_field_instruction {
+                        if let Some(ref mut run) = current_run {
+                            let text = e.unescape().unwrap_or_default();
+                            run.text.push_str(&text);
+                        }
                     }
                 }
                 Ok(Event::Eof) => break,
@@ -499,5 +534,43 @@ mod tests {
         } else {
             panic!("Expected paragraph");
         }
+    }
+
+    #[test]
+    fn test_filter_toc_field_codes() {
+        // Simulate a TOC (Table of Contents) field code
+        // Field codes have: begin → instrText → separate → result text → end
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:r>
+                        <w:fldChar w:fldCharType="begin"/>
+                    </w:r>
+                    <w:r>
+                        <w:instrText>TOC \o "1-3" \h \z \u</w:instrText>
+                    </w:r>
+                    <w:r>
+                        <w:fldChar w:fldCharType="separate"/>
+                    </w:r>
+                    <w:r>
+                        <w:t>Table of Contents</w:t>
+                    </w:r>
+                    <w:r>
+                        <w:fldChar w:fldCharType="end"/>
+                    </w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let text = doc.plain_text();
+
+        // Should NOT contain the field instruction
+        assert!(!text.contains("TOC \\o"), "Field instruction should be filtered out");
+        assert!(!text.contains("\\h \\z \\u"), "Field switches should be filtered out");
+
+        // Should contain the display text
+        assert!(text.contains("Table of Contents"), "Display text should be preserved");
     }
 }
