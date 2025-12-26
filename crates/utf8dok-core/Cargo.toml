@@ -10,6 +10,7 @@ keywords = ["asciidoc", "parser", "documentation", "markup"]
 categories = ["parsing", "text-processing"]
 
 [dependencies]
+utf8dok-ast = { path = "../utf8dok-ast" }
 pest.workspace = true
 pest_derive.workspace = true
 thiserror.workspace = true
