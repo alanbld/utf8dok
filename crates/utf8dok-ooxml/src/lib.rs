@@ -23,12 +23,14 @@
 //! ```
 
 pub mod archive;
+pub mod conversion;
 pub mod document;
 pub mod error;
 pub mod extract;
 pub mod styles;
 
 pub use archive::OoxmlArchive;
+pub use conversion::{convert_document, convert_document_with_styles, ConversionContext, ToAst};
 pub use document::{Block, Document, Paragraph, Run, Table, TableCell, TableRow};
 pub use error::{OoxmlError, Result};
 pub use extract::{AsciiDocExtractor, ExtractedDocument};

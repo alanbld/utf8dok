@@ -7,6 +7,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/yourusername/utf8dok"
 
 [dependencies]
+utf8dok-ast = { path = "../utf8dok-ast" }
 zip = "2.2"
 quick-xml = { version = "0.37", features = ["serialize"] }
 serde = { version = "1.0", features = ["derive"] }
