@@ -98,6 +98,8 @@ impl Document {
         let mut current_para: Option<ParagraphBuilder> = None;
         let mut current_run: Option<RunBuilder> = None;
         let mut current_table: Option<TableBuilder> = None;
+        // Track if we're inside a <w:t> element (actual text vs instrText)
+        let mut in_text_element = false;
 
         loop {
             match reader.read_event_into(&mut buf) {
@@ -170,6 +172,10 @@ impl Document {
                                 }
                             }
                         }
+                        b"t" if current_run.is_some() => {
+                            // Start of actual text element - capture text from here
+                            in_text_element = true;
+                        }
                         b"tbl" if in_body => {
                             current_table = Some(TableBuilder::new());
                         }
@@ -208,6 +214,10 @@ impl Document {
                             } else {
                                 blocks.push(Block::Paragraph(para));
                             }
+                        }
+                        b"t" => {
+                            // End of text element
+                            in_text_element = false;
                         }
                         b"r" if current_run.is_some() => {
                             let run = current_run.take().unwrap().build();
@@ -283,9 +293,12 @@ impl Document {
                     }
                 }
                 Ok(Event::Text(ref e)) => {
-                    if let Some(ref mut run) = current_run {
-                        let text = e.unescape().unwrap_or_default();
-                        run.text.push_str(&text);
+                    // Only capture text inside <w:t> elements, not <w:instrText>
+                    if in_text_element {
+                        if let Some(ref mut run) = current_run {
+                            let text = e.unescape().unwrap_or_default();
+                            run.text.push_str(&text);
+                        }
                     }
                 }
                 Ok(Event::Eof) => break,
@@ -458,6 +471,30 @@ fn is_monospace_font(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_ignore_field_codes() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:r><w:fldChar w:fldCharType="begin"/></w:r>
+                    <w:r><w:instrText>TOC \o "1-3"</w:instrText></w:r>
+                    <w:r><w:fldChar w:fldCharType="separate"/></w:r>
+                    <w:r><w:t>Table of Contents</w:t></w:r>
+                    <w:r><w:fldChar w:fldCharType="end"/></w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let text = doc.plain_text();
+
+        // Should only contain the visible text, not the field instruction
+        assert_eq!(text, "Table of Contents");
+        assert!(!text.contains("TOC"), "Field code TOC should not appear in text");
+        assert!(!text.contains("\\o"), "Field code parameters should not appear");
+    }
 
     #[test]
     fn test_parse_simple_paragraph() {
