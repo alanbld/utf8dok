@@ -16,8 +16,8 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
-use utf8dok_core::generate;
-use utf8dok_ooxml::{convert_document_with_styles, Document, OoxmlArchive, StyleSheet};
+use utf8dok_core::{generate, parse};
+use utf8dok_ooxml::{convert_document_with_styles, DocxWriter, Document, OoxmlArchive, StyleSheet};
 
 #[derive(Parser)]
 #[command(name = "utf8dok")]
@@ -171,30 +171,74 @@ fn generate_config_toml(styles: &StyleSheet, input: &std::path::Path) -> String 
     output
 }
 
-/// Execute the render command (placeholder)
+/// Execute the render command
 fn render_command(
     input: &std::path::Path,
     output: Option<&std::path::Path>,
     template: Option<&std::path::Path>,
 ) -> Result<()> {
     println!("utf8dok v{}", utf8dok_core::VERSION);
-    println!();
-    println!("Render command is not yet implemented.");
-    println!();
-    println!("Planned usage:");
-    println!("  Input:    {}", input.display());
-    if let Some(out) = output {
-        println!("  Output:   {}", out.display());
+    println!("Rendering: {}", input.display());
+
+    // Check input file exists
+    if !input.exists() {
+        anyhow::bail!("Input file not found: {}", input.display());
     }
-    if let Some(tmpl) = template {
-        println!("  Template: {}", tmpl.display());
+
+    // Determine output path (default: input with .docx extension)
+    let output_path = match output {
+        Some(p) => p.to_path_buf(),
+        None => input.with_extension("docx"),
+    };
+
+    // Determine template path (default: template.dotx in current directory)
+    let template_path = match template {
+        Some(p) => p.to_path_buf(),
+        None => PathBuf::from("template.dotx"),
+    };
+
+    // Check template exists
+    if !template_path.exists() {
+        anyhow::bail!(
+            "Template file not found: {}\n\
+             \n\
+             To create a template, you can:\n\
+             1. Use 'utf8dok extract' on an existing DOCX to generate a template\n\
+             2. Create a new Word document and save it as .dotx\n\
+             3. Specify a different template with --template <path>",
+            template_path.display()
+        );
     }
+
+    // Step 1: Read input AsciiDoc file
+    println!("  Reading: {}", input.display());
+    let content = fs::read_to_string(input)
+        .with_context(|| format!("Failed to read input file: {}", input.display()))?;
+
+    // Step 2: Parse AsciiDoc to AST
+    println!("  Parsing AsciiDoc...");
+    let ast = parse(&content).context("Failed to parse AsciiDoc content")?;
+    println!("    {} blocks parsed", ast.blocks.len());
+
+    // Step 3: Load template
+    println!("  Loading template: {}", template_path.display());
+    let template_bytes = fs::read(&template_path)
+        .with_context(|| format!("Failed to read template: {}", template_path.display()))?;
+
+    // Step 4: Generate DOCX
+    println!("  Generating DOCX...");
+    let docx_bytes = DocxWriter::generate(&ast, &template_bytes)
+        .context("Failed to generate DOCX from AST")?;
+
+    // Step 5: Write output
+    println!("  Writing: {}", output_path.display());
+    fs::write(&output_path, &docx_bytes)
+        .with_context(|| format!("Failed to write output file: {}", output_path.display()))?;
+
     println!();
-    println!("This feature will:");
-    println!("  1. Parse the AsciiDoc input file");
-    println!("  2. Load the DOTX template");
-    println!("  3. Inject content into the template");
-    println!("  4. Generate a styled DOCX file");
+    println!("Render complete!");
+    println!("  Output: {}", output_path.display());
+    println!("  Size: {} bytes", docx_bytes.len());
 
     Ok(())
 }
