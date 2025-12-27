@@ -1,0 +1,31 @@
+[package]
+name = "utf8dok-diagrams"
+version = "0.1.0"
+edition = "2021"
+description = "Diagram rendering for utf8dok via Kroki and other backends"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/alanbld/utf8dok"
+
+[dependencies]
+# HTTP client for Kroki API
+reqwest = { version = "0.12", features = ["blocking", "json"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Content hashing for drift detection
+sha2 = "0.10"
+
+# Base64 encoding for Kroki compressed payloads
+base64 = "0.22"
+
+# Compression for Kroki payloads
+flate2 = "1.0"
+
+# Error handling
+thiserror = "2.0"
+
+[dev-dependencies]
+# For temp file tests
+tempfile = "3.14"
