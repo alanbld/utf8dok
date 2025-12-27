@@ -34,7 +34,7 @@ use regex::Regex;
 use std::collections::HashMap;
 use utf8dok_ast::{
     Block, Document, DocumentMeta, FormatType, Heading, Inline, List, ListItem, ListType,
-    Paragraph,
+    Paragraph, Table, TableCell, TableRow,
 };
 
 /// Parser state for tracking what kind of block we're currently building
@@ -46,6 +46,8 @@ enum ParserState {
     Paragraph(Vec<String>),
     /// Building a list with accumulated items
     List(ListType, Vec<ListItem>),
+    /// Building a table with accumulated cells
+    Table(Vec<TableCell>),
 }
 
 /// AsciiDoc parser using a state machine approach
@@ -106,8 +108,12 @@ impl Parser {
             }
         }
 
-        // Empty line handling
+        // Empty line handling - but not inside tables
         if line.trim().is_empty() {
+            // If we're inside a table, empty lines are row separators (ignored for MVP)
+            if matches!(self.state, ParserState::Table(_)) {
+                return;
+            }
             self.flush_state();
             self.header_done = true;
             return;
@@ -115,6 +121,43 @@ impl Parser {
 
         // Once we see a non-header element, header is done
         self.header_done = true;
+
+        // Check for table delimiter |===
+        if line.trim() == "|===" {
+            match &self.state {
+                ParserState::Table(_) => {
+                    // End of table - flush it
+                    self.flush_state();
+                }
+                _ => {
+                    // Start of table - flush any previous state and start table
+                    self.flush_state();
+                    self.state = ParserState::Table(Vec::new());
+                }
+            }
+            return;
+        }
+
+        // If we're in a table, handle table cell lines
+        if let ParserState::Table(cells) = &mut self.state {
+            if let Some(cell_content) = line.strip_prefix('|') {
+                // Parse cell content (everything after the leading |)
+                let content = cell_content.trim().to_string();
+                let inlines = parse_inlines(&content);
+                cells.push(TableCell {
+                    content: vec![Block::Paragraph(Paragraph {
+                        inlines,
+                        style_id: None,
+                        attributes: HashMap::new(),
+                    })],
+                    colspan: 1,
+                    rowspan: 1,
+                    align: None,
+                });
+            }
+            // Empty lines inside tables are ignored (they're row separators conceptually)
+            return;
+        }
 
         // Check for headings (== Level 1, === Level 2, etc.)
         if let Some(heading) = self.try_parse_heading(line) {
@@ -288,8 +331,38 @@ impl Parser {
                     }));
                 }
             }
+            ParserState::Table(cells) => {
+                if !cells.is_empty() {
+                    // Convert cells into rows
+                    // For MVP: group cells into rows, with blank lines as separators
+                    // Since we collect all cells, we'll put each cell in its own row for simplicity
+                    // or we can detect column count from first row pattern
+                    let rows = cells_to_rows(cells);
+                    self.blocks.push(Block::Table(Table {
+                        rows,
+                        style_id: None,
+                        caption: None,
+                        columns: vec![],
+                    }));
+                }
+            }
         }
     }
+}
+
+/// Convert a flat list of cells into table rows
+/// For MVP: each cell becomes its own row with one cell
+/// Future: detect column patterns from blank line separators
+fn cells_to_rows(cells: Vec<TableCell>) -> Vec<TableRow> {
+    // Simple strategy: each cell is one row
+    // This works for single-column tables and vertically-oriented data
+    cells
+        .into_iter()
+        .map(|cell| TableRow {
+            cells: vec![cell],
+            is_header: false,
+        })
+        .collect()
 }
 
 /// Parse inline formatting in text

@@ -105,6 +105,43 @@ Lines starting with `.` followed by space.
 
 **AST Mapping**: `Block::List { list_type: Ordered, items: [...] }`
 
+### 8. Tables
+
+Tables use `|===` as delimiters (start and end).
+
+```asciidoc
+|===
+| Header 1
+| Header 2
+
+| Cell A1
+| Cell A2
+
+| Cell B1
+| Cell B2
+|===
+```
+
+**Syntax Rules:**
+
+- **Delimiter**: `|===` marks the start and end of a table
+- **Cells**: Lines starting with `|` (pipe) followed by content
+- **Rows**: For MVP, each cell line becomes one cell; cells are grouped into rows
+  - Simple logic: Blank lines or consistent cell count determines row boundaries
+  - Fallback: Each `|` line is one cell, grouped sequentially
+
+**AST Mapping**: `Block::Table { rows: [...], ... }`
+
+```rust
+Block::Table {
+    rows: [
+        TableRow { cells: [TableCell { content: [...] }], is_header: true },
+        TableRow { cells: [TableCell { content: [...] }], is_header: false },
+    ],
+    ...
+}
+```
+
 ## Parser Requirements
 
 ### Input
@@ -189,7 +226,6 @@ Document {
 
 The following features are **not** in scope for the MVP:
 
-- Tables
 - Admonitions (NOTE, WARNING, etc.)
 - Code blocks with language
 - Images

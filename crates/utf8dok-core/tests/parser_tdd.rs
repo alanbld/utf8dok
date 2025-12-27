@@ -253,3 +253,49 @@ fn test_parse_title_only() {
     assert_eq!(result.metadata.title, Some("Just a Title".to_string()));
     assert!(result.blocks.is_empty());
 }
+
+/// Test parsing simple table
+#[test]
+fn test_parse_simple_table() {
+    let input = "|===\n| Cell A\n| Cell B\n|===";
+
+    let result = parser::parse(input).expect("Parser should not error");
+
+    assert_eq!(result.blocks.len(), 1);
+
+    if let Block::Table(table) = &result.blocks[0] {
+        // Assert we have rows/cells
+        assert!(!table.rows.is_empty(), "Table should have rows");
+        // Count total cells
+        let total_cells: usize = table.rows.iter().map(|r| r.cells.len()).sum();
+        assert!(total_cells >= 2, "Table should have at least 2 cells");
+    } else {
+        panic!("Expected Table block");
+    }
+}
+
+/// Test parsing table with multiple rows
+#[test]
+fn test_parse_table_with_rows() {
+    let input = r#"|===
+| Header 1
+| Header 2
+
+| Row 1 Col 1
+| Row 1 Col 2
+
+| Row 2 Col 1
+| Row 2 Col 2
+|==="#;
+
+    let result = parser::parse(input).expect("Parser should not error");
+
+    assert_eq!(result.blocks.len(), 1);
+
+    if let Block::Table(table) = &result.blocks[0] {
+        // Should have multiple rows
+        assert!(table.rows.len() >= 2, "Table should have at least 2 rows");
+    } else {
+        panic!("Expected Table block");
+    }
+}
