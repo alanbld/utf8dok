@@ -167,11 +167,22 @@ impl AsciiDocGenerator {
                 }
             }
             Inline::Link(link) => {
-                write!(self.output, "{}[", link.url).unwrap();
-                for inner in &link.text {
-                    self.generate_inline(inner);
+                if link.url.starts_with('#') {
+                    // Internal cross-reference: <<anchor,text>>
+                    let anchor = link.url.trim_start_matches('#');
+                    write!(self.output, "<<{},", anchor).unwrap();
+                    for inner in &link.text {
+                        self.generate_inline(inner);
+                    }
+                    write!(self.output, ">>").unwrap();
+                } else {
+                    // External link: url[text]
+                    write!(self.output, "{}[", link.url).unwrap();
+                    for inner in &link.text {
+                        self.generate_inline(inner);
+                    }
+                    write!(self.output, "]").unwrap();
                 }
-                write!(self.output, "]").unwrap();
             }
             Inline::Image(image) => {
                 write!(self.output, "image::{}[", image.src).unwrap();

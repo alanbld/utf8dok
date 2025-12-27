@@ -7,8 +7,9 @@ use std::fmt::Write;
 use std::path::Path;
 
 use crate::archive::OoxmlArchive;
-use crate::document::{Block, Document, Paragraph, Table};
+use crate::document::{Block, Document, Hyperlink, Paragraph, ParagraphChild, Run, Table};
 use crate::error::Result;
+use crate::relationships::Relationships;
 use crate::styles::StyleSheet;
 
 /// Result of extracting a document
@@ -83,10 +84,15 @@ impl AsciiDocExtractor {
         let document = Document::parse(archive.document_xml()?)?;
         let styles = StyleSheet::parse(archive.styles_xml()?)?;
 
+        // Load relationships for hyperlink resolution
+        let relationships = archive
+            .document_rels_xml()
+            .and_then(|xml| Relationships::parse(xml).ok());
+
         let style_mappings = self.detect_style_mappings(&styles);
         let metadata = DocumentMetadata::default(); // TODO: parse docProps/core.xml
-        
-        let asciidoc = self.convert_to_asciidoc(&document, &styles);
+
+        let asciidoc = self.convert_to_asciidoc(&document, &styles, relationships.as_ref());
 
         Ok(ExtractedDocument {
             asciidoc,
@@ -119,7 +125,12 @@ impl AsciiDocExtractor {
     }
 
     /// Convert document to AsciiDoc string
-    fn convert_to_asciidoc(&self, document: &Document, styles: &StyleSheet) -> String {
+    fn convert_to_asciidoc(
+        &self,
+        document: &Document,
+        styles: &StyleSheet,
+        rels: Option<&Relationships>,
+    ) -> String {
         let mut output = String::new();
         let mut first_heading_found = false;
 
@@ -130,7 +141,7 @@ impl AsciiDocExtractor {
                         continue;
                     }
 
-                    let text = self.convert_paragraph(para);
+                    let text = self.convert_paragraph_with_rels(para, rels);
                     
                     // Check if this is a heading
                     if let Some(ref style_id) = para.style_id {
@@ -176,33 +187,80 @@ impl AsciiDocExtractor {
 
     /// Convert a paragraph to AsciiDoc text
     fn convert_paragraph(&self, para: &Paragraph) -> String {
+        self.convert_paragraph_with_rels(para, None)
+    }
+
+    /// Convert a paragraph to AsciiDoc text with relationship resolution
+    fn convert_paragraph_with_rels(&self, para: &Paragraph, rels: Option<&Relationships>) -> String {
         let mut result = String::new();
 
-        for run in &para.runs {
-            let text = &run.text;
-            
-            if !self.preserve_formatting {
-                result.push_str(text);
-                continue;
+        for child in &para.children {
+            match child {
+                ParagraphChild::Run(run) => {
+                    result.push_str(&self.convert_run(run));
+                }
+                ParagraphChild::Hyperlink(hyperlink) => {
+                    result.push_str(&self.convert_hyperlink(hyperlink, rels));
+                }
             }
-
-            // Apply formatting
-            let formatted = if run.bold && run.italic {
-                format!("*_{}*_", text)
-            } else if run.bold {
-                format!("*{}*", text)
-            } else if run.italic {
-                format!("_{}_", text)
-            } else if run.monospace {
-                format!("`{}`", text)
-            } else {
-                text.clone()
-            };
-
-            result.push_str(&formatted);
         }
 
         result
+    }
+
+    /// Convert a run to AsciiDoc text
+    fn convert_run(&self, run: &Run) -> String {
+        let text = &run.text;
+
+        if !self.preserve_formatting {
+            return text.clone();
+        }
+
+        // Apply formatting
+        if run.bold && run.italic {
+            format!("*_{}*_", text)
+        } else if run.bold {
+            format!("*{}*", text)
+        } else if run.italic {
+            format!("_{}_", text)
+        } else if run.monospace {
+            format!("`{}`", text)
+        } else {
+            text.clone()
+        }
+    }
+
+    /// Convert a hyperlink to AsciiDoc format
+    fn convert_hyperlink(&self, hyperlink: &Hyperlink, rels: Option<&Relationships>) -> String {
+        // Get the link text from the runs
+        let text: String = hyperlink
+            .runs
+            .iter()
+            .map(|r| self.convert_run(r))
+            .collect();
+
+        // Resolve the target URL
+        let target = if let Some(ref id) = hyperlink.id {
+            // External link - look up in relationships
+            rels.and_then(|r| r.get(id))
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| format!("#{}", id))
+        } else if let Some(ref anchor) = hyperlink.anchor {
+            // Internal anchor link
+            format!("#{}", anchor)
+        } else {
+            "#".to_string()
+        };
+
+        // Format as AsciiDoc link
+        if target.starts_with('#') {
+            // Internal anchor: <<anchor,text>>
+            let anchor = target.trim_start_matches('#');
+            format!("<<{},{}>>", anchor, text)
+        } else {
+            // External link: url[text]
+            format!("{}[{}]", target, text)
+        }
     }
 
     /// Convert a table to AsciiDoc format
@@ -301,10 +359,10 @@ mod tests {
 
         let doc = Document::parse(xml).unwrap();
         let styles = StyleSheet::default();
-        
+
         let extractor = AsciiDocExtractor::new();
-        let asciidoc = extractor.convert_to_asciidoc(&doc, &styles);
-        
+        let asciidoc = extractor.convert_to_asciidoc(&doc, &styles, None);
+
         assert!(asciidoc.contains("Hello, world!"));
     }
 
@@ -321,5 +379,33 @@ mod tests {
         assert!(toml.contains("heading1 = \"Heading1\""));
         assert!(toml.contains("heading2 = \"Heading2\""));
         assert!(toml.contains("paragraph = \"Normal\""));
+    }
+
+    #[test]
+    fn test_extract_hyperlink_internal() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:hyperlink w:anchor="_Toc123">
+                        <w:r><w:t>Click me</w:t></w:r>
+                    </w:hyperlink>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let styles = StyleSheet::default();
+
+        let extractor = AsciiDocExtractor::new();
+        let asciidoc = extractor.convert_to_asciidoc(&doc, &styles, None);
+
+        println!("Generated AsciiDoc:\n{}", asciidoc);
+        // Should generate: <<_Toc123,Click me>>
+        assert!(
+            asciidoc.contains("<<_Toc123,Click me>>"),
+            "Expected <<_Toc123,Click me>> but got: {}",
+            asciidoc
+        );
     }
 }

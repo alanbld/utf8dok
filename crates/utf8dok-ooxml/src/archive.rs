@@ -82,6 +82,11 @@ impl OoxmlArchive {
         self.get("word/numbering.xml")
     }
 
+    /// Get the document relationships (word/_rels/document.xml.rels)
+    pub fn document_rels_xml(&self) -> Option<&[u8]> {
+        self.get("word/_rels/document.xml.rels")
+    }
+
     /// Get a header file
     pub fn header_xml(&self, index: u32) -> Option<&[u8]> {
         self.get(&format!("word/header{}.xml", index))

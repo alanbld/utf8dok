@@ -7,29 +7,44 @@ use std::collections::HashMap;
 
 use utf8dok_ast::{
     Block as AstBlock, BreakType as AstBreakType, FormatType, Heading, Inline,
-    Paragraph as AstParagraph, Table as AstTable, TableCell as AstTableCell,
+    Link as AstLink, Paragraph as AstParagraph, Table as AstTable, TableCell as AstTableCell,
     TableRow as AstTableRow,
 };
 
-use crate::document::{Block, Document, Paragraph, Run, Table, TableCell, TableRow};
+use crate::document::{Block, Document, Hyperlink, Paragraph, ParagraphChild, Run, Table, TableCell, TableRow};
+use crate::relationships::Relationships;
 use crate::styles::StyleSheet;
 
-/// Context for conversion, holding style information
+/// Context for conversion, holding style and relationship information
 pub struct ConversionContext<'a> {
     /// Style sheet for resolving heading levels
     pub styles: Option<&'a StyleSheet>,
+    /// Relationships for resolving hyperlink targets
+    pub relationships: Option<&'a Relationships>,
 }
 
 impl<'a> ConversionContext<'a> {
-    /// Create a new context without styles
+    /// Create a new context without styles or relationships
     pub fn new() -> Self {
-        Self { styles: None }
+        Self {
+            styles: None,
+            relationships: None,
+        }
     }
 
     /// Create a context with style information
     pub fn with_styles(styles: &'a StyleSheet) -> Self {
         Self {
             styles: Some(styles),
+            relationships: None,
+        }
+    }
+
+    /// Create a context with styles and relationships
+    pub fn with_styles_and_rels(styles: &'a StyleSheet, rels: &'a Relationships) -> Self {
+        Self {
+            styles: Some(styles),
+            relationships: Some(rels),
         }
     }
 
@@ -95,6 +110,54 @@ impl ToAst for Run {
 }
 
 // =============================================================================
+// Hyperlink -> Inline conversion
+// =============================================================================
+
+impl ToAst for Hyperlink {
+    type Output = Inline;
+
+    fn to_ast(&self, ctx: &ConversionContext) -> Self::Output {
+        // Resolve the target URL
+        let target = if let Some(ref id) = self.id {
+            // External link - look up in relationships
+            ctx.relationships
+                .and_then(|rels| rels.get(id))
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| format!("#{}", id))
+        } else if let Some(ref anchor) = self.anchor {
+            // Internal anchor link
+            format!("#{}", anchor)
+        } else {
+            "#".to_string()
+        };
+
+        // Convert child runs to inlines
+        let children: Vec<Inline> = self.runs.iter().map(|r| r.to_ast(ctx)).collect();
+
+        // Create link inline using the Link struct
+        Inline::Link(AstLink {
+            url: target,
+            text: children,
+        })
+    }
+}
+
+// =============================================================================
+// ParagraphChild -> Inline conversion
+// =============================================================================
+
+impl ToAst for ParagraphChild {
+    type Output = Vec<Inline>;
+
+    fn to_ast(&self, ctx: &ConversionContext) -> Self::Output {
+        match self {
+            ParagraphChild::Run(run) => vec![run.to_ast(ctx)],
+            ParagraphChild::Hyperlink(hyperlink) => vec![hyperlink.to_ast(ctx)],
+        }
+    }
+}
+
+// =============================================================================
 // Paragraph -> Block conversion
 // =============================================================================
 
@@ -102,8 +165,12 @@ impl ToAst for Paragraph {
     type Output = AstBlock;
 
     fn to_ast(&self, ctx: &ConversionContext) -> Self::Output {
-        // Convert all runs to inlines
-        let inlines: Vec<Inline> = self.runs.iter().map(|r| r.to_ast(ctx)).collect();
+        // Convert all children to inlines
+        let inlines: Vec<Inline> = self
+            .children
+            .iter()
+            .flat_map(|child| child.to_ast(ctx))
+            .collect();
 
         // Check if this is a heading
         if let Some(ref style_id) = self.style_id {
@@ -307,12 +374,12 @@ mod tests {
     fn test_paragraph_simple() {
         let para = Paragraph {
             style_id: None,
-            runs: vec![Run {
+            children: vec![ParagraphChild::Run(Run {
                 text: "Hello world".to_string(),
                 bold: false,
                 italic: false,
                 monospace: false,
-            }],
+            })],
             numbering: None,
         };
         let ctx = ConversionContext::new();
@@ -331,25 +398,25 @@ mod tests {
     fn test_paragraph_with_mixed_runs() {
         let para = Paragraph {
             style_id: Some("Normal".to_string()),
-            runs: vec![
-                Run {
+            children: vec![
+                ParagraphChild::Run(Run {
                     text: "Normal ".to_string(),
                     bold: false,
                     italic: false,
                     monospace: false,
-                },
-                Run {
+                }),
+                ParagraphChild::Run(Run {
                     text: "bold".to_string(),
                     bold: true,
                     italic: false,
                     monospace: false,
-                },
-                Run {
+                }),
+                ParagraphChild::Run(Run {
                     text: " text".to_string(),
                     bold: false,
                     italic: false,
                     monospace: false,
-                },
+                }),
             ],
             numbering: None,
         };
@@ -374,12 +441,12 @@ mod tests {
     fn test_heading_detection_by_style_name() {
         let para = Paragraph {
             style_id: Some("Heading1".to_string()),
-            runs: vec![Run {
+            children: vec![ParagraphChild::Run(Run {
                 text: "Chapter One".to_string(),
                 bold: false,
                 italic: false,
                 monospace: false,
-            }],
+            })],
             numbering: None,
         };
         let ctx = ConversionContext::new();
@@ -399,12 +466,12 @@ mod tests {
     fn test_heading_level_2() {
         let para = Paragraph {
             style_id: Some("Heading2".to_string()),
-            runs: vec![Run {
+            children: vec![ParagraphChild::Run(Run {
                 text: "Section".to_string(),
                 bold: false,
                 italic: false,
                 monospace: false,
-            }],
+            })],
             numbering: None,
         };
         let ctx = ConversionContext::new();
@@ -423,22 +490,22 @@ mod tests {
             blocks: vec![
                 Block::Paragraph(Paragraph {
                     style_id: Some("Heading1".to_string()),
-                    runs: vec![Run {
+                    children: vec![ParagraphChild::Run(Run {
                         text: "Title".to_string(),
                         bold: false,
                         italic: false,
                         monospace: false,
-                    }],
+                    })],
                     numbering: None,
                 }),
                 Block::Paragraph(Paragraph {
                     style_id: None,
-                    runs: vec![Run {
+                    children: vec![ParagraphChild::Run(Run {
                         text: "Body text".to_string(),
                         bold: false,
                         italic: false,
                         monospace: false,
-                    }],
+                    })],
                     numbering: None,
                 }),
                 Block::SectionBreak,
@@ -476,12 +543,12 @@ mod tests {
                         TableCell {
                             paragraphs: vec![Paragraph {
                                 style_id: None,
-                                runs: vec![Run {
+                                children: vec![ParagraphChild::Run(Run {
                                     text: "Header".to_string(),
                                     bold: true,
                                     italic: false,
                                     monospace: false,
-                                }],
+                                })],
                                 numbering: None,
                             }],
                         },
@@ -493,12 +560,12 @@ mod tests {
                         TableCell {
                             paragraphs: vec![Paragraph {
                                 style_id: None,
-                                runs: vec![Run {
+                                children: vec![ParagraphChild::Run(Run {
                                     text: "Data".to_string(),
                                     bold: false,
                                     italic: false,
                                     monospace: false,
-                                }],
+                                })],
                                 numbering: None,
                             }],
                         },

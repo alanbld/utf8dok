@@ -31,10 +31,30 @@ pub enum Block {
 pub struct Paragraph {
     /// Style ID (references styles.xml)
     pub style_id: Option<String>,
-    /// Text runs in this paragraph
-    pub runs: Vec<Run>,
+    /// Children (runs and hyperlinks)
+    pub children: Vec<ParagraphChild>,
     /// Numbering info (for lists/headings)
     pub numbering: Option<NumberingRef>,
+}
+
+/// Child elements of a paragraph
+#[derive(Debug, Clone)]
+pub enum ParagraphChild {
+    /// A text run
+    Run(Run),
+    /// A hyperlink
+    Hyperlink(Hyperlink),
+}
+
+/// A hyperlink with its target and content
+#[derive(Debug, Clone)]
+pub struct Hyperlink {
+    /// Relationship ID for external URLs (r:id)
+    pub id: Option<String>,
+    /// Internal anchor name (w:anchor)
+    pub anchor: Option<String>,
+    /// Child runs inside the hyperlink
+    pub runs: Vec<Run>,
 }
 
 /// A text run with formatting
@@ -98,6 +118,7 @@ impl Document {
         let mut current_para: Option<ParagraphBuilder> = None;
         let mut current_run: Option<RunBuilder> = None;
         let mut current_table: Option<TableBuilder> = None;
+        let mut current_hyperlink: Option<HyperlinkBuilder> = None;
         // Track if we're inside a <w:t> element (actual text vs instrText)
         let mut in_text_element = false;
 
@@ -176,6 +197,19 @@ impl Document {
                             // Start of actual text element - capture text from here
                             in_text_element = true;
                         }
+                        b"hyperlink" if current_para.is_some() => {
+                            // Start of hyperlink
+                            let mut builder = HyperlinkBuilder::new();
+                            // Get r:id attribute for external links
+                            if let Some(id) = get_attr_with_ns(e, b"r:id") {
+                                builder.id = Some(id);
+                            }
+                            // Get w:anchor attribute for internal links
+                            if let Some(anchor) = get_attr_with_ns(e, b"w:anchor") {
+                                builder.anchor = Some(anchor);
+                            }
+                            current_hyperlink = Some(builder);
+                        }
                         b"tbl" if in_body => {
                             current_table = Some(TableBuilder::new());
                         }
@@ -221,10 +255,21 @@ impl Document {
                         }
                         b"r" if current_run.is_some() => {
                             let run = current_run.take().unwrap().build();
-                            if let Some(ref mut para) = current_para {
-                                if !run.text.is_empty() {
-                                    para.runs.push(run);
+                            if !run.text.is_empty() {
+                                // If inside a hyperlink, add to hyperlink
+                                if let Some(ref mut hyperlink) = current_hyperlink {
+                                    hyperlink.runs.push(run);
+                                } else if let Some(ref mut para) = current_para {
+                                    // Otherwise add directly to paragraph
+                                    para.children.push(ParagraphChild::Run(run));
                                 }
+                            }
+                        }
+                        b"hyperlink" if current_hyperlink.is_some() => {
+                            // End of hyperlink - add to paragraph
+                            let hyperlink = current_hyperlink.take().unwrap().build();
+                            if let Some(ref mut para) = current_para {
+                                para.children.push(ParagraphChild::Hyperlink(hyperlink));
                             }
                         }
                         b"tc" if current_table.is_some() => {
@@ -338,12 +383,36 @@ impl Document {
 impl Paragraph {
     /// Get plain text of this paragraph
     pub fn plain_text(&self) -> String {
-        self.runs.iter().map(|r| r.text.as_str()).collect()
+        self.children
+            .iter()
+            .map(|child| match child {
+                ParagraphChild::Run(run) => run.text.clone(),
+                ParagraphChild::Hyperlink(hyperlink) => {
+                    // Collect text from all runs in the hyperlink
+                    hyperlink.runs.iter().map(|r| r.text.as_str()).collect::<String>()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("")
     }
 
     /// Check if this paragraph is empty
     pub fn is_empty(&self) -> bool {
-        self.runs.is_empty() || self.runs.iter().all(|r| r.text.trim().is_empty())
+        self.children.is_empty()
+            || self.children.iter().all(|child| match child {
+                ParagraphChild::Run(run) => run.text.trim().is_empty(),
+                ParagraphChild::Hyperlink(hyperlink) => {
+                    hyperlink.runs.iter().all(|r| r.text.trim().is_empty())
+                }
+            })
+    }
+
+    /// Get all runs (flattening hyperlinks)
+    pub fn runs(&self) -> impl Iterator<Item = &Run> {
+        self.children.iter().flat_map(|child| match child {
+            ParagraphChild::Run(run) => vec![run].into_iter(),
+            ParagraphChild::Hyperlink(hyperlink) => hyperlink.runs.iter().collect::<Vec<_>>().into_iter(),
+        })
     }
 }
 
@@ -352,7 +421,7 @@ impl Paragraph {
 #[derive(Default)]
 struct ParagraphBuilder {
     style_id: Option<String>,
-    runs: Vec<Run>,
+    children: Vec<ParagraphChild>,
     numbering: Option<NumberingRef>,
 }
 
@@ -364,8 +433,29 @@ impl ParagraphBuilder {
     fn build(self) -> Paragraph {
         Paragraph {
             style_id: self.style_id,
-            runs: self.runs,
+            children: self.children,
             numbering: self.numbering,
+        }
+    }
+}
+
+#[derive(Default)]
+struct HyperlinkBuilder {
+    id: Option<String>,
+    anchor: Option<String>,
+    runs: Vec<Run>,
+}
+
+impl HyperlinkBuilder {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn build(self) -> Hyperlink {
+        Hyperlink {
+            id: self.id,
+            anchor: self.anchor,
+            runs: self.runs,
         }
     }
 }
@@ -459,6 +549,18 @@ fn get_attr(e: &BytesStart, name: &[u8]) -> Option<String> {
         .and_then(|a| String::from_utf8(a.value.to_vec()).ok())
 }
 
+/// Get attribute with namespace prefix (e.g., "r:id", "w:anchor")
+fn get_attr_with_ns(e: &BytesStart, name: &[u8]) -> Option<String> {
+    e.attributes()
+        .filter_map(|a| a.ok())
+        .find(|a| {
+            let key = a.key.as_ref();
+            // Match exact name or local name after colon
+            key == name || key.ends_with(&name[name.iter().position(|&b| b == b':').map(|i| i + 1).unwrap_or(0)..])
+        })
+        .and_then(|a| String::from_utf8(a.value.to_vec()).ok())
+}
+
 fn is_monospace_font(name: &str) -> bool {
     let lower = name.to_lowercase();
     lower.contains("mono")
@@ -533,6 +635,37 @@ mod tests {
         let doc = Document::parse(xml).unwrap();
         if let Block::Paragraph(p) = &doc.blocks[0] {
             assert_eq!(p.style_id, Some("Heading1".to_string()));
+        } else {
+            panic!("Expected paragraph");
+        }
+    }
+
+    #[test]
+    fn test_parse_hyperlink_with_anchor() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:hyperlink w:anchor="_Toc123">
+                        <w:r><w:t>Click me</w:t></w:r>
+                    </w:hyperlink>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        assert_eq!(doc.blocks.len(), 1);
+
+        if let Block::Paragraph(p) = &doc.blocks[0] {
+            assert_eq!(p.children.len(), 1);
+            if let ParagraphChild::Hyperlink(h) = &p.children[0] {
+                assert_eq!(h.anchor, Some("_Toc123".to_string()));
+                assert_eq!(h.id, None);
+                assert_eq!(h.runs.len(), 1);
+                assert_eq!(h.runs[0].text, "Click me");
+            } else {
+                panic!("Expected Hyperlink, got {:?}", p.children[0]);
+            }
         } else {
             panic!("Expected paragraph");
         }
