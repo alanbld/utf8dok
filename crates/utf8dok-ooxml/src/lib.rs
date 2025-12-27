@@ -28,6 +28,7 @@ pub mod document;
 pub mod error;
 pub mod extract;
 pub mod styles;
+pub mod writer;
 
 pub use archive::OoxmlArchive;
 pub use conversion::{convert_document, convert_document_with_styles, ConversionContext, ToAst};
@@ -35,6 +36,7 @@ pub use document::{Block, Document, Paragraph, Run, Table, TableCell, TableRow};
 pub use error::{OoxmlError, Result};
 pub use extract::{AsciiDocExtractor, ExtractedDocument};
 pub use styles::{Style, StyleSheet, StyleType};
+pub use writer::DocxWriter;
 
 /// Crate version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
