@@ -27,6 +27,7 @@ pub mod conversion;
 pub mod document;
 pub mod error;
 pub mod extract;
+pub mod manifest;
 pub mod relationships;
 pub mod styles;
 pub mod writer;
@@ -36,6 +37,7 @@ pub use conversion::{convert_document, convert_document_with_styles, ConversionC
 pub use document::{Block, Document, Hyperlink, Paragraph, ParagraphChild, Run, Table, TableCell, TableRow};
 pub use error::{OoxmlError, Result};
 pub use extract::{AsciiDocExtractor, ExtractedDocument};
+pub use manifest::{ElementMeta, Manifest, MANIFEST_PATH};
 pub use relationships::Relationships;
 pub use styles::{Style, StyleSheet, StyleType};
 pub use writer::DocxWriter;

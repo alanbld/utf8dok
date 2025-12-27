@@ -122,6 +122,81 @@ impl OoxmlArchive {
         self.files.remove(path)
     }
 
+    // =========================================================================
+    // utf8dok container methods
+    // =========================================================================
+
+    /// Read a file from the utf8dok/ folder
+    ///
+    /// # Arguments
+    /// * `path` - Relative path within utf8dok/ folder (e.g., "manifest.json")
+    ///
+    /// # Returns
+    /// The file contents if found, None otherwise
+    pub fn read_utf8dok_file(&self, path: &str) -> Option<&[u8]> {
+        let full_path = format!("utf8dok/{}", path);
+        self.get(&full_path)
+    }
+
+    /// Read a file from the utf8dok/ folder as a string
+    pub fn read_utf8dok_string(&self, path: &str) -> Result<Option<String>> {
+        let full_path = format!("utf8dok/{}", path);
+        self.get_string(&full_path)
+    }
+
+    /// Write a file to the utf8dok/ folder
+    ///
+    /// # Arguments
+    /// * `path` - Relative path within utf8dok/ folder (e.g., "manifest.json")
+    /// * `contents` - File contents as bytes
+    pub fn write_utf8dok_file(&mut self, path: &str, contents: Vec<u8>) {
+        let full_path = format!("utf8dok/{}", path);
+        self.files.insert(full_path, contents);
+    }
+
+    /// Write a string file to the utf8dok/ folder
+    pub fn write_utf8dok_string(&mut self, path: &str, contents: impl Into<String>) {
+        let full_path = format!("utf8dok/{}", path);
+        self.files.insert(full_path, contents.into().into_bytes());
+    }
+
+    /// Check if a utf8dok file exists
+    pub fn has_utf8dok_file(&self, path: &str) -> bool {
+        let full_path = format!("utf8dok/{}", path);
+        self.files.contains_key(&full_path)
+    }
+
+    /// List all files in the utf8dok/ folder
+    pub fn list_utf8dok_files(&self) -> Vec<&str> {
+        self.files
+            .keys()
+            .filter_map(|k| k.strip_prefix("utf8dok/"))
+            .collect()
+    }
+
+    /// Check if this archive has any utf8dok content
+    pub fn has_utf8dok_content(&self) -> bool {
+        self.files.keys().any(|k| k.starts_with("utf8dok/"))
+    }
+
+    /// Get the manifest if it exists
+    pub fn get_manifest(&self) -> Result<Option<crate::manifest::Manifest>> {
+        match self.read_utf8dok_file("manifest.json") {
+            Some(bytes) => {
+                let manifest = crate::manifest::Manifest::from_json_bytes(bytes)?;
+                Ok(Some(manifest))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Set the manifest
+    pub fn set_manifest(&mut self, manifest: &crate::manifest::Manifest) -> Result<()> {
+        let json = manifest.to_json_bytes()?;
+        self.write_utf8dok_file("manifest.json", json);
+        Ok(())
+    }
+
     /// Write the archive to a file
     pub fn write_to_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         let file = File::create(path)?;
@@ -152,6 +227,7 @@ impl OoxmlArchive {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::manifest::{ElementMeta, Manifest};
 
     #[test]
     fn test_file_operations() {
@@ -167,5 +243,98 @@ mod tests {
         // Test remove
         archive.remove("test.xml");
         assert!(!archive.contains("test.xml"));
+    }
+
+    #[test]
+    fn test_utf8dok_file_operations() {
+        let mut archive = OoxmlArchive {
+            files: HashMap::new(),
+        };
+
+        // Initially no utf8dok content
+        assert!(!archive.has_utf8dok_content());
+        assert!(archive.list_utf8dok_files().is_empty());
+
+        // Write a file to utf8dok folder
+        archive.write_utf8dok_string("test.txt", "Hello, utf8dok!");
+
+        // Verify it exists
+        assert!(archive.has_utf8dok_file("test.txt"));
+        assert!(archive.has_utf8dok_content());
+
+        // Read it back
+        let content = archive.read_utf8dok_string("test.txt").unwrap();
+        assert_eq!(content, Some("Hello, utf8dok!".to_string()));
+
+        // Verify it's in the full path
+        assert!(archive.contains("utf8dok/test.txt"));
+
+        // List files
+        let files = archive.list_utf8dok_files();
+        assert_eq!(files.len(), 1);
+        assert!(files.contains(&"test.txt"));
+    }
+
+    #[test]
+    fn test_manifest_integration() {
+        let mut archive = OoxmlArchive {
+            files: HashMap::new(),
+        };
+
+        // Create and set manifest
+        let mut manifest = Manifest::new();
+        manifest.add_element(
+            "fig1",
+            ElementMeta::new("figure")
+                .with_source("utf8dok/diagrams/fig1.mmd"),
+        );
+
+        archive.set_manifest(&manifest).unwrap();
+
+        // Verify manifest file exists
+        assert!(archive.has_utf8dok_file("manifest.json"));
+
+        // Read it back
+        let restored = archive.get_manifest().unwrap().unwrap();
+        assert_eq!(restored.version, "1.0");
+        assert_eq!(restored.len(), 1);
+
+        let elem = restored.get_element("fig1").unwrap();
+        assert_eq!(elem.type_, "figure");
+    }
+
+    #[test]
+    fn test_utf8dok_roundtrip_to_file() {
+        use std::io::Cursor;
+
+        let mut archive = OoxmlArchive {
+            files: HashMap::new(),
+        };
+
+        // Add minimal DOCX structure
+        archive.set_string("[Content_Types].xml", r#"<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>"#);
+        archive.set_string("word/document.xml", r#"<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body/></w:document>"#);
+
+        // Add utf8dok content
+        let mut manifest = Manifest::new();
+        manifest.add_element("test", ElementMeta::new("test"));
+        archive.set_manifest(&manifest).unwrap();
+        archive.write_utf8dok_string("data/test.json", r#"{"key": "value"}"#);
+
+        // Write to buffer
+        let mut buffer = Cursor::new(Vec::new());
+        archive.write_to(&mut buffer).unwrap();
+
+        // Read back
+        buffer.set_position(0);
+        let restored = OoxmlArchive::from_reader(buffer).unwrap();
+
+        // Verify utf8dok content survived
+        assert!(restored.has_utf8dok_content());
+        assert!(restored.has_utf8dok_file("manifest.json"));
+        assert!(restored.has_utf8dok_file("data/test.json"));
+
+        let restored_manifest = restored.get_manifest().unwrap().unwrap();
+        assert_eq!(restored_manifest.len(), 1);
     }
 }

@@ -1,0 +1,230 @@
+//! Manifest handling for utf8dok container architecture
+//!
+//! The manifest tracks metadata about embedded elements within a DOCX file,
+//! enabling round-trip fidelity and drift detection.
+
+use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
+
+use crate::error::Result;
+
+/// The manifest file path within the DOCX archive
+pub const MANIFEST_PATH: &str = "utf8dok/manifest.json";
+
+/// Manifest for tracking utf8dok-managed content within a DOCX
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Manifest {
+    /// Manifest format version (e.g., "1.0")
+    pub version: String,
+    /// Generator identifier (e.g., "utf8dok v0.1.0")
+    pub generator: String,
+    /// ISO 8601 timestamp when the manifest was generated
+    pub generated_at: String,
+    /// Map of element IDs to their metadata
+    #[serde(default)]
+    pub elements: HashMap<String, ElementMeta>,
+}
+
+/// Metadata for a tracked element within the document
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ElementMeta {
+    /// Element type: "figure", "table", "section", "code", etc.
+    #[serde(rename = "type")]
+    pub type_: String,
+    /// Source file path within utf8dok/ folder (e.g., "utf8dok/diagrams/fig1.mmd")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// Content hash for drift detection
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hash: Option<String>,
+    /// Optional description or caption
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+impl Manifest {
+    /// Create a new manifest with default values
+    pub fn new() -> Self {
+        Self {
+            version: "1.0".to_string(),
+            generator: format!("utf8dok v{}", env!("CARGO_PKG_VERSION")),
+            generated_at: Self::current_timestamp(),
+            elements: HashMap::new(),
+        }
+    }
+
+    /// Get the current ISO 8601 timestamp
+    fn current_timestamp() -> String {
+        // Simple implementation without external time crate
+        // In production, consider using chrono or time crate
+        "2025-01-01T00:00:00Z".to_string() // Placeholder
+    }
+
+    /// Add an element to the manifest
+    pub fn add_element(&mut self, id: impl Into<String>, meta: ElementMeta) {
+        self.elements.insert(id.into(), meta);
+    }
+
+    /// Get an element by ID
+    pub fn get_element(&self, id: &str) -> Option<&ElementMeta> {
+        self.elements.get(id)
+    }
+
+    /// Remove an element by ID
+    pub fn remove_element(&mut self, id: &str) -> Option<ElementMeta> {
+        self.elements.remove(id)
+    }
+
+    /// Check if the manifest has any elements
+    pub fn is_empty(&self) -> bool {
+        self.elements.is_empty()
+    }
+
+    /// Get the number of tracked elements
+    pub fn len(&self) -> usize {
+        self.elements.len()
+    }
+
+    /// Serialize the manifest to JSON
+    pub fn to_json(&self) -> Result<String> {
+        Ok(serde_json::to_string_pretty(self)?)
+    }
+
+    /// Serialize the manifest to JSON bytes
+    pub fn to_json_bytes(&self) -> Result<Vec<u8>> {
+        Ok(serde_json::to_vec_pretty(self)?)
+    }
+
+    /// Deserialize a manifest from JSON
+    pub fn from_json(json: &str) -> Result<Self> {
+        Ok(serde_json::from_str(json)?)
+    }
+
+    /// Deserialize a manifest from JSON bytes
+    pub fn from_json_bytes(bytes: &[u8]) -> Result<Self> {
+        Ok(serde_json::from_slice(bytes)?)
+    }
+}
+
+impl ElementMeta {
+    /// Create a new element metadata entry
+    pub fn new(type_: impl Into<String>) -> Self {
+        Self {
+            type_: type_.into(),
+            source: None,
+            hash: None,
+            description: None,
+        }
+    }
+
+    /// Set the source path
+    pub fn with_source(mut self, source: impl Into<String>) -> Self {
+        self.source = Some(source.into());
+        self
+    }
+
+    /// Set the content hash
+    pub fn with_hash(mut self, hash: impl Into<String>) -> Self {
+        self.hash = Some(hash.into());
+        self
+    }
+
+    /// Set the description
+    pub fn with_description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
+        self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_manifest_new() {
+        let manifest = Manifest::new();
+        assert_eq!(manifest.version, "1.0");
+        assert!(manifest.generator.starts_with("utf8dok v"));
+        assert!(manifest.elements.is_empty());
+    }
+
+    #[test]
+    fn test_manifest_add_element() {
+        let mut manifest = Manifest::new();
+
+        manifest.add_element(
+            "fig1",
+            ElementMeta::new("figure")
+                .with_source("utf8dok/diagrams/fig1.mmd")
+                .with_hash("abc123"),
+        );
+
+        assert_eq!(manifest.len(), 1);
+
+        let elem = manifest.get_element("fig1").unwrap();
+        assert_eq!(elem.type_, "figure");
+        assert_eq!(elem.source, Some("utf8dok/diagrams/fig1.mmd".to_string()));
+        assert_eq!(elem.hash, Some("abc123".to_string()));
+    }
+
+    #[test]
+    fn test_manifest_serialize_deserialize() {
+        let mut manifest = Manifest::new();
+        manifest.add_element(
+            "table1",
+            ElementMeta::new("table")
+                .with_description("Sales data"),
+        );
+        manifest.add_element(
+            "fig1",
+            ElementMeta::new("figure")
+                .with_source("utf8dok/diagrams/architecture.mmd"),
+        );
+
+        // Serialize to JSON
+        let json = manifest.to_json().unwrap();
+        println!("Serialized manifest:\n{}", json);
+
+        // Verify JSON structure
+        assert!(json.contains("\"version\": \"1.0\""));
+        assert!(json.contains("\"type\": \"table\""));
+        assert!(json.contains("\"type\": \"figure\""));
+        assert!(json.contains("\"description\": \"Sales data\""));
+
+        // Deserialize back
+        let restored = Manifest::from_json(&json).unwrap();
+        assert_eq!(restored.version, manifest.version);
+        assert_eq!(restored.len(), 2);
+
+        let table = restored.get_element("table1").unwrap();
+        assert_eq!(table.type_, "table");
+        assert_eq!(table.description, Some("Sales data".to_string()));
+    }
+
+    #[test]
+    fn test_manifest_empty_elements() {
+        let manifest = Manifest::new();
+        let json = manifest.to_json().unwrap();
+
+        // Empty elements should still serialize
+        assert!(json.contains("\"elements\": {}"));
+
+        // And deserialize
+        let restored = Manifest::from_json(&json).unwrap();
+        assert!(restored.is_empty());
+    }
+
+    #[test]
+    fn test_element_meta_builder() {
+        let meta = ElementMeta::new("code")
+            .with_source("utf8dok/code/snippet.rs")
+            .with_hash("sha256:abcdef")
+            .with_description("Rust code example");
+
+        assert_eq!(meta.type_, "code");
+        assert_eq!(meta.source, Some("utf8dok/code/snippet.rs".to_string()));
+        assert_eq!(meta.hash, Some("sha256:abcdef".to_string()));
+        assert_eq!(meta.description, Some("Rust code example".to_string()));
+    }
+}

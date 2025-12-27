@@ -36,6 +36,14 @@ pub enum OoxmlError {
     /// Unsupported feature
     #[error("Unsupported feature: {0}")]
     Unsupported(String),
+
+    /// JSON serialization/deserialization error
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
+
+    /// Other errors
+    #[error("{0}")]
+    Other(String),
 }
 
 /// Result type for OOXML operations
