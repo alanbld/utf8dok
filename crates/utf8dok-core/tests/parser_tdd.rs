@@ -274,7 +274,7 @@ fn test_parse_simple_table() {
     }
 }
 
-/// Test parsing table with multiple rows
+/// Test parsing table with multiple rows (cells on separate lines, blank line = row separator)
 #[test]
 fn test_parse_table_with_rows() {
     let input = r#"|===
@@ -293,8 +293,36 @@ fn test_parse_table_with_rows() {
     assert_eq!(result.blocks.len(), 1);
 
     if let Block::Table(table) = &result.blocks[0] {
-        // Should have multiple rows
-        assert!(table.rows.len() >= 2, "Table should have at least 2 rows");
+        // Should have 3 rows: header + 2 data rows
+        assert_eq!(table.rows.len(), 3, "Table should have 3 rows (header + 2 data)");
+        // Each row should have 2 cells
+        assert_eq!(table.rows[0].cells.len(), 2, "Header row should have 2 cells");
+        assert_eq!(table.rows[1].cells.len(), 2, "Row 1 should have 2 cells");
+        assert_eq!(table.rows[2].cells.len(), 2, "Row 2 should have 2 cells");
+    } else {
+        panic!("Expected Table block");
+    }
+}
+
+/// Test parsing table with multiple cells on same line (| A | B | C)
+#[test]
+fn test_parse_multicell_table() {
+    let input = r#"|===
+| R1C1 | R1C2
+
+| R2C1 | R2C2
+|==="#;
+
+    let result = parser::parse(input).expect("Parser should not error");
+
+    assert_eq!(result.blocks.len(), 1);
+
+    if let Block::Table(table) = &result.blocks[0] {
+        // Should have 2 rows
+        assert_eq!(table.rows.len(), 2, "Table should have 2 rows");
+        // Each row should have 2 cells
+        assert_eq!(table.rows[0].cells.len(), 2, "Row 1 should have 2 cells");
+        assert_eq!(table.rows[1].cells.len(), 2, "Row 2 should have 2 cells");
     } else {
         panic!("Expected Table block");
     }

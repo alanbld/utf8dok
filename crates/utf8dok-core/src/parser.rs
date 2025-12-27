@@ -46,8 +46,12 @@ enum ParserState {
     Paragraph(Vec<String>),
     /// Building a list with accumulated items
     List(ListType, Vec<ListItem>),
-    /// Building a table with accumulated cells
-    Table(Vec<TableCell>),
+    /// Building a table with rows and current row being built
+    /// (completed_rows, current_row_cells)
+    Table {
+        rows: Vec<Vec<TableCell>>,
+        current_row: Vec<TableCell>,
+    },
 }
 
 /// AsciiDoc parser using a state machine approach
@@ -108,10 +112,14 @@ impl Parser {
             }
         }
 
-        // Empty line handling - but not inside tables
+        // Empty line handling
         if line.trim().is_empty() {
-            // If we're inside a table, empty lines are row separators (ignored for MVP)
-            if matches!(self.state, ParserState::Table(_)) {
+            // If we're inside a table, empty lines are row separators
+            if let ParserState::Table { rows, current_row } = &mut self.state {
+                if !current_row.is_empty() {
+                    // Push current row to rows and start a new row
+                    rows.push(std::mem::take(current_row));
+                }
                 return;
             }
             self.flush_state();
@@ -125,37 +133,62 @@ impl Parser {
         // Check for table delimiter |===
         if line.trim() == "|===" {
             match &self.state {
-                ParserState::Table(_) => {
+                ParserState::Table { .. } => {
                     // End of table - flush it
                     self.flush_state();
                 }
                 _ => {
                     // Start of table - flush any previous state and start table
                     self.flush_state();
-                    self.state = ParserState::Table(Vec::new());
+                    self.state = ParserState::Table {
+                        rows: Vec::new(),
+                        current_row: Vec::new(),
+                    };
                 }
             }
             return;
         }
 
         // If we're in a table, handle table cell lines
-        if let ParserState::Table(cells) = &mut self.state {
+        if let ParserState::Table { current_row, .. } = &mut self.state {
             if let Some(cell_content) = line.strip_prefix('|') {
-                // Parse cell content (everything after the leading |)
-                let content = cell_content.trim().to_string();
-                let inlines = parse_inlines(&content);
-                cells.push(TableCell {
-                    content: vec![Block::Paragraph(Paragraph {
-                        inlines,
-                        style_id: None,
-                        attributes: HashMap::new(),
-                    })],
-                    colspan: 1,
-                    rowspan: 1,
-                    align: None,
-                });
+                // Split by | to handle multiple cells on one line: | A | B | C
+                let cell_parts: Vec<&str> = cell_content.split('|').collect();
+
+                // If there's only one part (no more |), it's a single cell
+                if cell_parts.len() == 1 {
+                    // Single cell - content may be empty (for empty cells like "| ")
+                    let content = cell_content.trim();
+                    let inlines = parse_inlines(content);
+                    current_row.push(TableCell {
+                        content: vec![Block::Paragraph(Paragraph {
+                            inlines,
+                            style_id: None,
+                            attributes: HashMap::new(),
+                        })],
+                        colspan: 1,
+                        rowspan: 1,
+                        align: None,
+                    });
+                } else {
+                    // Multiple cells on this line: | A | B | C
+                    // Each part after split is a cell (first part is content after leading |)
+                    for cell_text in cell_parts {
+                        let trimmed = cell_text.trim();
+                        let inlines = parse_inlines(trimmed);
+                        current_row.push(TableCell {
+                            content: vec![Block::Paragraph(Paragraph {
+                                inlines,
+                                style_id: None,
+                                attributes: HashMap::new(),
+                            })],
+                            colspan: 1,
+                            rowspan: 1,
+                            align: None,
+                        });
+                    }
+                }
             }
-            // Empty lines inside tables are ignored (they're row separators conceptually)
             return;
         }
 
@@ -331,15 +364,22 @@ impl Parser {
                     }));
                 }
             }
-            ParserState::Table(cells) => {
-                if !cells.is_empty() {
-                    // Convert cells into rows
-                    // For MVP: group cells into rows, with blank lines as separators
-                    // Since we collect all cells, we'll put each cell in its own row for simplicity
-                    // or we can detect column count from first row pattern
-                    let rows = cells_to_rows(cells);
+            ParserState::Table { mut rows, current_row } => {
+                // Push any remaining current_row to rows
+                if !current_row.is_empty() {
+                    rows.push(current_row);
+                }
+                if !rows.is_empty() {
+                    // Convert Vec<Vec<TableCell>> to Vec<TableRow>
+                    let table_rows: Vec<TableRow> = rows
+                        .into_iter()
+                        .map(|cells| TableRow {
+                            cells,
+                            is_header: false,
+                        })
+                        .collect();
                     self.blocks.push(Block::Table(Table {
-                        rows,
+                        rows: table_rows,
                         style_id: None,
                         caption: None,
                         columns: vec![],
@@ -348,21 +388,6 @@ impl Parser {
             }
         }
     }
-}
-
-/// Convert a flat list of cells into table rows
-/// For MVP: each cell becomes its own row with one cell
-/// Future: detect column patterns from blank line separators
-fn cells_to_rows(cells: Vec<TableCell>) -> Vec<TableRow> {
-    // Simple strategy: each cell is one row
-    // This works for single-column tables and vertically-oriented data
-    cells
-        .into_iter()
-        .map(|cell| TableRow {
-            cells: vec![cell],
-            is_header: false,
-        })
-        .collect()
 }
 
 /// Parse inline formatting in text
