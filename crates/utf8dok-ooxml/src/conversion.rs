@@ -43,13 +43,10 @@ impl<'a> ConversionContext<'a> {
         }
 
         // Fallback: parse "Heading1", "Heading2", etc.
-        if style_id.starts_with("Heading") {
-            style_id[7..].parse::<u8>().ok()
-        } else if style_id.starts_with("heading") {
-            style_id[7..].parse::<u8>().ok()
-        } else {
-            None
-        }
+        style_id
+            .strip_prefix("Heading")
+            .or_else(|| style_id.strip_prefix("heading"))
+            .and_then(|suffix| suffix.parse::<u8>().ok())
     }
 }
 

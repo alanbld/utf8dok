@@ -1,6 +1,11 @@
 //! utf8dok-core - Plain text, powerful docs
 //!
-//! Core library for utf8dok, providing AsciiDoc generation from AST.
+//! Core library for utf8dok, providing AsciiDoc parsing and generation.
+//!
+//! # Modules
+//!
+//! - [`parser`] - Parse AsciiDoc text into AST
+//! - [`generator`] - Generate AsciiDoc text from AST
 //!
 //! # Example
 //!
@@ -28,9 +33,11 @@
 //! ```
 
 pub mod generator;
+pub mod parser;
 
 // Re-export main types and functions
 pub use generator::{generate, generate_with_config, AsciiDocGenerator, GeneratorConfig};
+pub use parser::parse;
 
 /// Crate version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

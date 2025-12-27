@@ -27,7 +27,7 @@ pub enum Block {
 }
 
 /// A paragraph block
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Paragraph {
     /// Inline content within the paragraph
     pub inlines: Vec<Inline>,
@@ -176,16 +176,6 @@ pub enum BreakType {
     Page,
     /// Section break
     Section,
-}
-
-impl Default for Paragraph {
-    fn default() -> Self {
-        Self {
-            inlines: Vec::new(),
-            style_id: None,
-            attributes: HashMap::new(),
-        }
-    }
 }
 
 impl Default for Heading {

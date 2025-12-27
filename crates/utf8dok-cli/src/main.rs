@@ -137,7 +137,7 @@ fn extract_command(input: &PathBuf, output_dir: &PathBuf) -> Result<()> {
 }
 
 /// Generate configuration TOML from styles
-fn generate_config_toml(styles: &StyleSheet, input: &PathBuf) -> String {
+fn generate_config_toml(styles: &StyleSheet, input: &std::path::Path) -> String {
     let mut output = String::new();
 
     output.push_str("# utf8dok configuration\n");
@@ -173,7 +173,7 @@ fn generate_config_toml(styles: &StyleSheet, input: &PathBuf) -> String {
 
 /// Execute the render command (placeholder)
 fn render_command(
-    input: &PathBuf,
+    input: &std::path::Path,
     output: Option<&std::path::Path>,
     template: Option<&std::path::Path>,
 ) -> Result<()> {

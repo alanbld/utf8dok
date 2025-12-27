@@ -11,9 +11,11 @@ categories = ["parsing", "text-processing"]
 
 [dependencies]
 utf8dok-ast = { path = "../utf8dok-ast" }
+anyhow.workspace = true
 pest.workspace = true
 pest_derive.workspace = true
 thiserror.workspace = true
 serde.workspace = true
+regex = "1.10"
 
 [dev-dependencies]

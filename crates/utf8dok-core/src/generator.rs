@@ -219,7 +219,7 @@ impl AsciiDocGenerator {
         for (i, block) in item.content.iter().enumerate() {
             if i > 0 {
                 // Continuation for multi-block list items
-                write!(self.output, "+\n").unwrap();
+                writeln!(self.output, "+").unwrap();
             }
             match block {
                 Block::Paragraph(p) => {
