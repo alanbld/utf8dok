@@ -368,12 +368,14 @@ mod tests {
 
     #[test]
     fn test_style_mappings_to_toml() {
-        let mut mappings = StyleMappings::default();
-        mappings.headings = vec![
-            (1, "Heading1".to_string()),
-            (2, "Heading2".to_string()),
-        ];
-        mappings.paragraph = Some("Normal".to_string());
+        let mappings = StyleMappings {
+            headings: vec![
+                (1, "Heading1".to_string()),
+                (2, "Heading2".to_string()),
+            ],
+            paragraph: Some("Normal".to_string()),
+            ..Default::default()
+        };
 
         let toml = mappings.to_toml();
         assert!(toml.contains("heading1 = \"Heading1\""));
