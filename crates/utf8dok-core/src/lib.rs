@@ -48,8 +48,8 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 #[cfg(test)]
 mod tests {
     use super::*;
-    use utf8dok_ast::{Block, Document, Heading, Inline, Link, Paragraph};
     use std::collections::HashMap;
+    use utf8dok_ast::{Block, Document, Heading, Inline, Link, Paragraph};
 
     #[test]
     fn test_version() {
@@ -71,7 +71,10 @@ mod tests {
 
         // Generate AsciiDoc
         let asciidoc = generate(&doc);
-        assert!(asciidoc.contains("== Section One"), "Level 1 should generate ==");
+        assert!(
+            asciidoc.contains("== Section One"),
+            "Level 1 should generate =="
+        );
 
         // Parse back to AST
         let parsed = parse(&asciidoc).unwrap();
@@ -105,7 +108,10 @@ mod tests {
 
         // Generate AsciiDoc
         let asciidoc = generate(&doc);
-        assert!(asciidoc.contains("<<section1,Section One>>"), "Should generate xref syntax");
+        assert!(
+            asciidoc.contains("<<section1,Section One>>"),
+            "Should generate xref syntax"
+        );
 
         // Parse back to AST
         let parsed = parse(&asciidoc).unwrap();
@@ -179,9 +185,10 @@ mod tests {
 
         // Check link is preserved
         if let Block::Paragraph(p) = &parsed.blocks[1] {
-            let has_correct_link = p.inlines.iter().any(|inline| {
-                matches!(inline, Inline::Link(link) if link.url == "#details")
-            });
+            let has_correct_link = p
+                .inlines
+                .iter()
+                .any(|inline| matches!(inline, Inline::Link(link) if link.url == "#details"));
             assert!(has_correct_link);
         }
     }

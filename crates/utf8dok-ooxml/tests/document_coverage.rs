@@ -59,7 +59,10 @@ fn test_parse_run_with_italic_false() {
     let doc = Document::parse(xml).unwrap();
     if let Block::Paragraph(p) = &doc.blocks[0] {
         if let ParagraphChild::Run(run) = &p.children[0] {
-            assert!(!run.italic, "Run with i w:val=\"false\" should not be italic");
+            assert!(
+                !run.italic,
+                "Run with i w:val=\"false\" should not be italic"
+            );
             assert_eq!(run.text, "Not italic");
         } else {
             panic!("Expected Run");
@@ -89,7 +92,10 @@ fn test_parse_run_with_monospace_font() {
     let doc = Document::parse(xml).unwrap();
     if let Block::Paragraph(p) = &doc.blocks[0] {
         if let ParagraphChild::Run(run) = &p.children[0] {
-            assert!(run.monospace, "Consolas font should be detected as monospace");
+            assert!(
+                run.monospace,
+                "Consolas font should be detected as monospace"
+            );
             assert_eq!(run.text, "Code text");
         } else {
             panic!("Expected Run");
@@ -103,15 +109,16 @@ fn test_parse_run_with_monospace_font() {
 fn test_parse_run_with_various_monospace_fonts() {
     // Parser expects <w:rFonts> as Start element, not Empty
     let fonts = vec![
-        ("Courier New", true),   // Contains "courier"
-        ("Menlo", true),         // Contains "menlo"
+        ("Courier New", true),     // Contains "courier"
+        ("Menlo", true),           // Contains "menlo"
         ("Source Code Pro", true), // Contains "source code"
-        ("Monaco", false),       // Not in monospace list
-        ("Arial", false),        // Regular font
+        ("Monaco", false),         // Not in monospace list
+        ("Arial", false),          // Regular font
     ];
 
     for (font, expected) in fonts {
-        let xml = format!(r#"<?xml version="1.0" encoding="UTF-8"?>
+        let xml = format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
         <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
             <w:body>
                 <w:p>
@@ -123,12 +130,18 @@ fn test_parse_run_with_various_monospace_fonts() {
                     </w:r>
                 </w:p>
             </w:body>
-        </w:document>"#, font);
+        </w:document>"#,
+            font
+        );
 
         let doc = Document::parse(xml.as_bytes()).unwrap();
         if let Block::Paragraph(p) = &doc.blocks[0] {
             if let ParagraphChild::Run(run) = &p.children[0] {
-                assert_eq!(run.monospace, expected, "Font '{}' monospace detection", font);
+                assert_eq!(
+                    run.monospace, expected,
+                    "Font '{}' monospace detection",
+                    font
+                );
             }
         }
     }
@@ -241,7 +254,11 @@ fn test_parse_table_cell_multiple_paragraphs() {
 
     let doc = Document::parse(xml).unwrap();
     if let Block::Table(t) = &doc.blocks[0] {
-        assert_eq!(t.rows[0].cells[0].paragraphs.len(), 2, "Cell should have 2 paragraphs");
+        assert_eq!(
+            t.rows[0].cells[0].paragraphs.len(),
+            2,
+            "Cell should have 2 paragraphs"
+        );
     } else {
         panic!("Expected Table");
     }
@@ -471,7 +488,11 @@ fn test_document_paragraphs_iterator() {
     let doc = Document::parse(xml).unwrap();
     let paragraphs: Vec<_> = doc.paragraphs().collect();
 
-    assert_eq!(paragraphs.len(), 3, "Should have 3 paragraphs (2 direct + 1 in table)");
+    assert_eq!(
+        paragraphs.len(),
+        3,
+        "Should have 3 paragraphs (2 direct + 1 in table)"
+    );
     assert_eq!(paragraphs[0].plain_text(), "Para 1");
     assert_eq!(paragraphs[1].plain_text(), "Table Para");
     assert_eq!(paragraphs[2].plain_text(), "Para 2");
@@ -492,7 +513,10 @@ fn test_document_plain_text() {
 
     assert!(text.contains("First"));
     assert!(text.contains("Second"));
-    assert!(text.contains("\n\n"), "Paragraphs should be separated by double newline");
+    assert!(
+        text.contains("\n\n"),
+        "Paragraphs should be separated by double newline"
+    );
 }
 
 // =============================================================================
@@ -508,7 +532,10 @@ fn test_parse_empty_document() {
     </w:document>"#;
 
     let doc = Document::parse(xml).unwrap();
-    assert!(doc.blocks.is_empty(), "Empty document should have no blocks");
+    assert!(
+        doc.blocks.is_empty(),
+        "Empty document should have no blocks"
+    );
 }
 
 #[test]
@@ -543,7 +570,10 @@ fn test_hyperlink_is_empty() {
 
     let doc = Document::parse(xml).unwrap();
     if let Block::Paragraph(p) = &doc.blocks[0] {
-        assert!(p.is_empty(), "Paragraph with whitespace-only hyperlink should be empty");
+        assert!(
+            p.is_empty(),
+            "Paragraph with whitespace-only hyperlink should be empty"
+        );
     }
 }
 

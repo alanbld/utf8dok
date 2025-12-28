@@ -20,8 +20,15 @@ fn main() {}
 
     match &doc.blocks[0] {
         Block::Literal(lit) => {
-            assert_eq!(lit.language, Some("rust".to_string()), "Language should be rust");
-            assert!(lit.content.contains("fn main()"), "Content should contain code");
+            assert_eq!(
+                lit.language,
+                Some("rust".to_string()),
+                "Language should be rust"
+            );
+            assert!(
+                lit.content.contains("fn main()"),
+                "Content should contain code"
+            );
         }
         _ => panic!("Expected Block::Literal, got {:?}", doc.blocks[0]),
     }
@@ -42,9 +49,19 @@ graph TD;
     match &doc.blocks[0] {
         Block::Literal(lit) => {
             // Mermaid is a style, not a language
-            assert_eq!(lit.style_id, Some("mermaid".to_string()), "Style should be mermaid");
-            assert!(lit.content.contains("graph TD"), "Content should contain diagram code");
-            assert!(lit.content.contains("A-->B"), "Content should contain nodes");
+            assert_eq!(
+                lit.style_id,
+                Some("mermaid".to_string()),
+                "Style should be mermaid"
+            );
+            assert!(
+                lit.content.contains("graph TD"),
+                "Content should contain diagram code"
+            );
+            assert!(
+                lit.content.contains("A-->B"),
+                "Content should contain nodes"
+            );
         }
         _ => panic!("Expected Block::Literal, got {:?}", doc.blocks[0]),
     }
@@ -65,8 +82,15 @@ Alice -> Bob: Hello
 
     match &doc.blocks[0] {
         Block::Literal(lit) => {
-            assert_eq!(lit.style_id, Some("plantuml".to_string()), "Style should be plantuml");
-            assert!(lit.content.contains("@startuml"), "Content should contain plantuml");
+            assert_eq!(
+                lit.style_id,
+                Some("plantuml".to_string()),
+                "Style should be plantuml"
+            );
+            assert!(
+                lit.content.contains("@startuml"),
+                "Content should contain plantuml"
+            );
         }
         _ => panic!("Expected Block::Literal, got {:?}", doc.blocks[0]),
     }
@@ -87,7 +111,10 @@ No formatting.
         Block::Literal(lit) => {
             assert_eq!(lit.language, None, "Language should be None");
             assert_eq!(lit.style_id, None, "Style should be None");
-            assert!(lit.content.contains("Plain literal text"), "Content preserved");
+            assert!(
+                lit.content.contains("Plain literal text"),
+                "Content preserved"
+            );
         }
         _ => panic!("Expected Block::Literal, got {:?}", doc.blocks[0]),
     }
@@ -148,22 +175,34 @@ fn test_roundtrip_diagram() {
     let asciidoc = generate(&doc);
 
     // Should contain the mermaid attribute and delimiters
-    assert!(asciidoc.contains("[mermaid]") || asciidoc.contains("[source,mermaid]"),
-            "Generated AsciiDoc should have mermaid attribute: {}", asciidoc);
+    assert!(
+        asciidoc.contains("[mermaid]") || asciidoc.contains("[source,mermaid]"),
+        "Generated AsciiDoc should have mermaid attribute: {}",
+        asciidoc
+    );
     assert!(asciidoc.contains("----"), "Should have delimiters");
     assert!(asciidoc.contains("graph TD"), "Should have content");
 
     // Parse back
     let parsed = parse(&asciidoc).expect("Should parse generated AsciiDoc");
-    assert_eq!(parsed.blocks.len(), 1, "Should have one block after round-trip");
+    assert_eq!(
+        parsed.blocks.len(),
+        1,
+        "Should have one block after round-trip"
+    );
 
     // Verify fidelity
     match &parsed.blocks[0] {
         Block::Literal(lit) => {
-            assert_eq!(lit.style_id, Some("mermaid".to_string()),
-                       "Style should be preserved");
-            assert!(lit.content.contains("graph TD"),
-                    "Content should be preserved");
+            assert_eq!(
+                lit.style_id,
+                Some("mermaid".to_string()),
+                "Style should be preserved"
+            );
+            assert!(
+                lit.content.contains("graph TD"),
+                "Content should be preserved"
+            );
         }
         _ => panic!("Expected Block::Literal after round-trip"),
     }
@@ -181,7 +220,10 @@ fn test_roundtrip_source_block() {
     }));
 
     let asciidoc = generate(&doc);
-    assert!(asciidoc.contains("[source,rust]"), "Should have source,rust attribute");
+    assert!(
+        asciidoc.contains("[source,rust]"),
+        "Should have source,rust attribute"
+    );
 
     let parsed = parse(&asciidoc).expect("Should parse");
     match &parsed.blocks[0] {

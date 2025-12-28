@@ -18,7 +18,9 @@ use clap::{Parser, Subcommand, ValueEnum};
 
 use utf8dok_core::diagnostics::Diagnostic;
 use utf8dok_core::parse;
-use utf8dok_ooxml::{AsciiDocExtractor, DocxWriter, OoxmlArchive, SourceOrigin, StyleSheet, Template};
+use utf8dok_ooxml::{
+    AsciiDocExtractor, DocxWriter, OoxmlArchive, SourceOrigin, StyleSheet, Template,
+};
 use utf8dok_plugins::PluginEngine;
 use utf8dok_validate::ValidationEngine;
 
@@ -89,7 +91,11 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Extract { input, output, force_parse } => {
+        Commands::Extract {
+            input,
+            output,
+            force_parse,
+        } => {
             extract_command(&input, &output, force_parse)?;
         }
         Commands::Render {
@@ -99,7 +105,11 @@ fn main() -> Result<()> {
         } => {
             render_command(&input, output.as_deref(), template.as_deref())?;
         }
-        Commands::Check { input, format, plugin } => {
+        Commands::Check {
+            input,
+            format,
+            plugin,
+        } => {
             check_command(&input, format, &plugin)?;
         }
     }
@@ -123,7 +133,8 @@ fn extract_command(input: &PathBuf, output_dir: &PathBuf, force_parse: bool) -> 
 
     // Use extractor with embedded source priority
     let extractor = AsciiDocExtractor::new().with_force_parse(force_parse);
-    let extracted = extractor.extract_archive(&archive)
+    let extracted = extractor
+        .extract_archive(&archive)
         .with_context(|| format!("Failed to extract document: {}", input.display()))?;
 
     // Report source origin
@@ -270,7 +281,10 @@ fn render_command(
         .with_context(|| format!("Failed to load template: {}", template_path.display()))?;
 
     // Step 4: Load or generate config
-    let config_path = input.parent().unwrap_or(std::path::Path::new(".")).join("utf8dok.toml");
+    let config_path = input
+        .parent()
+        .unwrap_or(std::path::Path::new("."))
+        .join("utf8dok.toml");
     let config_content = if config_path.exists() {
         println!("  Loading config: {}", config_path.display());
         fs::read_to_string(&config_path)
@@ -405,7 +419,11 @@ mod tests {
         let cli = Cli::try_parse_from(args).unwrap();
 
         match cli.command {
-            Commands::Extract { input, output, force_parse } => {
+            Commands::Extract {
+                input,
+                output,
+                force_parse,
+            } => {
                 assert_eq!(input, PathBuf::from("test.docx"));
                 assert_eq!(output, PathBuf::from("result"));
                 assert!(!force_parse);
@@ -420,7 +438,11 @@ mod tests {
         let cli = Cli::try_parse_from(args).unwrap();
 
         match cli.command {
-            Commands::Extract { input, output, force_parse } => {
+            Commands::Extract {
+                input,
+                output,
+                force_parse,
+            } => {
                 assert_eq!(input, PathBuf::from("test.docx"));
                 assert_eq!(output, PathBuf::from("output"));
                 assert!(!force_parse);
@@ -435,7 +457,11 @@ mod tests {
         let cli = Cli::try_parse_from(args).unwrap();
 
         match cli.command {
-            Commands::Extract { input, output, force_parse } => {
+            Commands::Extract {
+                input,
+                output,
+                force_parse,
+            } => {
                 assert_eq!(input, PathBuf::from("test.docx"));
                 assert_eq!(output, PathBuf::from("output"));
                 assert!(force_parse);
@@ -477,7 +503,11 @@ mod tests {
         let cli = Cli::try_parse_from(args).unwrap();
 
         match cli.command {
-            Commands::Check { input, format, plugin } => {
+            Commands::Check {
+                input,
+                format,
+                plugin,
+            } => {
                 assert_eq!(input, PathBuf::from("doc.adoc"));
                 assert!(matches!(format, OutputFormat::Text));
                 assert!(plugin.is_empty());
@@ -492,7 +522,11 @@ mod tests {
         let cli = Cli::try_parse_from(args).unwrap();
 
         match cli.command {
-            Commands::Check { input, format, plugin } => {
+            Commands::Check {
+                input,
+                format,
+                plugin,
+            } => {
                 assert_eq!(input, PathBuf::from("doc.adoc"));
                 assert!(matches!(format, OutputFormat::Json));
                 assert!(plugin.is_empty());
@@ -503,11 +537,21 @@ mod tests {
 
     #[test]
     fn test_cli_parse_check_with_plugin() {
-        let args = vec!["utf8dok", "check", "doc.adoc", "--plugin", "rules/test.rhai"];
+        let args = vec![
+            "utf8dok",
+            "check",
+            "doc.adoc",
+            "--plugin",
+            "rules/test.rhai",
+        ];
         let cli = Cli::try_parse_from(args).unwrap();
 
         match cli.command {
-            Commands::Check { input, format, plugin } => {
+            Commands::Check {
+                input,
+                format,
+                plugin,
+            } => {
                 assert_eq!(input, PathBuf::from("doc.adoc"));
                 assert!(matches!(format, OutputFormat::Text));
                 assert_eq!(plugin.len(), 1);
@@ -520,14 +564,22 @@ mod tests {
     #[test]
     fn test_cli_parse_check_multiple_plugins() {
         let args = vec![
-            "utf8dok", "check", "doc.adoc",
-            "--plugin", "rules/a.rhai",
-            "--plugin", "rules/b.rhai",
+            "utf8dok",
+            "check",
+            "doc.adoc",
+            "--plugin",
+            "rules/a.rhai",
+            "--plugin",
+            "rules/b.rhai",
         ];
         let cli = Cli::try_parse_from(args).unwrap();
 
         match cli.command {
-            Commands::Check { input, format: _, plugin } => {
+            Commands::Check {
+                input,
+                format: _,
+                plugin,
+            } => {
                 assert_eq!(input, PathBuf::from("doc.adoc"));
                 assert_eq!(plugin.len(), 2);
             }

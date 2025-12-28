@@ -236,10 +236,7 @@ impl Relationships {
         let mut xml = String::new();
         xml.push_str(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"#);
         xml.push('\n');
-        xml.push_str(&format!(
-            r#"<Relationships xmlns="{}">"#,
-            RELATIONSHIPS_NS
-        ));
+        xml.push_str(&format!(r#"<Relationships xmlns="{}">"#, RELATIONSHIPS_NS));
         xml.push('\n');
 
         // Iterate in insertion order for deterministic output

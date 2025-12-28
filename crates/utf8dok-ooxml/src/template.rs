@@ -179,7 +179,8 @@ mod tests {
 
         // word/styles.xml with corporate styles
         zip.start_file("word/styles.xml", options).unwrap();
-        zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+        zip.write_all(
+            br#"<?xml version="1.0" encoding="UTF-8"?>
 <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:style w:type="paragraph" w:styleId="Normal" w:default="1">
     <w:name w:val="Normal"/>
@@ -214,7 +215,9 @@ mod tests {
     <w:name w:val="List Number"/>
     <w:basedOn w:val="Normal"/>
   </w:style>
-</w:styles>"#).unwrap();
+</w:styles>"#,
+        )
+        .unwrap();
 
         // word/document.xml (empty template body)
         zip.start_file("word/document.xml", options).unwrap();
@@ -235,7 +238,11 @@ mod tests {
     fn test_load_from_bytes() {
         let template_bytes = create_test_template();
         let result = Template::from_bytes(&template_bytes);
-        assert!(result.is_ok(), "Failed to load template: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to load template: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -248,8 +255,14 @@ mod tests {
 
         let styles = styles.unwrap();
         assert!(styles.get("Normal").is_some(), "Normal style should exist");
-        assert!(styles.get("Heading1").is_some(), "Heading1 style should exist");
-        assert!(styles.get("TableGrid").is_some(), "TableGrid style should exist");
+        assert!(
+            styles.get("Heading1").is_some(),
+            "Heading1 style should exist"
+        );
+        assert!(
+            styles.get("TableGrid").is_some(),
+            "TableGrid style should exist"
+        );
     }
 
     #[test]

@@ -35,7 +35,10 @@ fn download_mermaid() {
     }
 
     let url = MERMAID_CDN_URL.replace("{VERSION}", MERMAID_VERSION);
-    println!("cargo:warning=Downloading mermaid.js v{} from CDN...", MERMAID_VERSION);
+    println!(
+        "cargo:warning=Downloading mermaid.js v{} from CDN...",
+        MERMAID_VERSION
+    );
 
     // Try to download using reqwest (blocking)
     match download_file(&url, &mermaid_path) {

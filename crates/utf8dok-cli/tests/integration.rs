@@ -48,7 +48,8 @@ fn create_test_template() -> Vec<u8> {
 
     // word/styles.xml
     zip.start_file("word/styles.xml", options).unwrap();
-    zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+    zip.write_all(
+        br#"<?xml version="1.0" encoding="UTF-8"?>
 <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:style w:type="paragraph" w:styleId="Normal" w:default="1">
     <w:name w:val="Normal"/>
@@ -64,7 +65,9 @@ fn create_test_template() -> Vec<u8> {
   <w:style w:type="table" w:styleId="TableGrid">
     <w:name w:val="Table Grid"/>
   </w:style>
-</w:styles>"#).unwrap();
+</w:styles>"#,
+    )
+    .unwrap();
 
     // word/document.xml (empty body)
     zip.start_file("word/document.xml", options).unwrap();
@@ -173,10 +176,22 @@ paragraph = "Normal"
         .expect("Failed to read manifest")
         .expect("manifest.json not found");
 
-    assert!(manifest_json.contains("\"source\""), "Manifest should have source entry");
-    assert!(manifest_json.contains("\"config\""), "Manifest should have config entry");
-    assert!(manifest_json.contains("utf8dok/source.adoc"), "Manifest should reference source path");
-    assert!(manifest_json.contains("utf8dok/utf8dok.toml"), "Manifest should reference config path");
+    assert!(
+        manifest_json.contains("\"source\""),
+        "Manifest should have source entry"
+    );
+    assert!(
+        manifest_json.contains("\"config\""),
+        "Manifest should have config entry"
+    );
+    assert!(
+        manifest_json.contains("utf8dok/source.adoc"),
+        "Manifest should reference source path"
+    );
+    assert!(
+        manifest_json.contains("utf8dok/utf8dok.toml"),
+        "Manifest should reference config path"
+    );
 
     // Verify document content was generated
     let doc_xml = archive
@@ -186,9 +201,18 @@ paragraph = "Normal"
 
     // Check for content that should be present
     // Note: Level-1 headings may become document title metadata
-    assert!(doc_xml.contains("First Section"), "Document should contain heading");
-    assert!(doc_xml.contains("bold"), "Document should contain formatted text");
-    assert!(doc_xml.contains("<w:pStyle"), "Document should have paragraph styles");
+    assert!(
+        doc_xml.contains("First Section"),
+        "Document should contain heading"
+    );
+    assert!(
+        doc_xml.contains("bold"),
+        "Document should contain formatted text"
+    );
+    assert!(
+        doc_xml.contains("<w:pStyle"),
+        "Document should have paragraph styles"
+    );
 }
 
 #[test]
@@ -240,22 +264,34 @@ fn test_manifest_contains_hashes() {
     let cursor = Cursor::new(&docx_bytes);
     let archive = OoxmlArchive::from_reader(cursor).unwrap();
 
-    let manifest = archive.get_string("utf8dok/manifest.json").unwrap().unwrap();
+    let manifest = archive
+        .get_string("utf8dok/manifest.json")
+        .unwrap()
+        .unwrap();
 
     // Manifest should contain hash fields for integrity verification
-    assert!(manifest.contains("\"hash\""), "Manifest should contain hash field");
+    assert!(
+        manifest.contains("\"hash\""),
+        "Manifest should contain hash field"
+    );
 
     // Parse manifest to verify structure
     let parsed: serde_json::Value = serde_json::from_str(&manifest).expect("Valid JSON");
 
     // Check source entry has hash
     if let Some(source_entry) = parsed.get("source") {
-        assert!(source_entry.get("hash").is_some(), "Source entry should have hash");
+        assert!(
+            source_entry.get("hash").is_some(),
+            "Source entry should have hash"
+        );
     }
 
     // Check config entry has hash
     if let Some(config_entry) = parsed.get("config") {
-        assert!(config_entry.get("hash").is_some(), "Config entry should have hash");
+        assert!(
+            config_entry.get("hash").is_some(),
+            "Config entry should have hash"
+        );
     }
 }
 
@@ -282,10 +318,15 @@ fn test_extract_embedded_priority() {
     let extracted = extractor.extract_archive(&archive).unwrap();
 
     // Verify embedded source is returned
-    assert_eq!(extracted.source_origin, SourceOrigin::Embedded,
-        "Should return Embedded origin for self-contained DOCX");
-    assert_eq!(extracted.asciidoc, original_source,
-        "Should return exact embedded source content");
+    assert_eq!(
+        extracted.source_origin,
+        SourceOrigin::Embedded,
+        "Should return Embedded origin for self-contained DOCX"
+    );
+    assert_eq!(
+        extracted.asciidoc, original_source,
+        "Should return exact embedded source content"
+    );
 }
 
 #[test]
@@ -311,12 +352,18 @@ fn test_extract_force_parse() {
     let extracted = extractor.extract_archive(&archive).unwrap();
 
     // Verify source was parsed from document.xml, not embedded
-    assert_eq!(extracted.source_origin, SourceOrigin::Parsed,
-        "Should return Parsed origin when force_parse is set");
+    assert_eq!(
+        extracted.source_origin,
+        SourceOrigin::Parsed,
+        "Should return Parsed origin when force_parse is set"
+    );
     // The parsed content will be different from original (regenerated from OOXML)
     // The title "Force Parse Test" becomes document title (= Title), check for the body content
-    assert!(extracted.asciidoc.contains("embedded source"),
-        "Parsed content should contain body text: {}", extracted.asciidoc);
+    assert!(
+        extracted.asciidoc.contains("embedded source"),
+        "Parsed content should contain body text: {}",
+        extracted.asciidoc
+    );
 }
 
 #[test]
@@ -344,7 +391,8 @@ fn test_extract_no_embedded_source() {
 </Relationships>"#).unwrap();
 
     // word/_rels/document.xml.rels
-    zip.start_file("word/_rels/document.xml.rels", options).unwrap();
+    zip.start_file("word/_rels/document.xml.rels", options)
+        .unwrap();
     zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
@@ -352,23 +400,29 @@ fn test_extract_no_embedded_source() {
 
     // word/styles.xml
     zip.start_file("word/styles.xml", options).unwrap();
-    zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+    zip.write_all(
+        br#"<?xml version="1.0" encoding="UTF-8"?>
 <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:style w:type="paragraph" w:styleId="Normal" w:default="1">
     <w:name w:val="Normal"/>
   </w:style>
-</w:styles>"#).unwrap();
+</w:styles>"#,
+    )
+    .unwrap();
 
     // word/document.xml with content
     zip.start_file("word/document.xml", options).unwrap();
-    zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+    zip.write_all(
+        br#"<?xml version="1.0" encoding="UTF-8"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:body>
     <w:p>
       <w:r><w:t>Hello from regular DOCX</w:t></w:r>
     </w:p>
   </w:body>
-</w:document>"#).unwrap();
+</w:document>"#,
+    )
+    .unwrap();
 
     zip.finish().unwrap();
     let docx_bytes = buffer.into_inner();
@@ -381,8 +435,13 @@ fn test_extract_no_embedded_source() {
     let extracted = extractor.extract_archive(&archive).unwrap();
 
     // Verify source was parsed
-    assert_eq!(extracted.source_origin, SourceOrigin::Parsed,
-        "Should return Parsed origin for regular DOCX without embedded source");
-    assert!(extracted.asciidoc.contains("Hello from regular DOCX"),
-        "Should contain parsed content");
+    assert_eq!(
+        extracted.source_origin,
+        SourceOrigin::Parsed,
+        "Should return Parsed origin for regular DOCX without embedded source"
+    );
+    assert!(
+        extracted.asciidoc.contains("Hello from regular DOCX"),
+        "Should contain parsed content"
+    );
 }

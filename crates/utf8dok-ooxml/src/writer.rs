@@ -231,11 +231,7 @@ impl DocxWriter {
     /// let template = Template::load("template.dotx")?;
     /// let output = writer.generate_with_template(&doc, template)?;
     /// ```
-    pub fn generate_with_template(
-        self,
-        doc: &Document,
-        template: Template,
-    ) -> Result<Vec<u8>> {
+    pub fn generate_with_template(self, doc: &Document, template: Template) -> Result<Vec<u8>> {
         self.generate_with_template_options(doc, template, true, None)
     }
 
@@ -270,10 +266,7 @@ impl DocxWriter {
         archive.set_string("word/document.xml", document_xml);
 
         // Write word/_rels/document.xml.rels
-        archive.set_string(
-            "word/_rels/document.xml.rels",
-            self.relationships.to_xml(),
-        );
+        archive.set_string("word/_rels/document.xml.rels", self.relationships.to_xml());
 
         // Write media files
         for (path, data) in &self.media_files {
@@ -598,7 +591,9 @@ impl DocxWriter {
                 let style = style_id.unwrap_or_else(|| match list_type {
                     ListType::Unordered => self.style_map.list(false),
                     ListType::Ordered => self.style_map.list(true),
-                    ListType::Description => self.style_map.get(crate::styles::ElementType::ListDescription),
+                    ListType::Description => self
+                        .style_map
+                        .get(crate::styles::ElementType::ListDescription),
                 });
                 self.output
                     .push_str(&format!("<w:pStyle w:val=\"{}\"/>\n", escape_xml(style)));
@@ -1478,7 +1473,8 @@ mod tests {
 
         // word/styles.xml with standard Word style names
         zip.start_file("word/styles.xml", options).unwrap();
-        zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+        zip.write_all(
+            br#"<?xml version="1.0" encoding="UTF-8"?>
 <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:style w:type="paragraph" w:styleId="Normal" w:default="1">
     <w:name w:val="Normal"/>
@@ -1505,7 +1501,9 @@ mod tests {
   <w:style w:type="paragraph" w:styleId="ListNumber">
     <w:name w:val="List Number"/>
   </w:style>
-</w:styles>"#).unwrap();
+</w:styles>"#,
+        )
+        .unwrap();
 
         // word/document.xml (empty template body)
         zip.start_file("word/document.xml", options).unwrap();
@@ -1564,33 +1562,31 @@ mod tests {
                     attributes: HashMap::new(),
                 }),
                 Block::Table(Table {
-                    rows: vec![
-                        utf8dok_ast::TableRow {
-                            cells: vec![
-                                utf8dok_ast::TableCell {
-                                    content: vec![Block::Paragraph(Paragraph {
-                                        inlines: vec![Inline::Text("Name".to_string())],
-                                        style_id: None,
-                                        attributes: HashMap::new(),
-                                    })],
-                                    colspan: 1,
-                                    rowspan: 1,
-                                    align: None,
-                                },
-                                utf8dok_ast::TableCell {
-                                    content: vec![Block::Paragraph(Paragraph {
-                                        inlines: vec![Inline::Text("Value".to_string())],
-                                        style_id: None,
-                                        attributes: HashMap::new(),
-                                    })],
-                                    colspan: 1,
-                                    rowspan: 1,
-                                    align: None,
-                                },
-                            ],
-                            is_header: true,
-                        },
-                    ],
+                    rows: vec![utf8dok_ast::TableRow {
+                        cells: vec![
+                            utf8dok_ast::TableCell {
+                                content: vec![Block::Paragraph(Paragraph {
+                                    inlines: vec![Inline::Text("Name".to_string())],
+                                    style_id: None,
+                                    attributes: HashMap::new(),
+                                })],
+                                colspan: 1,
+                                rowspan: 1,
+                                align: None,
+                            },
+                            utf8dok_ast::TableCell {
+                                content: vec![Block::Paragraph(Paragraph {
+                                    inlines: vec![Inline::Text("Value".to_string())],
+                                    style_id: None,
+                                    attributes: HashMap::new(),
+                                })],
+                                colspan: 1,
+                                rowspan: 1,
+                                align: None,
+                            },
+                        ],
+                        is_header: true,
+                    }],
                     style_id: None, // Should use mapped TableGrid
                     caption: None,
                     columns: vec![],
@@ -1675,8 +1671,12 @@ mod tests {
             })],
         };
 
-        let result =
-            DocxWriter::generate_from_template_with_options(&doc, template, false, Some(custom_map));
+        let result = DocxWriter::generate_from_template_with_options(
+            &doc,
+            template,
+            false,
+            Some(custom_map),
+        );
         assert!(result.is_ok());
 
         let output = result.unwrap();
@@ -1751,7 +1751,10 @@ paragraph = "Normal"
 
         // Check source.adoc was embedded
         let embedded_source = archive.get_string("utf8dok/source.adoc").unwrap();
-        assert!(embedded_source.is_some(), "utf8dok/source.adoc should exist");
+        assert!(
+            embedded_source.is_some(),
+            "utf8dok/source.adoc should exist"
+        );
         assert_eq!(
             embedded_source.unwrap(),
             source_content,
@@ -1760,7 +1763,10 @@ paragraph = "Normal"
 
         // Check utf8dok.toml was embedded
         let embedded_config = archive.get_string("utf8dok/utf8dok.toml").unwrap();
-        assert!(embedded_config.is_some(), "utf8dok/utf8dok.toml should exist");
+        assert!(
+            embedded_config.is_some(),
+            "utf8dok/utf8dok.toml should exist"
+        );
         assert_eq!(
             embedded_config.unwrap(),
             config_content,
@@ -1769,9 +1775,18 @@ paragraph = "Normal"
 
         // Check manifest exists and contains entries
         let manifest_json = archive.get_string("utf8dok/manifest.json").unwrap();
-        assert!(manifest_json.is_some(), "utf8dok/manifest.json should exist");
+        assert!(
+            manifest_json.is_some(),
+            "utf8dok/manifest.json should exist"
+        );
         let manifest = manifest_json.unwrap();
-        assert!(manifest.contains("source"), "Manifest should have source entry");
-        assert!(manifest.contains("config"), "Manifest should have config entry");
+        assert!(
+            manifest.contains("source"),
+            "Manifest should have source entry"
+        );
+        assert!(
+            manifest.contains("config"),
+            "Manifest should have config entry"
+        );
     }
 }

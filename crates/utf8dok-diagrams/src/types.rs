@@ -287,8 +287,14 @@ mod tests {
 
     #[test]
     fn test_diagram_type_from_str() {
-        assert_eq!("mermaid".parse::<DiagramType>().unwrap(), DiagramType::Mermaid);
-        assert_eq!("plantuml".parse::<DiagramType>().unwrap(), DiagramType::PlantUml);
+        assert_eq!(
+            "mermaid".parse::<DiagramType>().unwrap(),
+            DiagramType::Mermaid
+        );
+        assert_eq!(
+            "plantuml".parse::<DiagramType>().unwrap(),
+            DiagramType::PlantUml
+        );
         assert_eq!("dot".parse::<DiagramType>().unwrap(), DiagramType::GraphViz);
         assert!("unknown".parse::<DiagramType>().is_err());
     }
@@ -301,9 +307,18 @@ mod tests {
 
     #[test]
     fn test_diagram_type_from_extension() {
-        assert_eq!(DiagramType::from_extension("mmd"), Some(DiagramType::Mermaid));
-        assert_eq!(DiagramType::from_extension(".puml"), Some(DiagramType::PlantUml));
-        assert_eq!(DiagramType::from_extension("dot"), Some(DiagramType::GraphViz));
+        assert_eq!(
+            DiagramType::from_extension("mmd"),
+            Some(DiagramType::Mermaid)
+        );
+        assert_eq!(
+            DiagramType::from_extension(".puml"),
+            Some(DiagramType::PlantUml)
+        );
+        assert_eq!(
+            DiagramType::from_extension("dot"),
+            Some(DiagramType::GraphViz)
+        );
         assert_eq!(DiagramType::from_extension("unknown"), None);
     }
 

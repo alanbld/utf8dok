@@ -6,12 +6,14 @@
 use std::collections::HashMap;
 
 use utf8dok_ast::{
-    Block as AstBlock, BreakType as AstBreakType, FormatType, Heading, Inline,
-    Link as AstLink, Paragraph as AstParagraph, Table as AstTable, TableCell as AstTableCell,
+    Block as AstBlock, BreakType as AstBreakType, FormatType, Heading, Inline, Link as AstLink,
+    Paragraph as AstParagraph, Table as AstTable, TableCell as AstTableCell,
     TableRow as AstTableRow,
 };
 
-use crate::document::{Block, Document, Hyperlink, Paragraph, ParagraphChild, Run, Table, TableCell, TableRow};
+use crate::document::{
+    Block, Document, Hyperlink, Paragraph, ParagraphChild, Run, Table, TableCell, TableRow,
+};
 use crate::relationships::Relationships;
 use crate::styles::StyleSheet;
 
@@ -277,10 +279,7 @@ pub fn convert_document(doc: &Document) -> utf8dok_ast::Document {
 }
 
 /// Convert an OOXML document to AST with style information
-pub fn convert_document_with_styles(
-    doc: &Document,
-    styles: &StyleSheet,
-) -> utf8dok_ast::Document {
+pub fn convert_document_with_styles(doc: &Document, styles: &StyleSheet) -> utf8dok_ast::Document {
     let ctx = ConversionContext::with_styles(styles);
     doc.to_ast(&ctx)
 }
@@ -540,37 +539,33 @@ mod tests {
             style_id: Some("TableGrid".to_string()),
             rows: vec![
                 TableRow {
-                    cells: vec![
-                        TableCell {
-                            paragraphs: vec![Paragraph {
-                                style_id: None,
-                                children: vec![ParagraphChild::Run(Run {
-                                    text: "Header".to_string(),
-                                    bold: true,
-                                    italic: false,
-                                    monospace: false,
-                                })],
-                                numbering: None,
-                            }],
-                        },
-                    ],
+                    cells: vec![TableCell {
+                        paragraphs: vec![Paragraph {
+                            style_id: None,
+                            children: vec![ParagraphChild::Run(Run {
+                                text: "Header".to_string(),
+                                bold: true,
+                                italic: false,
+                                monospace: false,
+                            })],
+                            numbering: None,
+                        }],
+                    }],
                     is_header: true,
                 },
                 TableRow {
-                    cells: vec![
-                        TableCell {
-                            paragraphs: vec![Paragraph {
-                                style_id: None,
-                                children: vec![ParagraphChild::Run(Run {
-                                    text: "Data".to_string(),
-                                    bold: false,
-                                    italic: false,
-                                    monospace: false,
-                                })],
-                                numbering: None,
-                            }],
-                        },
-                    ],
+                    cells: vec![TableCell {
+                        paragraphs: vec![Paragraph {
+                            style_id: None,
+                            children: vec![ParagraphChild::Run(Run {
+                                text: "Data".to_string(),
+                                bold: false,
+                                italic: false,
+                                monospace: false,
+                            })],
+                            numbering: None,
+                        }],
+                    }],
                     is_header: false,
                 },
             ],

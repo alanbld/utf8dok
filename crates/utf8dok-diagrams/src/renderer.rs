@@ -148,12 +148,22 @@ pub trait DiagramRenderer: Send + Sync {
 
     /// Render to PNG with default options (convenience method)
     fn render_png(&self, source: &str, diagram_type: DiagramType) -> RenderResult<Vec<u8>> {
-        self.render(source, diagram_type, OutputFormat::Png, &RenderOptions::default())
+        self.render(
+            source,
+            diagram_type,
+            OutputFormat::Png,
+            &RenderOptions::default(),
+        )
     }
 
     /// Render to SVG with default options (convenience method)
     fn render_svg(&self, source: &str, diagram_type: DiagramType) -> RenderResult<Vec<u8>> {
-        self.render(source, diagram_type, OutputFormat::Svg, &RenderOptions::default())
+        self.render(
+            source,
+            diagram_type,
+            OutputFormat::Svg,
+            &RenderOptions::default(),
+        )
     }
 }
 

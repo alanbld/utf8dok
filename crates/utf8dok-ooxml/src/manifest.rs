@@ -178,13 +178,11 @@ mod tests {
         let mut manifest = Manifest::new();
         manifest.add_element(
             "table1",
-            ElementMeta::new("table")
-                .with_description("Sales data"),
+            ElementMeta::new("table").with_description("Sales data"),
         );
         manifest.add_element(
             "fig1",
-            ElementMeta::new("figure")
-                .with_source("utf8dok/diagrams/architecture.mmd"),
+            ElementMeta::new("figure").with_source("utf8dok/diagrams/architecture.mmd"),
         );
 
         // Serialize to JSON

@@ -109,7 +109,7 @@ impl Document {
     pub fn parse(xml: &[u8]) -> Result<Self> {
         let mut reader = Reader::from_reader(xml);
         reader.config_mut().trim_text(true);
-        
+
         let mut blocks = Vec::new();
         let mut buf = Vec::new();
 
@@ -219,7 +219,8 @@ impl Document {
                             }
                         }
                         b"tr" if current_table.is_some() => {
-                            current_table.as_mut().unwrap().current_row = Some(TableRowBuilder::new());
+                            current_table.as_mut().unwrap().current_row =
+                                Some(TableRowBuilder::new());
                         }
                         b"tc" if current_table.is_some() => {
                             if let Some(ref mut table) = current_table {
@@ -237,7 +238,7 @@ impl Document {
                         b"body" => in_body = false,
                         b"p" if current_para.is_some() => {
                             let para = current_para.take().unwrap().build();
-                            
+
                             if let Some(ref mut table) = current_table {
                                 // Add to current table cell
                                 if let Some(ref mut row) = table.current_row {
@@ -389,7 +390,11 @@ impl Paragraph {
                 ParagraphChild::Run(run) => run.text.clone(),
                 ParagraphChild::Hyperlink(hyperlink) => {
                     // Collect text from all runs in the hyperlink
-                    hyperlink.runs.iter().map(|r| r.text.as_str()).collect::<String>()
+                    hyperlink
+                        .runs
+                        .iter()
+                        .map(|r| r.text.as_str())
+                        .collect::<String>()
                 }
             })
             .collect::<Vec<_>>()
@@ -411,7 +416,9 @@ impl Paragraph {
     pub fn runs(&self) -> impl Iterator<Item = &Run> {
         self.children.iter().flat_map(|child| match child {
             ParagraphChild::Run(run) => vec![run].into_iter(),
-            ParagraphChild::Hyperlink(hyperlink) => hyperlink.runs.iter().collect::<Vec<_>>().into_iter(),
+            ParagraphChild::Hyperlink(hyperlink) => {
+                hyperlink.runs.iter().collect::<Vec<_>>().into_iter()
+            }
         })
     }
 }
@@ -556,7 +563,14 @@ fn get_attr_with_ns(e: &BytesStart, name: &[u8]) -> Option<String> {
         .find(|a| {
             let key = a.key.as_ref();
             // Match exact name or local name after colon
-            key == name || key.ends_with(&name[name.iter().position(|&b| b == b':').map(|i| i + 1).unwrap_or(0)..])
+            key == name
+                || key.ends_with(
+                    &name[name
+                        .iter()
+                        .position(|&b| b == b':')
+                        .map(|i| i + 1)
+                        .unwrap_or(0)..],
+                )
         })
         .and_then(|a| String::from_utf8(a.value.to_vec()).ok())
 }
@@ -594,8 +608,14 @@ mod tests {
 
         // Should only contain the visible text, not the field instruction
         assert_eq!(text, "Table of Contents");
-        assert!(!text.contains("TOC"), "Field code TOC should not appear in text");
-        assert!(!text.contains("\\o"), "Field code parameters should not appear");
+        assert!(
+            !text.contains("TOC"),
+            "Field code TOC should not appear in text"
+        );
+        assert!(
+            !text.contains("\\o"),
+            "Field code parameters should not appear"
+        );
     }
 
     #[test]

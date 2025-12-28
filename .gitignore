@@ -28,3 +28,18 @@ Thumbs.db
 # Environment
 .env
 .env.local
+
+# Claude Code / MCP
+.claude/
+.mcp.json
+.pm_encoder/
+
+# Test artifacts and temp files
+cobertura.xml
+*.docx
+*.docx:Zone.Identifier
+test_llm_output.adoc
+
+# Local documentation
+SYSTEM_INSTRUCTIONS.md
+VOYAGER_GUIDE.md

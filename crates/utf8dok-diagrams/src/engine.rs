@@ -128,8 +128,13 @@ impl DiagramEngine {
     ///
     /// Lower indices = higher priority.
     pub fn insert_renderer(&mut self, index: usize, renderer: Box<dyn DiagramRenderer>) {
-        log::debug!("Inserted renderer at position {}: {}", index, renderer.name());
-        self.renderers.insert(index.min(self.renderers.len()), renderer);
+        log::debug!(
+            "Inserted renderer at position {}: {}",
+            index,
+            renderer.name()
+        );
+        self.renderers
+            .insert(index.min(self.renderers.len()), renderer);
     }
 
     /// Get the names of all registered renderers
@@ -248,12 +253,22 @@ impl DiagramEngine {
 
     /// Render to PNG with default options (convenience method)
     pub fn render_png(&self, source: &str, diagram_type: DiagramType) -> RenderResult<Vec<u8>> {
-        self.render(source, diagram_type, OutputFormat::Png, &RenderOptions::default())
+        self.render(
+            source,
+            diagram_type,
+            OutputFormat::Png,
+            &RenderOptions::default(),
+        )
     }
 
     /// Render to SVG with default options (convenience method)
     pub fn render_svg(&self, source: &str, diagram_type: DiagramType) -> RenderResult<Vec<u8>> {
-        self.render(source, diagram_type, OutputFormat::Svg, &RenderOptions::default())
+        self.render(
+            source,
+            diagram_type,
+            OutputFormat::Svg,
+            &RenderOptions::default(),
+        )
     }
 }
 
@@ -264,7 +279,10 @@ fn compute_source_hash(source: &str) -> String {
     let result = hasher.finalize();
     format!(
         "sha256:{}",
-        result.iter().map(|b| format!("{:02x}", b)).collect::<String>()
+        result
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>()
     )
 }
 

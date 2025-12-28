@@ -616,7 +616,9 @@ impl DiagramRenderer for JsRenderer {
         // Validate source
         let source = source.trim();
         if source.is_empty() {
-            return Err(RenderError::InvalidSource("Empty diagram source".to_string()));
+            return Err(RenderError::InvalidSource(
+                "Empty diagram source".to_string(),
+            ));
         }
 
         // Mark as initialized

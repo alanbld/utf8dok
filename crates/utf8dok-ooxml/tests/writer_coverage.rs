@@ -95,18 +95,16 @@ fn test_write_complex_table_with_colspan_rowspan() {
             rows: vec![
                 // Header row
                 TableRow {
-                    cells: vec![
-                        TableCell {
-                            content: vec![Block::Paragraph(Paragraph {
-                                inlines: vec![Inline::Text("Merged Header".to_string())],
-                                style_id: None,
-                                attributes: HashMap::new(),
-                            })],
-                            colspan: 2, // Spans 2 columns
-                            rowspan: 1,
-                            align: None,
-                        },
-                    ],
+                    cells: vec![TableCell {
+                        content: vec![Block::Paragraph(Paragraph {
+                            inlines: vec![Inline::Text("Merged Header".to_string())],
+                            style_id: None,
+                            attributes: HashMap::new(),
+                        })],
+                        colspan: 2, // Spans 2 columns
+                        rowspan: 1,
+                        align: None,
+                    }],
                     is_header: true,
                 },
                 // Data row with rowspan
@@ -139,8 +137,14 @@ fn test_write_complex_table_with_colspan_rowspan() {
             style_id: Some("TableGrid".to_string()),
             caption: None,
             columns: vec![
-                ColumnSpec { width: Some(2000), align: None },
-                ColumnSpec { width: Some(3000), align: None },
+                ColumnSpec {
+                    width: Some(2000),
+                    align: None,
+                },
+                ColumnSpec {
+                    width: Some(3000),
+                    align: None,
+                },
             ],
         })],
     };
@@ -245,7 +249,7 @@ fn test_write_all_admonition_types() {
     for (admon_type, type_name) in admonition_types {
         let doc = Document {
             metadata: DocumentMeta::default(),
-        intent: None,
+            intent: None,
             blocks: vec![Block::Admonition(Admonition {
                 admonition_type: admon_type,
                 title: Some(vec![Inline::Text(format!("{} Title", type_name))]),
@@ -305,11 +309,7 @@ fn test_write_admonition_without_title() {
         xml
     );
     // Should have content
-    assert!(
-        xml.contains("Just a note."),
-        "Should have content: {}",
-        xml
-    );
+    assert!(xml.contains("Just a note."), "Should have content: {}", xml);
 }
 
 // =============================================================================
@@ -740,11 +740,7 @@ fn test_write_section_break() {
     let xml = extract_document_xml(&result);
 
     // Section break uses sectPr
-    assert!(
-        xml.contains("<w:sectPr>"),
-        "Should have sectPr: {}",
-        xml
-    );
+    assert!(xml.contains("<w:sectPr>"), "Should have sectPr: {}", xml);
     assert!(
         xml.contains("<w:type w:val=\"nextPage\"/>"),
         "Should have nextPage type: {}",
@@ -863,11 +859,7 @@ fn test_write_inline_break() {
     let result = DocxWriter::generate(&doc, &template).unwrap();
     let xml = extract_document_xml(&result);
 
-    assert!(
-        xml.contains("<w:br/>"),
-        "Should have inline break: {}",
-        xml
-    );
+    assert!(xml.contains("<w:br/>"), "Should have inline break: {}", xml);
 }
 
 #[test]
@@ -968,17 +960,9 @@ fn test_xml_escaping() {
     let xml = extract_document_xml(&result);
 
     // Verify all special characters are escaped
-    assert!(
-        xml.contains("&amp;"),
-        "Should escape ampersand: {}",
-        xml
-    );
+    assert!(xml.contains("&amp;"), "Should escape ampersand: {}", xml);
     assert!(xml.contains("&lt;"), "Should escape less-than: {}", xml);
-    assert!(
-        xml.contains("&gt;"),
-        "Should escape greater-than: {}",
-        xml
-    );
+    assert!(xml.contains("&gt;"), "Should escape greater-than: {}", xml);
     assert!(xml.contains("&quot;"), "Should escape quote: {}", xml);
     assert!(xml.contains("&apos;"), "Should escape apostrophe: {}", xml);
 }

@@ -108,7 +108,10 @@ impl Backend {
             if let (Some(line), Some(col)) = (span.line, span.column) {
                 // Use line/col from span (1-indexed to 0-indexed)
                 Range {
-                    start: Position::new(line.saturating_sub(1) as u32, col.saturating_sub(1) as u32),
+                    start: Position::new(
+                        line.saturating_sub(1) as u32,
+                        col.saturating_sub(1) as u32,
+                    ),
                     end: Position::new(line.saturating_sub(1) as u32, col as u32),
                 }
             } else {
@@ -121,7 +124,10 @@ impl Backend {
         };
 
         // Build code
-        let code = diag.code.as_ref().map(|c| NumberOrString::String(c.clone()));
+        let code = diag
+            .code
+            .as_ref()
+            .map(|c| NumberOrString::String(c.clone()));
 
         // Build related information from notes
         let related_information = if diag.notes.is_empty() {
@@ -329,7 +335,10 @@ async fn main() {
         .with_writer(std::io::stderr)
         .init();
 
-    info!("Starting utf8dok Language Server v{}", env!("CARGO_PKG_VERSION"));
+    info!(
+        "Starting utf8dok Language Server v{}",
+        env!("CARGO_PKG_VERSION")
+    );
 
     // Create LSP service
     let stdin = tokio::io::stdin();
@@ -346,10 +355,7 @@ mod tests {
     #[test]
     fn test_severity_conversion() {
         // Test that our severity mapping is correct
-        assert!(matches!(
-            Severity::Error,
-            Severity::Error | Severity::Fatal
-        ));
+        assert!(matches!(Severity::Error, Severity::Error | Severity::Fatal));
     }
 
     #[test]

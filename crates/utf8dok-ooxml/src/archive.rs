@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{Read, Write, Seek};
+use std::io::{Read, Seek, Write};
 use std::path::Path;
 
 use zip::read::ZipArchive;
@@ -35,7 +35,7 @@ impl OoxmlArchive {
         for i in 0..archive.len() {
             let mut file = archive.by_index(i)?;
             let name = file.name().to_string();
-            
+
             // Skip directories
             if name.ends_with('/') {
                 continue;
@@ -238,7 +238,10 @@ mod tests {
         // Test set and get
         archive.set_string("test.xml", "<root/>");
         assert!(archive.contains("test.xml"));
-        assert_eq!(archive.get_string("test.xml").unwrap(), Some("<root/>".to_string()));
+        assert_eq!(
+            archive.get_string("test.xml").unwrap(),
+            Some("<root/>".to_string())
+        );
 
         // Test remove
         archive.remove("test.xml");
@@ -285,8 +288,7 @@ mod tests {
         let mut manifest = Manifest::new();
         manifest.add_element(
             "fig1",
-            ElementMeta::new("figure")
-                .with_source("utf8dok/diagrams/fig1.mmd"),
+            ElementMeta::new("figure").with_source("utf8dok/diagrams/fig1.mmd"),
         );
 
         archive.set_manifest(&manifest).unwrap();

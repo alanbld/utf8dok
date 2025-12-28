@@ -401,7 +401,10 @@ impl Parser {
                     }));
                 }
             }
-            ParserState::Table { mut rows, current_row } => {
+            ParserState::Table {
+                mut rows,
+                current_row,
+            } => {
                 // Push any remaining current_row to rows
                 if !current_row.is_empty() {
                     rows.push(current_row);
@@ -464,9 +467,24 @@ impl Parser {
 
         // Check for known diagram types
         let known_diagram_types = [
-            "mermaid", "plantuml", "graphviz", "ditaa", "d2", "blockdiag",
-            "seqdiag", "actdiag", "nwdiag", "c4plantuml", "svgbob", "vega",
-            "vegalite", "wavedrom", "bytefield", "erd", "nomnoml", "pikchr",
+            "mermaid",
+            "plantuml",
+            "graphviz",
+            "ditaa",
+            "d2",
+            "blockdiag",
+            "seqdiag",
+            "actdiag",
+            "nwdiag",
+            "c4plantuml",
+            "svgbob",
+            "vega",
+            "vegalite",
+            "wavedrom",
+            "bytefield",
+            "erd",
+            "nomnoml",
+            "pikchr",
         ];
 
         let attr_lower = attr.to_lowercase();
@@ -526,7 +544,10 @@ fn parse_inlines(text: &str) -> Vec<Inline> {
                 let inline = match format_type {
                     "bold" => {
                         let content = &matched[1..matched.len() - 1]; // Remove * markers
-                        Inline::Format(FormatType::Bold, Box::new(Inline::Text(content.to_string())))
+                        Inline::Format(
+                            FormatType::Bold,
+                            Box::new(Inline::Text(content.to_string())),
+                        )
                     }
                     "italic" => {
                         let content = &matched[1..matched.len() - 1]; // Remove _ markers

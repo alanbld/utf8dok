@@ -23,8 +23,8 @@
 use std::fmt::Write;
 
 use utf8dok_ast::{
-    Admonition, AdmonitionType, Block, BreakType, Document, FormatType, Heading, Inline,
-    List, ListItem, ListType, LiteralBlock, Paragraph, Table,
+    Admonition, AdmonitionType, Block, BreakType, Document, FormatType, Heading, Inline, List,
+    ListItem, ListType, LiteralBlock, Paragraph, Table,
 };
 
 /// AsciiDoc generator configuration
@@ -440,10 +440,7 @@ mod tests {
         doc.push(Block::Paragraph(Paragraph {
             inlines: vec![
                 Inline::Text("This is ".to_string()),
-                Inline::Format(
-                    FormatType::Bold,
-                    Box::new(Inline::Text("bold".to_string())),
-                ),
+                Inline::Format(FormatType::Bold, Box::new(Inline::Text("bold".to_string()))),
                 Inline::Text(" text.".to_string()),
             ],
             style_id: None,

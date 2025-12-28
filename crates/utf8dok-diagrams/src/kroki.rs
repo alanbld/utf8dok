@@ -207,7 +207,9 @@ impl KrokiRenderer {
 
         let status = response.status();
         if !status.is_success() {
-            let message = response.text().unwrap_or_else(|_| "Unknown error".to_string());
+            let message = response
+                .text()
+                .unwrap_or_else(|_| "Unknown error".to_string());
             return Err(RenderError::RenderFailed(format!(
                 "Kroki error ({}): {}",
                 status.as_u16(),
@@ -246,7 +248,9 @@ impl KrokiRenderer {
 
         let status = response.status();
         if !status.is_success() {
-            let message = response.text().unwrap_or_else(|_| "Unknown error".to_string());
+            let message = response
+                .text()
+                .unwrap_or_else(|_| "Unknown error".to_string());
             return Err(RenderError::RenderFailed(format!(
                 "Kroki error ({}): {}",
                 status.as_u16(),
@@ -299,7 +303,9 @@ impl DiagramRenderer for KrokiRenderer {
         // Validate source
         let source = source.trim();
         if source.is_empty() {
-            return Err(RenderError::InvalidSource("Empty diagram source".to_string()));
+            return Err(RenderError::InvalidSource(
+                "Empty diagram source".to_string(),
+            ));
         }
 
         // Validate format

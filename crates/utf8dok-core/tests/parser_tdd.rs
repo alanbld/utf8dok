@@ -5,7 +5,9 @@
 
 use std::collections::HashMap;
 
-use utf8dok_ast::{Block, Document, DocumentMeta, FormatType, Heading, Inline, ListType, Paragraph};
+use utf8dok_ast::{
+    Block, Document, DocumentMeta, FormatType, Heading, Inline, ListType, Paragraph,
+};
 use utf8dok_core::parser;
 
 /// Test basic document parsing flow
@@ -125,21 +127,24 @@ fn test_parse_inline_formatting() {
         assert!(p.inlines.len() >= 7);
 
         // Check for bold
-        let has_bold = p.inlines.iter().any(|i| {
-            matches!(i, Inline::Format(FormatType::Bold, _))
-        });
+        let has_bold = p
+            .inlines
+            .iter()
+            .any(|i| matches!(i, Inline::Format(FormatType::Bold, _)));
         assert!(has_bold, "Should have bold formatting");
 
         // Check for italic
-        let has_italic = p.inlines.iter().any(|i| {
-            matches!(i, Inline::Format(FormatType::Italic, _))
-        });
+        let has_italic = p
+            .inlines
+            .iter()
+            .any(|i| matches!(i, Inline::Format(FormatType::Italic, _)));
         assert!(has_italic, "Should have italic formatting");
 
         // Check for monospace
-        let has_mono = p.inlines.iter().any(|i| {
-            matches!(i, Inline::Format(FormatType::Monospace, _))
-        });
+        let has_mono = p
+            .inlines
+            .iter()
+            .any(|i| matches!(i, Inline::Format(FormatType::Monospace, _)));
         assert!(has_mono, "Should have monospace formatting");
     } else {
         panic!("Expected Paragraph block");
@@ -295,9 +300,17 @@ fn test_parse_table_with_rows() {
 
     if let Block::Table(table) = &result.blocks[0] {
         // Should have 3 rows: header + 2 data rows
-        assert_eq!(table.rows.len(), 3, "Table should have 3 rows (header + 2 data)");
+        assert_eq!(
+            table.rows.len(),
+            3,
+            "Table should have 3 rows (header + 2 data)"
+        );
         // Each row should have 2 cells
-        assert_eq!(table.rows[0].cells.len(), 2, "Header row should have 2 cells");
+        assert_eq!(
+            table.rows[0].cells.len(),
+            2,
+            "Header row should have 2 cells"
+        );
         assert_eq!(table.rows[1].cells.len(), 2, "Row 1 should have 2 cells");
         assert_eq!(table.rows[2].cells.len(), 2, "Row 2 should have 2 cells");
     } else {

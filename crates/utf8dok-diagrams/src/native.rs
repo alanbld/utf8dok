@@ -92,11 +92,8 @@ impl NativeRenderer {
         let original_height = original_size.height();
 
         // Calculate target dimensions
-        let (target_width, target_height, scale) = self.calculate_dimensions(
-            original_width,
-            original_height,
-            options,
-        );
+        let (target_width, target_height, scale) =
+            self.calculate_dimensions(original_width, original_height, options);
 
         // Create pixmap
         let mut pixmap = tiny_skia::Pixmap::new(target_width, target_height).ok_or_else(|| {
@@ -205,7 +202,9 @@ impl DiagramRenderer for NativeRenderer {
         // Validate source is not empty
         let source = source.trim();
         if source.is_empty() {
-            return Err(RenderError::InvalidSource("Empty diagram source".to_string()));
+            return Err(RenderError::InvalidSource(
+                "Empty diagram source".to_string(),
+            ));
         }
 
         // Render based on diagram type

@@ -130,8 +130,16 @@ impl PluginEngine {
         // String helper: check for passive voice patterns (simple heuristic)
         engine.register_fn("has_passive_pattern", |text: &str| -> bool {
             let passive_patterns = [
-                "was ", "were ", "is being", "are being", "has been", "have been",
-                "had been", "will be ", "being ", "been ",
+                "was ",
+                "were ",
+                "is being",
+                "are being",
+                "has been",
+                "have been",
+                "had been",
+                "will be ",
+                "being ",
+                "been ",
             ];
             let lower = text.to_lowercase();
             passive_patterns.iter().any(|p| lower.contains(p))
@@ -167,8 +175,9 @@ impl PluginEngine {
         ast: &AST,
     ) -> Result<Vec<Diagnostic>> {
         // Convert document to Dynamic using serde
-        let doc_dynamic = rhai::serde::to_dynamic(doc)
-            .map_err(|e| PluginError::ExecutionError(format!("Failed to serialize document: {}", e)))?;
+        let doc_dynamic = rhai::serde::to_dynamic(doc).map_err(|e| {
+            PluginError::ExecutionError(format!("Failed to serialize document: {}", e))
+        })?;
 
         // Create scope with document
         let mut scope = Scope::new();
@@ -242,7 +251,10 @@ impl PluginEngine {
         }
 
         // Extract optional suggestion (also as help)
-        if let Some(suggestion) = map.get("suggestion").and_then(|v| v.clone().try_cast::<String>()) {
+        if let Some(suggestion) = map
+            .get("suggestion")
+            .and_then(|v| v.clone().try_cast::<String>())
+        {
             if diag.help.is_none() {
                 diag = diag.with_help(suggestion);
             } else {
@@ -256,7 +268,10 @@ impl PluginEngine {
         }
 
         // Extract optional context
-        if let Some(context) = map.get("context").and_then(|v| v.clone().try_cast::<String>()) {
+        if let Some(context) = map
+            .get("context")
+            .and_then(|v| v.clone().try_cast::<String>())
+        {
             diag = diag.with_context(context);
         }
 
@@ -289,7 +304,9 @@ mod tests {
                     attributes: HashMap::new(),
                 }),
                 Block::Paragraph(Paragraph {
-                    inlines: vec![Inline::Text("The report was written by the team.".to_string())],
+                    inlines: vec![Inline::Text(
+                        "The report was written by the team.".to_string(),
+                    )],
                     style_id: None,
                     attributes: HashMap::new(),
                 }),
@@ -538,7 +555,10 @@ mod tests {
 
         let result = engine.run_validation(&doc, &ast);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), PluginError::InvalidReturnType));
+        assert!(matches!(
+            result.unwrap_err(),
+            PluginError::InvalidReturnType
+        ));
     }
 
     #[test]
