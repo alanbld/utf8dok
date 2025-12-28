@@ -1,0 +1,18 @@
+[package]
+name = "utf8dok-validate"
+description = "Document validation engine for utf8dok"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["validation", "asciidoc", "document", "lint"]
+categories = ["text-processing"]
+
+[dependencies]
+utf8dok-ast = { path = "../utf8dok-ast" }
+utf8dok-core = { path = "../utf8dok-core" }
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1.0"

@@ -6,7 +6,7 @@ members = [
     "crates/utf8dok-cli",
     "crates/utf8dok-wasm",
     "crates/utf8dok-ooxml",
-    "crates/utf8dok-diagrams",
+    "crates/utf8dok-diagrams", "crates/utf8dok-validate",
 ]
 
 [workspace.package]
