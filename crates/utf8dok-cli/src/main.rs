@@ -17,8 +17,8 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 
 use utf8dok_core::diagnostics::Diagnostic;
-use utf8dok_core::{generate, parse};
-use utf8dok_ooxml::{convert_document_with_styles, Document, DocxWriter, OoxmlArchive, StyleSheet, Template};
+use utf8dok_core::parse;
+use utf8dok_ooxml::{AsciiDocExtractor, DocxWriter, OoxmlArchive, SourceOrigin, StyleSheet, Template};
 use utf8dok_plugins::PluginEngine;
 use utf8dok_validate::ValidationEngine;
 
@@ -50,6 +50,10 @@ enum Commands {
         /// Output directory
         #[arg(short, long, default_value = "output")]
         output: PathBuf,
+
+        /// Force parsing document.xml even if embedded source exists
+        #[arg(long)]
+        force_parse: bool,
     },
 
     /// Render AsciiDoc to DOCX using a template (coming soon)
@@ -85,8 +89,8 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Extract { input, output } => {
-            extract_command(&input, &output)?;
+        Commands::Extract { input, output, force_parse } => {
+            extract_command(&input, &output, force_parse)?;
         }
         Commands::Render {
             input,
@@ -104,7 +108,7 @@ fn main() -> Result<()> {
 }
 
 /// Execute the extract command
-fn extract_command(input: &PathBuf, output_dir: &PathBuf) -> Result<()> {
+fn extract_command(input: &PathBuf, output_dir: &PathBuf, force_parse: bool) -> Result<()> {
     println!("utf8dok v{}", utf8dok_core::VERSION);
     println!("Extracting: {}", input.display());
 
@@ -117,23 +121,28 @@ fn extract_command(input: &PathBuf, output_dir: &PathBuf) -> Result<()> {
     let archive = OoxmlArchive::open(input)
         .with_context(|| format!("Failed to open DOCX file: {}", input.display()))?;
 
-    // Parse document content
-    let document_xml = archive
-        .document_xml()
-        .context("Failed to read document.xml from archive")?;
-    let document = Document::parse(document_xml).context("Failed to parse document content")?;
+    // Use extractor with embedded source priority
+    let extractor = AsciiDocExtractor::new().with_force_parse(force_parse);
+    let extracted = extractor.extract_archive(&archive)
+        .with_context(|| format!("Failed to extract document: {}", input.display()))?;
 
-    // Parse styles
+    // Report source origin
+    match extracted.source_origin {
+        SourceOrigin::Embedded => {
+            println!("  Source: embedded utf8dok/source.adoc (round-trip document)");
+        }
+        SourceOrigin::Parsed => {
+            println!("  Source: parsed from document.xml");
+        }
+    }
+
+    let asciidoc = &extracted.asciidoc;
+
+    // Parse styles for config generation
     let styles_xml = archive
         .styles_xml()
         .context("Failed to read styles.xml from archive")?;
     let styles = StyleSheet::parse(styles_xml).context("Failed to parse styles")?;
-
-    // Convert to AST
-    let ast_doc = convert_document_with_styles(&document, &styles);
-
-    // Generate AsciiDoc
-    let asciidoc = generate(&ast_doc);
 
     // Create output directory
     fs::create_dir_all(output_dir).with_context(|| {
@@ -145,7 +154,7 @@ fn extract_command(input: &PathBuf, output_dir: &PathBuf) -> Result<()> {
 
     // Write AsciiDoc file
     let adoc_path = output_dir.join("document.adoc");
-    fs::write(&adoc_path, &asciidoc)
+    fs::write(&adoc_path, asciidoc)
         .with_context(|| format!("Failed to write AsciiDoc file: {}", adoc_path.display()))?;
     println!("  Created: {}", adoc_path.display());
 
@@ -164,7 +173,9 @@ fn extract_command(input: &PathBuf, output_dir: &PathBuf) -> Result<()> {
 
     println!();
     println!("Extraction complete!");
-    println!("  {} blocks extracted", ast_doc.blocks.len());
+    // Count non-empty lines as a rough indicator
+    let line_count = asciidoc.lines().filter(|l| !l.trim().is_empty()).count();
+    println!("  {} content lines", line_count);
 
     Ok(())
 }
@@ -394,9 +405,10 @@ mod tests {
         let cli = Cli::try_parse_from(args).unwrap();
 
         match cli.command {
-            Commands::Extract { input, output } => {
+            Commands::Extract { input, output, force_parse } => {
                 assert_eq!(input, PathBuf::from("test.docx"));
                 assert_eq!(output, PathBuf::from("result"));
+                assert!(!force_parse);
             }
             _ => panic!("Expected Extract command"),
         }
@@ -408,9 +420,25 @@ mod tests {
         let cli = Cli::try_parse_from(args).unwrap();
 
         match cli.command {
-            Commands::Extract { input, output } => {
+            Commands::Extract { input, output, force_parse } => {
                 assert_eq!(input, PathBuf::from("test.docx"));
                 assert_eq!(output, PathBuf::from("output"));
+                assert!(!force_parse);
+            }
+            _ => panic!("Expected Extract command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_extract_force_parse() {
+        let args = vec!["utf8dok", "extract", "test.docx", "--force-parse"];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Commands::Extract { input, output, force_parse } => {
+                assert_eq!(input, PathBuf::from("test.docx"));
+                assert_eq!(output, PathBuf::from("output"));
+                assert!(force_parse);
             }
             _ => panic!("Expected Extract command"),
         }

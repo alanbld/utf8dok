@@ -8,7 +8,7 @@ use std::io::{Cursor, Write};
 
 use tempfile::TempDir;
 use utf8dok_core::parse;
-use utf8dok_ooxml::{DocxWriter, OoxmlArchive, Template};
+use utf8dok_ooxml::{AsciiDocExtractor, DocxWriter, OoxmlArchive, SourceOrigin, Template};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
@@ -257,4 +257,132 @@ fn test_manifest_contains_hashes() {
     if let Some(config_entry) = parsed.get("config") {
         assert!(config_entry.get("hash").is_some(), "Config entry should have hash");
     }
+}
+
+#[test]
+fn test_extract_embedded_priority() {
+    // Create a self-contained DOCX with embedded source
+    let original_source = "= Embedded Test\n\nThis is the original embedded source.\n";
+    let config = "[template]\npath = \"test.dotx\"\n";
+
+    let template = Template::from_bytes(&create_test_template()).unwrap();
+    let ast = parse(original_source).unwrap();
+
+    let mut writer = DocxWriter::new();
+    writer.set_source(original_source);
+    writer.set_config(config);
+
+    let docx_bytes = writer.generate_with_template(&ast, template).unwrap();
+
+    // Extract from the DOCX - should return embedded source
+    let cursor = Cursor::new(&docx_bytes);
+    let archive = OoxmlArchive::from_reader(cursor).unwrap();
+
+    let extractor = AsciiDocExtractor::new();
+    let extracted = extractor.extract_archive(&archive).unwrap();
+
+    // Verify embedded source is returned
+    assert_eq!(extracted.source_origin, SourceOrigin::Embedded,
+        "Should return Embedded origin for self-contained DOCX");
+    assert_eq!(extracted.asciidoc, original_source,
+        "Should return exact embedded source content");
+}
+
+#[test]
+fn test_extract_force_parse() {
+    // Create a self-contained DOCX with embedded source
+    let original_source = "= Force Parse Test\n\nThis is the embedded source.\n";
+    let config = "[template]\npath = \"test.dotx\"\n";
+
+    let template = Template::from_bytes(&create_test_template()).unwrap();
+    let ast = parse(original_source).unwrap();
+
+    let mut writer = DocxWriter::new();
+    writer.set_source(original_source);
+    writer.set_config(config);
+
+    let docx_bytes = writer.generate_with_template(&ast, template).unwrap();
+
+    // Extract with force_parse = true
+    let cursor = Cursor::new(&docx_bytes);
+    let archive = OoxmlArchive::from_reader(cursor).unwrap();
+
+    let extractor = AsciiDocExtractor::new().with_force_parse(true);
+    let extracted = extractor.extract_archive(&archive).unwrap();
+
+    // Verify source was parsed from document.xml, not embedded
+    assert_eq!(extracted.source_origin, SourceOrigin::Parsed,
+        "Should return Parsed origin when force_parse is set");
+    // The parsed content will be different from original (regenerated from OOXML)
+    // The title "Force Parse Test" becomes document title (= Title), check for the body content
+    assert!(extracted.asciidoc.contains("embedded source"),
+        "Parsed content should contain body text: {}", extracted.asciidoc);
+}
+
+#[test]
+fn test_extract_no_embedded_source() {
+    // Create a DOCX without embedded source (simulate regular Word document)
+    let mut buffer = Cursor::new(Vec::new());
+    let mut zip = ZipWriter::new(&mut buffer);
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+
+    // [Content_Types].xml
+    zip.start_file("[Content_Types].xml", options).unwrap();
+    zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+</Types>"#).unwrap();
+
+    // _rels/.rels
+    zip.start_file("_rels/.rels", options).unwrap();
+    zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>"#).unwrap();
+
+    // word/_rels/document.xml.rels
+    zip.start_file("word/_rels/document.xml.rels", options).unwrap();
+    zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>"#).unwrap();
+
+    // word/styles.xml
+    zip.start_file("word/styles.xml", options).unwrap();
+    zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:style w:type="paragraph" w:styleId="Normal" w:default="1">
+    <w:name w:val="Normal"/>
+  </w:style>
+</w:styles>"#).unwrap();
+
+    // word/document.xml with content
+    zip.start_file("word/document.xml", options).unwrap();
+    zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p>
+      <w:r><w:t>Hello from regular DOCX</w:t></w:r>
+    </w:p>
+  </w:body>
+</w:document>"#).unwrap();
+
+    zip.finish().unwrap();
+    let docx_bytes = buffer.into_inner();
+
+    // Extract - should parse since no embedded source
+    let cursor = Cursor::new(&docx_bytes);
+    let archive = OoxmlArchive::from_reader(cursor).unwrap();
+
+    let extractor = AsciiDocExtractor::new();
+    let extracted = extractor.extract_archive(&archive).unwrap();
+
+    // Verify source was parsed
+    assert_eq!(extracted.source_origin, SourceOrigin::Parsed,
+        "Should return Parsed origin for regular DOCX without embedded source");
+    assert!(extracted.asciidoc.contains("Hello from regular DOCX"),
+        "Should contain parsed content");
 }

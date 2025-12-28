@@ -39,7 +39,7 @@ pub use document::{
     Block, Document, Hyperlink, Paragraph, ParagraphChild, Run, Table, TableCell, TableRow,
 };
 pub use error::{OoxmlError, Result};
-pub use extract::{AsciiDocExtractor, ExtractedDocument};
+pub use extract::{AsciiDocExtractor, ExtractedDocument, SourceOrigin};
 pub use manifest::{ElementMeta, Manifest, MANIFEST_PATH};
 pub use relationships::Relationships;
 pub use styles::{ElementType, Style, StyleMap, StyleSheet, StyleType};

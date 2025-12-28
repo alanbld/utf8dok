@@ -2,6 +2,10 @@
 //!
 //! This module converts OOXML documents to AsciiDoc format,
 //! preserving structure and generating style mappings.
+//!
+//! When extracting from a self-contained utf8dok DOCX, the extractor
+//! prioritizes the embedded `utf8dok/source.adoc` over parsing the
+//! document content (unless `force_parse` is set).
 
 use std::fmt::Write;
 use std::path::Path;
@@ -12,6 +16,15 @@ use crate::error::Result;
 use crate::relationships::Relationships;
 use crate::styles::StyleSheet;
 
+/// Indicates the origin of the extracted AsciiDoc content
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceOrigin {
+    /// Content was extracted from embedded `utf8dok/source.adoc`
+    Embedded,
+    /// Content was parsed/generated from document.xml
+    Parsed,
+}
+
 /// Result of extracting a document
 #[derive(Debug)]
 pub struct ExtractedDocument {
@@ -21,6 +34,8 @@ pub struct ExtractedDocument {
     pub style_mappings: StyleMappings,
     /// Document metadata extracted from properties
     pub metadata: DocumentMetadata,
+    /// Indicates where the AsciiDoc content came from
+    pub source_origin: SourceOrigin,
 }
 
 /// Style mappings detected from the document
@@ -55,6 +70,8 @@ pub struct AsciiDocExtractor {
     pub extract_tables: bool,
     /// Preserve inline formatting (bold, italic)
     pub preserve_formatting: bool,
+    /// Force parsing document.xml even if embedded source exists
+    pub force_parse: bool,
 }
 
 impl Default for AsciiDocExtractor {
@@ -63,6 +80,7 @@ impl Default for AsciiDocExtractor {
             include_header: true,
             extract_tables: true,
             preserve_formatting: true,
+            force_parse: false,
         }
     }
 }
@@ -73,6 +91,12 @@ impl AsciiDocExtractor {
         Self::default()
     }
 
+    /// Set whether to force parsing document.xml even if embedded source exists
+    pub fn with_force_parse(mut self, force: bool) -> Self {
+        self.force_parse = force;
+        self
+    }
+
     /// Extract a document from a file path
     pub fn extract_file<P: AsRef<Path>>(&self, path: P) -> Result<ExtractedDocument> {
         let archive = OoxmlArchive::open(path)?;
@@ -80,7 +104,28 @@ impl AsciiDocExtractor {
     }
 
     /// Extract from an already-opened archive
+    ///
+    /// If the archive contains embedded utf8dok source (from a previous render),
+    /// that source is returned directly unless `force_parse` is set.
     pub fn extract_archive(&self, archive: &OoxmlArchive) -> Result<ExtractedDocument> {
+        // Check for embedded source first (unless force_parse is set)
+        if !self.force_parse {
+            if let Ok(Some(embedded_source)) = archive.read_utf8dok_string("source.adoc") {
+                // Parse styles for style mappings even when using embedded source
+                let styles = StyleSheet::parse(archive.styles_xml()?)?;
+                let style_mappings = self.detect_style_mappings(&styles);
+                let metadata = DocumentMetadata::default();
+
+                return Ok(ExtractedDocument {
+                    asciidoc: embedded_source,
+                    style_mappings,
+                    metadata,
+                    source_origin: SourceOrigin::Embedded,
+                });
+            }
+        }
+
+        // Parse document.xml and generate AsciiDoc
         let document = Document::parse(archive.document_xml()?)?;
         let styles = StyleSheet::parse(archive.styles_xml()?)?;
 
@@ -98,6 +143,7 @@ impl AsciiDocExtractor {
             asciidoc,
             style_mappings,
             metadata,
+            source_origin: SourceOrigin::Parsed,
         })
     }
 
@@ -142,7 +188,7 @@ impl AsciiDocExtractor {
                     }
 
                     let text = self.convert_paragraph_with_rels(para, rels);
-                    
+
                     // Check if this is a heading
                     if let Some(ref style_id) = para.style_id {
                         if let Some(level) = styles.heading_level(style_id) {
@@ -191,7 +237,11 @@ impl AsciiDocExtractor {
     }
 
     /// Convert a paragraph to AsciiDoc text with relationship resolution
-    fn convert_paragraph_with_rels(&self, para: &Paragraph, rels: Option<&Relationships>) -> String {
+    fn convert_paragraph_with_rels(
+        &self,
+        para: &Paragraph,
+        rels: Option<&Relationships>,
+    ) -> String {
         let mut result = String::new();
 
         for child in &para.children {
@@ -233,11 +283,7 @@ impl AsciiDocExtractor {
     /// Convert a hyperlink to AsciiDoc format
     fn convert_hyperlink(&self, hyperlink: &Hyperlink, rels: Option<&Relationships>) -> String {
         // Get the link text from the runs
-        let text: String = hyperlink
-            .runs
-            .iter()
-            .map(|r| self.convert_run(r))
-            .collect();
+        let text: String = hyperlink.runs.iter().map(|r| self.convert_run(r)).collect();
 
         // Resolve the target URL
         let target = if let Some(ref id) = hyperlink.id {
@@ -268,18 +314,19 @@ impl AsciiDocExtractor {
         let mut output = String::new();
 
         // Determine column count
-        let col_count = table
-            .rows
-            .first()
-            .map(|r| r.cells.len())
-            .unwrap_or(0);
+        let col_count = table.rows.first().map(|r| r.cells.len()).unwrap_or(0);
 
         if col_count == 0 {
             return output;
         }
 
         // Table header
-        writeln!(output, "[cols=\"{}\", options=\"header\"]", vec!["1"; col_count].join(",")).unwrap();
+        writeln!(
+            output,
+            "[cols=\"{}\", options=\"header\"]",
+            vec!["1"; col_count].join(",")
+        )
+        .unwrap();
         writeln!(output, "|===").unwrap();
 
         for (row_idx, row) in table.rows.iter().enumerate() {
@@ -325,7 +372,7 @@ impl StyleMappings {
         let mut output = String::new();
 
         writeln!(output, "[styles]").unwrap();
-        
+
         for (level, id) in &self.headings {
             writeln!(output, "heading{} = \"{}\"", level, id).unwrap();
         }
@@ -369,10 +416,7 @@ mod tests {
     #[test]
     fn test_style_mappings_to_toml() {
         let mappings = StyleMappings {
-            headings: vec![
-                (1, "Heading1".to_string()),
-                (2, "Heading2".to_string()),
-            ],
+            headings: vec![(1, "Heading1".to_string()), (2, "Heading2".to_string())],
             paragraph: Some("Normal".to_string()),
             ..Default::default()
         };
