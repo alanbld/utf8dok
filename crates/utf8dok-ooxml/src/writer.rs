@@ -1,6 +1,7 @@
 //! DOCX Writer
 //!
 //! This module writes `utf8dok_ast::Document` to DOCX format using a template.
+//! It supports rendering diagrams (Mermaid, PlantUML, etc.) as embedded images.
 //!
 //! # Example
 //!
@@ -16,20 +17,60 @@
 
 use std::io::Cursor;
 
+use sha2::{Digest, Sha256};
 use utf8dok_ast::{
     Block, Document, FormatType, Heading, Inline, List, ListItem, ListType, Paragraph, Table,
 };
+use utf8dok_diagrams::{DiagramType, KrokiClient, OutputFormat};
 
 use crate::archive::OoxmlArchive;
 use crate::error::Result;
+use crate::manifest::{ElementMeta, Manifest};
+use crate::relationships::Relationships;
 
 /// Default paragraph style when none is specified
 const DEFAULT_PARAGRAPH_STYLE: &str = "Normal";
+
+/// Known diagram style IDs that should be rendered as images
+const DIAGRAM_STYLES: &[&str] = &[
+    "mermaid",
+    "plantuml",
+    "graphviz",
+    "dot",
+    "d2",
+    "ditaa",
+    "blockdiag",
+    "seqdiag",
+    "actdiag",
+    "nwdiag",
+    "c4plantuml",
+    "erd",
+    "nomnoml",
+    "pikchr",
+    "structurizr",
+    "vega",
+    "vegalite",
+    "wavedrom",
+];
 
 /// DOCX Writer for generating DOCX files from AST
 pub struct DocxWriter {
     /// XML output buffer
     output: String,
+    /// Document relationships (word/_rels/document.xml.rels)
+    relationships: Relationships,
+    /// Media files to embed (path, bytes)
+    media_files: Vec<(String, Vec<u8>)>,
+    /// Diagram source files to embed (path, content)
+    diagram_sources: Vec<(String, String)>,
+    /// Document manifest
+    manifest: Manifest,
+    /// Next image ID for unique naming
+    next_image_id: usize,
+    /// Next drawing ID for docPr
+    next_drawing_id: usize,
+    /// Kroki client for diagram rendering
+    kroki_client: Option<KrokiClient>,
 }
 
 impl DocxWriter {
@@ -37,7 +78,29 @@ impl DocxWriter {
     fn new() -> Self {
         Self {
             output: String::new(),
+            relationships: Relationships::new(),
+            media_files: Vec::new(),
+            diagram_sources: Vec::new(),
+            manifest: Manifest::new(),
+            next_image_id: 1,
+            next_drawing_id: 1,
+            kroki_client: None,
         }
+    }
+
+    /// Initialize the writer from a template archive
+    fn init_from_template(&mut self, archive: &OoxmlArchive) -> Result<()> {
+        // Parse existing relationships from template
+        if let Some(rels_xml) = archive.get("word/_rels/document.xml.rels") {
+            self.relationships = Relationships::parse(rels_xml)?;
+        }
+
+        // Parse existing manifest if present
+        if let Some(manifest_bytes) = archive.read_utf8dok_file("manifest.json") {
+            self.manifest = Manifest::from_json_bytes(manifest_bytes)?;
+        }
+
+        Ok(())
     }
 
     /// Generate a DOCX file from an AST Document using a template
@@ -51,16 +114,63 @@ impl DocxWriter {
     ///
     /// The generated DOCX file as bytes
     pub fn generate(doc: &Document, template: &[u8]) -> Result<Vec<u8>> {
+        Self::generate_with_options(doc, template, true)
+    }
+
+    /// Generate a DOCX file with options
+    ///
+    /// # Arguments
+    ///
+    /// * `doc` - The AST document to convert
+    /// * `template` - The template DOCX file as bytes
+    /// * `render_diagrams` - Whether to render diagrams via Kroki
+    pub fn generate_with_options(
+        doc: &Document,
+        template: &[u8],
+        render_diagrams: bool,
+    ) -> Result<Vec<u8>> {
         // Load the template archive
         let cursor = Cursor::new(template);
         let mut archive = OoxmlArchive::from_reader(cursor)?;
 
-        // Generate the document XML
+        // Initialize writer from template
         let mut writer = DocxWriter::new();
+        writer.init_from_template(&archive)?;
+
+        // Initialize Kroki client if rendering diagrams
+        if render_diagrams {
+            writer.kroki_client = Some(KrokiClient::new());
+        }
+
+        // Generate the document XML
         let document_xml = writer.generate_document_xml(doc);
 
-        // Replace word/document.xml in the archive
+        // Write word/document.xml
         archive.set_string("word/document.xml", document_xml);
+
+        // Write word/_rels/document.xml.rels
+        archive.set_string("word/_rels/document.xml.rels", writer.relationships.to_xml());
+
+        // Write media files
+        for (path, data) in &writer.media_files {
+            archive.set(path.clone(), data.clone());
+        }
+
+        // Write diagram source files
+        for (path, content) in &writer.diagram_sources {
+            archive.set(path.clone(), content.as_bytes().to_vec());
+        }
+
+        // Write manifest if we have tracked elements
+        if !writer.manifest.is_empty() {
+            let manifest_json = writer.manifest.to_json()?;
+            archive.set_string("utf8dok/manifest.json", manifest_json);
+        }
+
+        // Update [Content_Types].xml to include PNG if we have images
+        if !writer.media_files.is_empty() {
+            writer.update_content_types(&mut archive)?;
+        }
 
         // Write to output buffer
         let mut output = Cursor::new(Vec::new());
@@ -69,15 +179,35 @@ impl DocxWriter {
         Ok(output.into_inner())
     }
 
+    /// Update [Content_Types].xml to include PNG extension
+    fn update_content_types(&self, archive: &mut OoxmlArchive) -> Result<()> {
+        if let Some(content_types) = archive.get_string("[Content_Types].xml")? {
+            // Check if PNG is already defined
+            if !content_types.contains("Extension=\"png\"") {
+                // Add PNG content type before closing </Types>
+                let new_content_types = content_types.replace(
+                    "</Types>",
+                    "  <Default Extension=\"png\" ContentType=\"image/png\"/>\n</Types>",
+                );
+                archive.set_string("[Content_Types].xml", new_content_types);
+            }
+        }
+        Ok(())
+    }
+
     /// Generate the complete document.xml content
     fn generate_document_xml(&mut self, doc: &Document) -> String {
         self.output.clear();
 
-        // XML declaration and document root
+        // XML declaration and document root with all required namespaces
         self.output.push_str(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"#);
         self.output.push('\n');
-        self.output.push_str(r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" "#);
-        self.output.push_str(r#"xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">"#);
+        self.output.push_str(r#"<w:document "#);
+        self.output.push_str(r#"xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" "#);
+        self.output.push_str(r#"xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" "#);
+        self.output.push_str(r#"xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" "#);
+        self.output.push_str(r#"xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" "#);
+        self.output.push_str(r#"xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">"#);
         self.output.push('\n');
         self.output.push_str("<w:body>\n");
 
@@ -309,7 +439,19 @@ impl DocxWriter {
 
     /// Generate XML for a literal/code block
     fn generate_literal(&mut self, literal: &utf8dok_ast::LiteralBlock) {
-        // Code blocks become paragraphs with monospace style
+        // Check if this is a diagram block
+        if let Some(style) = &literal.style_id {
+            let style_lower = style.to_lowercase();
+            if DIAGRAM_STYLES.contains(&style_lower.as_str()) && self.kroki_client.is_some() {
+                // Attempt to render as diagram
+                if self.generate_diagram(literal, &style_lower) {
+                    return; // Successfully rendered as diagram
+                }
+                // Fall through to code block if rendering fails
+            }
+        }
+
+        // Regular code block rendering
         self.output.push_str("<w:p>\n");
         self.output.push_str("<w:pPr>\n");
         let style = literal.style_id.as_deref().unwrap_or("CodeBlock");
@@ -328,6 +470,132 @@ impl DocxWriter {
         ));
         self.output.push_str("</w:r>\n");
 
+        self.output.push_str("</w:p>\n");
+    }
+
+    /// Generate a diagram as an embedded image
+    ///
+    /// Returns true if successful, false if rendering failed
+    fn generate_diagram(&mut self, literal: &utf8dok_ast::LiteralBlock, style: &str) -> bool {
+        let client = match &self.kroki_client {
+            Some(c) => c,
+            None => return false,
+        };
+
+        // Map style to DiagramType
+        let diagram_type = match style {
+            "mermaid" => DiagramType::Mermaid,
+            "plantuml" => DiagramType::PlantUml,
+            "graphviz" | "dot" => DiagramType::GraphViz,
+            "d2" => DiagramType::D2,
+            "ditaa" => DiagramType::Ditaa,
+            "blockdiag" => DiagramType::BlockDiag,
+            "seqdiag" => DiagramType::SeqDiag,
+            "actdiag" => DiagramType::ActDiag,
+            "nwdiag" => DiagramType::NwDiag,
+            "c4plantuml" => DiagramType::C4PlantUml,
+            "erd" => DiagramType::Erd,
+            "nomnoml" => DiagramType::Nomnoml,
+            "pikchr" => DiagramType::Pikchr,
+            "structurizr" => DiagramType::Structurizr,
+            "vega" => DiagramType::Vega,
+            "vegalite" => DiagramType::VegaLite,
+            "wavedrom" => DiagramType::WaveDrom,
+            _ => return false,
+        };
+
+        // Render the diagram to PNG
+        let png_data = match client.render(&literal.content, diagram_type, OutputFormat::Png) {
+            Ok(data) => data,
+            Err(_) => return false, // Silently fall back to code block
+        };
+
+        // Generate unique IDs
+        let image_id = self.next_image_id;
+        self.next_image_id += 1;
+        let drawing_id = self.next_drawing_id;
+        self.next_drawing_id += 1;
+
+        // Determine file extension for diagram source
+        let source_ext = match style {
+            "mermaid" => "mmd",
+            "plantuml" | "c4plantuml" => "puml",
+            "graphviz" | "dot" => "dot",
+            "d2" => "d2",
+            _ => "txt",
+        };
+
+        // Store media file
+        let media_path = format!("word/media/image{}.png", image_id);
+        self.media_files.push((media_path.clone(), png_data));
+
+        // Store diagram source
+        let source_path = format!("utf8dok/diagrams/fig{}.{}", image_id, source_ext);
+        self.diagram_sources.push((source_path.clone(), literal.content.clone()));
+
+        // Add relationship
+        let rel_id = self.relationships.add(
+            format!("media/image{}.png", image_id),
+            Relationships::TYPE_IMAGE.to_string(),
+        );
+
+        // Compute content hash for manifest
+        let mut hasher = Sha256::new();
+        hasher.update(literal.content.as_bytes());
+        let hash = format!("{:x}", hasher.finalize());
+
+        // Add to manifest
+        self.manifest.add_element(
+            format!("fig{}", image_id),
+            ElementMeta::new("figure")
+                .with_source(source_path)
+                .with_hash(hash)
+                .with_description(format!("{} diagram", style)),
+        );
+
+        // Generate the drawing XML
+        self.generate_drawing_xml(drawing_id, &rel_id);
+
+        true
+    }
+
+    /// Generate the <w:drawing> XML for an embedded image
+    fn generate_drawing_xml(&mut self, drawing_id: usize, rel_id: &str) {
+        // Approximate 6x4 inches in EMUs (914400 EMUs per inch)
+        let cx = 5715000; // ~6.25 inches
+        let cy = 3810000; // ~4.17 inches
+
+        self.output.push_str("<w:p>\n");
+        self.output.push_str("  <w:r>\n");
+        self.output.push_str("    <w:drawing>\n");
+        self.output.push_str(&format!(
+            r#"      <wp:inline distT="0" distB="0" distL="0" distR="0">
+        <wp:extent cx="{}" cy="{}"/>
+        <wp:docPr id="{}" name="Diagram {}"/>
+        <a:graphic>
+          <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+            <pic:pic>
+              <pic:nvPicPr>
+                <pic:cNvPr id="{}" name="Diagram"/>
+                <pic:cNvPicPr/>
+              </pic:nvPicPr>
+              <pic:blipFill>
+                <a:blip r:embed="{}"/>
+                <a:stretch><a:fillRect/></a:stretch>
+              </pic:blipFill>
+              <pic:spPr>
+                <a:xfrm><a:off x="0" y="0"/><a:ext cx="{}" cy="{}"/></a:xfrm>
+                <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+              </pic:spPr>
+            </pic:pic>
+          </a:graphicData>
+        </a:graphic>
+      </wp:inline>
+"#,
+            cx, cy, drawing_id, drawing_id, drawing_id, rel_id, cx, cy
+        ));
+        self.output.push_str("    </w:drawing>\n");
+        self.output.push_str("  </w:r>\n");
         self.output.push_str("</w:p>\n");
     }
 
@@ -399,12 +667,18 @@ impl DocxWriter {
                     self.output.push_str("</w:r>\n");
                     self.output.push_str("</w:hyperlink>\n");
                 } else {
-                    // External link: requires r:id relationship (TODO: implement properly)
-                    // For now, output as styled text with blue underline
+                    // External link: add relationship and use r:id
+                    let rel_id = self.relationships.add(
+                        link.url.clone(),
+                        Relationships::TYPE_HYPERLINK.to_string(),
+                    );
+                    self.output.push_str(&format!(
+                        "<w:hyperlink r:id=\"{}\">\n",
+                        escape_xml(&rel_id)
+                    ));
                     self.output.push_str("<w:r>\n");
                     self.output.push_str("<w:rPr>\n");
-                    self.output.push_str("<w:color w:val=\"0000FF\"/>\n");
-                    self.output.push_str("<w:u w:val=\"single\"/>\n");
+                    self.output.push_str("<w:rStyle w:val=\"Hyperlink\"/>\n");
                     self.output.push_str("</w:rPr>\n");
                     for text_inline in &link.text {
                         if let Inline::Text(text) = text_inline {
@@ -413,6 +687,7 @@ impl DocxWriter {
                         }
                     }
                     self.output.push_str("</w:r>\n");
+                    self.output.push_str("</w:hyperlink>\n");
                 }
             }
             Inline::Image(_image) => {
@@ -565,8 +840,8 @@ mod tests {
             ],
         };
 
-        // Generate DOCX
-        let result = DocxWriter::generate(&doc, &template);
+        // Generate DOCX without diagram rendering
+        let result = DocxWriter::generate_with_options(&doc, &template, false);
         assert!(result.is_ok(), "Failed to generate DOCX: {:?}", result.err());
 
         let output = result.unwrap();
@@ -628,7 +903,7 @@ mod tests {
             })],
         };
 
-        let result = DocxWriter::generate(&doc, &template);
+        let result = DocxWriter::generate_with_options(&doc, &template, false);
         assert!(result.is_ok());
 
         let output = result.unwrap();
@@ -706,7 +981,7 @@ mod tests {
             })],
         };
 
-        let result = DocxWriter::generate(&doc, &template);
+        let result = DocxWriter::generate_with_options(&doc, &template, false);
         assert!(result.is_ok());
 
         let output = result.unwrap();
@@ -739,7 +1014,7 @@ mod tests {
             })],
         };
 
-        let result = DocxWriter::generate(&doc, &template);
+        let result = DocxWriter::generate_with_options(&doc, &template, false);
         assert!(result.is_ok());
 
         let output = result.unwrap();
@@ -750,5 +1025,78 @@ mod tests {
         assert!(doc_xml.contains("<w:b/>"));
         assert!(doc_xml.contains("<w:i/>"));
         assert!(doc_xml.contains("Courier New"));
+    }
+
+    #[test]
+    fn test_external_hyperlink_with_relationship() {
+        let template = create_minimal_template();
+
+        let doc = Document {
+            metadata: utf8dok_ast::DocumentMeta::default(),
+            blocks: vec![Block::Paragraph(Paragraph {
+                inlines: vec![Inline::Link(utf8dok_ast::Link {
+                    url: "https://example.com".to_string(),
+                    text: vec![Inline::Text("Example".to_string())],
+                })],
+                style_id: None,
+                attributes: HashMap::new(),
+            })],
+        };
+
+        let result = DocxWriter::generate_with_options(&doc, &template, false);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        let cursor = Cursor::new(&output);
+        let archive = OoxmlArchive::from_reader(cursor).unwrap();
+
+        // Check document.xml has hyperlink with r:id
+        let doc_xml = archive.get_string("word/document.xml").unwrap().unwrap();
+        assert!(doc_xml.contains("r:id=\"rId"), "Hyperlink should have r:id");
+        assert!(doc_xml.contains("Example"), "Link text should be present");
+
+        // Check relationships file has the hyperlink
+        let rels_xml = archive.get_string("word/_rels/document.xml.rels").unwrap().unwrap();
+        assert!(rels_xml.contains("https://example.com"), "Relationship should have URL");
+        assert!(rels_xml.contains("hyperlink"), "Relationship type should be hyperlink");
+    }
+
+    #[test]
+    fn test_diagram_styles_recognized() {
+        // Test that known diagram styles are in the list
+        assert!(DIAGRAM_STYLES.contains(&"mermaid"));
+        assert!(DIAGRAM_STYLES.contains(&"plantuml"));
+        assert!(DIAGRAM_STYLES.contains(&"graphviz"));
+        assert!(DIAGRAM_STYLES.contains(&"d2"));
+    }
+
+    #[test]
+    fn test_code_block_without_diagram_rendering() {
+        let template = create_minimal_template();
+
+        // Create a document with a mermaid block but disable diagram rendering
+        let doc = Document {
+            metadata: utf8dok_ast::DocumentMeta::default(),
+            blocks: vec![Block::Literal(utf8dok_ast::LiteralBlock {
+                content: "graph TD; A-->B;".to_string(),
+                language: None,
+                title: None,
+                style_id: Some("mermaid".to_string()),
+            })],
+        };
+
+        // Generate without diagram rendering - should fall back to code block
+        let result = DocxWriter::generate_with_options(&doc, &template, false);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        let cursor = Cursor::new(&output);
+        let archive = OoxmlArchive::from_reader(cursor).unwrap();
+        let doc_xml = archive.get_string("word/document.xml").unwrap().unwrap();
+
+        // Should be rendered as code block, not image
+        assert!(doc_xml.contains("graph TD"), "Content should be present as code");
+        assert!(doc_xml.contains("Courier New"), "Should have monospace font");
+        assert!(!doc_xml.contains("<w:drawing>"), "Should not have drawing element");
     }
 }

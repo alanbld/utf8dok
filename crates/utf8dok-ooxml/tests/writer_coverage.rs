@@ -593,18 +593,18 @@ fn test_write_external_hyperlink() {
         })],
     };
 
-    let result = DocxWriter::generate(&doc, &template).unwrap();
+    let result = DocxWriter::generate_with_options(&doc, &template, false).unwrap();
     let xml = extract_document_xml(&result);
 
-    // External links are styled as blue underlined text (TODO: proper r:id)
+    // External links use r:id and Hyperlink style
     assert!(
-        xml.contains("<w:color w:val=\"0000FF\"/>"),
-        "Should have blue color: {}",
+        xml.contains("r:id=\"rId"),
+        "Should have relationship ID: {}",
         xml
     );
     assert!(
-        xml.contains("<w:u w:val=\"single\"/>"),
-        "Should have underline: {}",
+        xml.contains("<w:rStyle w:val=\"Hyperlink\"/>"),
+        "Should have Hyperlink style: {}",
         xml
     );
     assert!(
