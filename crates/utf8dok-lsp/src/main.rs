@@ -13,12 +13,26 @@
 //! RUST_LOG=debug utf8dok-lsp
 //! ```
 
+mod structural;
+
+use std::collections::HashMap;
 use std::sync::Arc;
+
+use structural::FoldingAnalyzer;
 
 use serde_json::Value;
 use tokio::sync::RwLock;
 use tower_lsp::jsonrpc::Result;
-use tower_lsp::lsp_types::*;
+use tower_lsp::lsp_types::{
+    DiagnosticOptions, DiagnosticRelatedInformation, DiagnosticServerCapabilities,
+    DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, FoldingRange,
+    FoldingRangeParams, FoldingRangeProviderCapability, InitializeParams, InitializeResult,
+    InitializedParams, Location, MessageType, NumberOrString, Position, Range,
+    ServerCapabilities, ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
+    WorkDoneProgressOptions,
+};
+use tower_lsp::lsp_types::Diagnostic;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 use tracing::{debug, info, warn};
 
@@ -32,6 +46,8 @@ struct Backend {
     client: Client,
     /// Validation engine with default validators
     validation_engine: Arc<RwLock<ValidationEngine>>,
+    /// Document store for open documents
+    documents: Arc<RwLock<HashMap<Url, String>>>,
 }
 
 impl Backend {
@@ -40,7 +56,26 @@ impl Backend {
         Self {
             client,
             validation_engine: Arc::new(RwLock::new(ValidationEngine::with_defaults())),
+            documents: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    /// Get document text by URI
+    async fn get_document(&self, uri: &Url) -> Option<String> {
+        let docs = self.documents.read().await;
+        docs.get(uri).cloned()
+    }
+
+    /// Store document text
+    async fn store_document(&self, uri: Url, text: String) {
+        let mut docs = self.documents.write().await;
+        docs.insert(uri, text);
+    }
+
+    /// Remove document from store
+    async fn remove_document(&self, uri: &Url) {
+        let mut docs = self.documents.write().await;
+        docs.remove(uri);
     }
 
     /// Validate a document and publish diagnostics
@@ -263,7 +298,7 @@ impl LanguageServer for Backend {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::FULL,
                 )),
-                // We only provide diagnostics for now
+                // Diagnostics
                 diagnostic_provider: Some(DiagnosticServerCapabilities::Options(
                     DiagnosticOptions {
                         identifier: Some("utf8dok".to_string()),
@@ -272,6 +307,8 @@ impl LanguageServer for Backend {
                         work_done_progress_options: WorkDoneProgressOptions::default(),
                     },
                 )),
+                // Folding ranges (Phase 7)
+                folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -295,15 +332,20 @@ impl LanguageServer for Backend {
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         debug!("Document opened: {}", params.text_document.uri);
-        self.validate(params.text_document.uri, params.text_document.text)
-            .await;
+        let uri = params.text_document.uri.clone();
+        let text = params.text_document.text.clone();
+        self.store_document(uri.clone(), text.clone()).await;
+        self.validate(uri, text).await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         debug!("Document changed: {}", params.text_document.uri);
         // Since we use FULL sync, the entire content is in the first change
         if let Some(change) = params.content_changes.into_iter().next() {
-            self.validate(params.text_document.uri, change.text).await;
+            let uri = params.text_document.uri.clone();
+            let text = change.text.clone();
+            self.store_document(uri.clone(), text.clone()).await;
+            self.validate(uri, text).await;
         }
     }
 
@@ -311,16 +353,42 @@ impl LanguageServer for Backend {
         debug!("Document saved: {}", params.text_document.uri);
         // Re-validate on save if text is provided
         if let Some(text) = params.text {
-            self.validate(params.text_document.uri, text).await;
+            let uri = params.text_document.uri.clone();
+            self.store_document(uri.clone(), text.clone()).await;
+            self.validate(uri, text).await;
         }
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         debug!("Document closed: {}", params.text_document.uri);
+        self.remove_document(&params.text_document.uri).await;
         // Clear diagnostics for closed document
         self.client
             .publish_diagnostics(params.text_document.uri, vec![], None)
             .await;
+    }
+
+    async fn folding_range(
+        &self,
+        params: FoldingRangeParams,
+    ) -> Result<Option<Vec<FoldingRange>>> {
+        let uri = params.text_document.uri;
+        debug!("Folding range request for: {}", uri);
+
+        // Get document from store
+        let text = match self.get_document(&uri).await {
+            Some(doc) => doc,
+            None => {
+                warn!("Document not found for folding: {}", uri);
+                return Ok(None);
+            }
+        };
+
+        // Generate folding ranges
+        let ranges = FoldingAnalyzer::generate_ranges(&text);
+        debug!("Generated {} folding ranges for {}", ranges.len(), uri);
+
+        Ok(Some(ranges))
     }
 }
 
