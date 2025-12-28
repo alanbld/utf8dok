@@ -327,8 +327,12 @@ impl AsciiDocGenerator {
             writeln!(self.output, ".{}", title).unwrap();
         }
 
-        // Source block with optional language
-        if let Some(ref lang) = literal.language {
+        // Block attribute: [style_id] or [source,language]
+        if let Some(ref style) = literal.style_id {
+            // Diagram or custom style: [mermaid], [plantuml], etc.
+            writeln!(self.output, "[{}]", style).unwrap();
+        } else if let Some(ref lang) = literal.language {
+            // Source code block: [source,rust]
             writeln!(self.output, "[source,{}]", lang).unwrap();
         }
 

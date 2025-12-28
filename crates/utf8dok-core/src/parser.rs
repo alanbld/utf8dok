@@ -34,7 +34,7 @@ use regex::Regex;
 use std::collections::HashMap;
 use utf8dok_ast::{
     Block, Document, DocumentMeta, FormatType, Heading, Inline, Link, List, ListItem, ListType,
-    Paragraph, Table, TableCell, TableRow,
+    LiteralBlock, Paragraph, Table, TableCell, TableRow,
 };
 
 /// Parser state for tracking what kind of block we're currently building
@@ -52,6 +52,8 @@ enum ParserState {
         rows: Vec<Vec<TableCell>>,
         current_row: Vec<TableCell>,
     },
+    /// Building a literal block (delimited by ----)
+    Literal(Vec<String>),
 }
 
 /// AsciiDoc parser using a state machine approach
@@ -64,6 +66,8 @@ struct Parser {
     state: ParserState,
     /// Whether we've parsed the document header (title + attributes)
     header_done: bool,
+    /// Pending block attributes (e.g., [source,rust], [mermaid])
+    pending_attributes: Vec<String>,
 }
 
 impl Parser {
@@ -73,6 +77,7 @@ impl Parser {
             blocks: Vec::new(),
             state: ParserState::Root,
             header_done: false,
+            pending_attributes: Vec::new(),
         }
     }
 
@@ -192,9 +197,40 @@ impl Parser {
             return;
         }
 
+        // Check for literal block delimiter (---- or more dashes)
+        if line.starts_with("----") && line.chars().all(|c| c == '-') {
+            match &self.state {
+                ParserState::Literal(_) => {
+                    // End of literal block - flush it
+                    self.flush_state();
+                }
+                _ => {
+                    // Start of literal block
+                    self.flush_state();
+                    self.state = ParserState::Literal(Vec::new());
+                }
+            }
+            return;
+        }
+
+        // If we're in a literal block, capture lines verbatim
+        if let ParserState::Literal(lines) = &mut self.state {
+            lines.push(line.to_string());
+            return;
+        }
+
+        // Check for block attributes [...]
+        if line.starts_with('[') && line.ends_with(']') && !line.contains("[[") {
+            // Don't flush state - attributes accumulate
+            let attr_content = &line[1..line.len() - 1];
+            self.pending_attributes.push(attr_content.to_string());
+            return;
+        }
+
         // Check for headings (== Level 1, === Level 2, etc.)
         if let Some(heading) = self.try_parse_heading(line) {
             self.flush_state();
+            self.pending_attributes.clear(); // Headings don't use block attributes in MVP
             self.blocks.push(Block::Heading(heading));
             return;
         }
@@ -386,7 +422,61 @@ impl Parser {
                     }));
                 }
             }
+            ParserState::Literal(lines) => {
+                // Create literal block with content and pending attributes
+                let content = lines.join("\n");
+
+                // Parse pending attributes to extract language and style
+                let (language, style_id) = self.parse_block_attributes();
+
+                self.blocks.push(Block::Literal(LiteralBlock {
+                    content,
+                    language,
+                    title: None,
+                    style_id,
+                }));
+
+                // Clear pending attributes after use
+                self.pending_attributes.clear();
+            }
         }
+    }
+
+    /// Parse pending block attributes to extract language and style_id.
+    /// Handles formats like: [source,rust], [mermaid], [plantuml], etc.
+    fn parse_block_attributes(&self) -> (Option<String>, Option<String>) {
+        if self.pending_attributes.is_empty() {
+            return (None, None);
+        }
+
+        // Take the first attribute (most recent/relevant)
+        let attr = &self.pending_attributes[0];
+
+        // Check for source block: [source,lang] or [source]
+        if attr.starts_with("source") {
+            if let Some(comma_pos) = attr.find(',') {
+                let lang = attr[comma_pos + 1..].trim().to_string();
+                return (Some(lang), None);
+            }
+            return (None, None);
+        }
+
+        // Check for known diagram types
+        let known_diagram_types = [
+            "mermaid", "plantuml", "graphviz", "ditaa", "d2", "blockdiag",
+            "seqdiag", "actdiag", "nwdiag", "c4plantuml", "svgbob", "vega",
+            "vegalite", "wavedrom", "bytefield", "erd", "nomnoml", "pikchr",
+        ];
+
+        let attr_lower = attr.to_lowercase();
+        for diagram_type in known_diagram_types {
+            if attr_lower == diagram_type {
+                return (None, Some(attr.to_string()));
+            }
+        }
+
+        // Default: treat as style_id
+        (None, Some(attr.to_string()))
     }
 }
 

@@ -222,17 +222,92 @@ Document {
 }
 ```
 
+### 9. Literal Blocks and Diagrams
+
+Literal blocks are delimited by `----` (4 or more dashes) and preserve content verbatim.
+
+```asciidoc
+----
+This is literal text.
+No formatting is applied.
+----
+```
+
+**AST Mapping**: `Block::Literal { content, language: None, ... }`
+
+#### Block Attributes
+
+Blocks can have attributes specified in square brackets on the preceding line.
+Attributes accumulate until a block starts.
+
+```asciidoc
+[source,rust]
+----
+fn main() {
+    println!("Hello");
+}
+----
+```
+
+**AST Mapping**: `Block::Literal { content, language: Some("rust"), ... }`
+
+#### Diagram Blocks
+
+Diagram blocks use block attributes to specify the diagram type.
+Supported diagram types include: `mermaid`, `plantuml`, `graphviz`, `d2`, etc.
+
+```asciidoc
+[mermaid]
+----
+graph TD;
+    A-->B;
+    B-->C;
+----
+```
+
+**Syntax Rules:**
+
+1. **Block Attributes**: Lines matching `[...]` (square brackets) are block attributes
+2. **Attribute Accumulation**: Attributes accumulate until the next block starts
+3. **Delimiter**: `----` (4+ dashes) delimits a literal block
+4. **Style Mapping**: First attribute value becomes the `style_id` or `language`
+
+**AST Mapping**: `Block::Literal { content, language: Some("mermaid"), style_id: Some("mermaid"), ... }`
+
+**Parsing Rules:**
+
+| Attribute | AST Field |
+|-----------|-----------|
+| `[mermaid]` | `style_id: Some("mermaid")` |
+| `[plantuml]` | `style_id: Some("plantuml")` |
+| `[source,rust]` | `language: Some("rust")` |
+| `[source]` | `language: None` |
+
+### 10. Cross-References
+
+Internal cross-references link to anchors within the document.
+
+```asciidoc
+See <<section-id,Section Title>> for more details.
+```
+
+**AST Mapping**: `Inline::Link { url: "#section-id", text: [Text("Section Title")] }`
+
+Shorthand form (uses anchor as text):
+
+```asciidoc
+See <<section-id>> for details.
+```
+
 ## Out of Scope (MVP)
 
 The following features are **not** in scope for the MVP:
 
 - Admonitions (NOTE, WARNING, etc.)
-- Code blocks with language
 - Images
-- Links
+- External Links
 - Includes
 - Conditionals (ifdef)
-- Cross-references
 - Footnotes
 
 These will be added in subsequent iterations.
