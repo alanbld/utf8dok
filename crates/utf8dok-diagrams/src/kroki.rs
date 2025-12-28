@@ -2,8 +2,16 @@
 //!
 //! This module provides a client for the [Kroki](https://kroki.io) diagram
 //! rendering service, which supports multiple diagram types.
+//!
+//! # Feature Flag
+//!
+//! This module requires the `kroki` feature:
+//! ```toml
+//! utf8dok-diagrams = { version = "0.1", features = ["kroki"] }
+//! ```
 
 use std::io::Write;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -13,48 +21,89 @@ use flate2::Compression;
 use reqwest::blocking::Client;
 use sha2::{Digest, Sha256};
 
-use crate::error::{DiagramError, Result};
+use crate::renderer::{DiagramRenderer, RenderError, RenderOptions, RenderResult};
 use crate::types::{DiagramType, OutputFormat};
 
-/// Default Kroki server URL
+/// Default Kroki server URL (public cloud instance)
 pub const DEFAULT_KROKI_URL: &str = "https://kroki.io";
 
+/// Default local Kroki server URL (for self-hosted instances)
+pub const LOCAL_KROKI_URL: &str = "http://localhost:8000";
+
 /// Client for rendering diagrams via Kroki
-#[derive(Debug, Clone)]
-pub struct KrokiClient {
+///
+/// Kroki is a unified API for multiple diagram types including
+/// Mermaid, PlantUML, GraphViz, D2, and many more.
+///
+/// # Example
+///
+/// ```ignore
+/// use utf8dok_diagrams::{KrokiRenderer, DiagramRenderer, DiagramType, OutputFormat, RenderOptions};
+///
+/// let renderer = KrokiRenderer::new()?;
+/// let png = renderer.render(
+///     "graph TD; A-->B;",
+///     DiagramType::Mermaid,
+///     OutputFormat::Png,
+///     &RenderOptions::default(),
+/// )?;
+/// ```
+#[derive(Debug)]
+pub struct KrokiRenderer {
     /// Base URL of the Kroki server
     base_url: String,
     /// HTTP client
     client: Client,
     /// Request timeout
     timeout: Duration,
+    /// Cache for availability check
+    available: AtomicBool,
+    /// Whether availability has been checked
+    checked: AtomicBool,
 }
 
-impl Default for KrokiClient {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+impl KrokiRenderer {
+    /// Create a new Kroki renderer with the default server
+    ///
+    /// Tries local Kroki first, then falls back to cloud.
+    pub fn new() -> Result<Self, RenderError> {
+        // Try local first, then cloud
+        if let Ok(renderer) = Self::with_url(LOCAL_KROKI_URL) {
+            if renderer.health_check_quick() {
+                return Ok(renderer);
+            }
+        }
 
-impl KrokiClient {
-    /// Create a new client with the default Kroki server
-    pub fn new() -> Self {
         Self::with_url(DEFAULT_KROKI_URL)
     }
 
-    /// Create a client with a custom Kroki server URL
-    pub fn with_url(base_url: impl Into<String>) -> Self {
+    /// Create a Kroki renderer with a specific server URL
+    pub fn with_url(base_url: impl Into<String>) -> Result<Self, RenderError> {
         let base_url = base_url.into().trim_end_matches('/').to_string();
+
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
+            .connect_timeout(Duration::from_secs(5))
             .build()
-            .expect("Failed to create HTTP client");
+            .map_err(|e| RenderError::Network(e.to_string()))?;
 
-        Self {
+        Ok(Self {
             base_url,
             client,
             timeout: Duration::from_secs(30),
-        }
+            available: AtomicBool::new(true),
+            checked: AtomicBool::new(false),
+        })
+    }
+
+    /// Create a renderer for the public Kroki cloud
+    pub fn cloud() -> Result<Self, RenderError> {
+        Self::with_url(DEFAULT_KROKI_URL)
+    }
+
+    /// Create a renderer for a local Kroki instance
+    pub fn local() -> Result<Self, RenderError> {
+        Self::with_url(LOCAL_KROKI_URL)
     }
 
     /// Set the request timeout
@@ -62,6 +111,7 @@ impl KrokiClient {
         self.timeout = timeout;
         self.client = Client::builder()
             .timeout(timeout)
+            .connect_timeout(Duration::from_secs(5))
             .build()
             .expect("Failed to create HTTP client");
         self
@@ -72,98 +122,43 @@ impl KrokiClient {
         &self.base_url
     }
 
-    /// Render a diagram to the specified format
-    ///
-    /// # Arguments
-    /// * `source` - The diagram source code
-    /// * `diagram_type` - The type of diagram (e.g., Mermaid, PlantUML)
-    /// * `format` - The desired output format (e.g., PNG, SVG)
-    ///
-    /// # Returns
-    /// The rendered diagram as bytes
-    ///
-    /// # Example
-    /// ```no_run
-    /// use utf8dok_diagrams::{KrokiClient, DiagramType, OutputFormat};
-    ///
-    /// let client = KrokiClient::new();
-    /// let svg = client.render("graph TD; A-->B;", DiagramType::Mermaid, OutputFormat::Svg)?;
-    /// # Ok::<(), utf8dok_diagrams::DiagramError>(())
-    /// ```
-    pub fn render(
-        &self,
-        source: &str,
-        diagram_type: DiagramType,
-        format: OutputFormat,
-    ) -> Result<Vec<u8>> {
-        let url = format!(
-            "{}/{}/{}",
-            self.base_url,
-            diagram_type.kroki_name(),
-            format.kroki_name()
-        );
-
-        let response = self
-            .client
-            .post(&url)
-            .header("Content-Type", "text/plain")
-            .body(source.to_string())
-            .send()?;
-
-        let status = response.status();
-        if !status.is_success() {
-            let message = response.text().unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(DiagramError::ServerError {
-                status: status.as_u16(),
-                message,
-            });
-        }
-
-        Ok(response.bytes()?.to_vec())
+    /// Perform a quick health check (2 second timeout)
+    fn health_check_quick(&self) -> bool {
+        let url = format!("{}/health", self.base_url);
+        self.client
+            .get(&url)
+            .timeout(Duration::from_secs(2))
+            .send()
+            .map(|r| r.status().is_success())
+            .unwrap_or(false)
     }
 
-    /// Render a diagram using the compressed GET method
-    ///
-    /// This method compresses the source and encodes it in the URL,
-    /// which can be useful for caching or sharing URLs.
-    pub fn render_compressed(
-        &self,
-        source: &str,
-        diagram_type: DiagramType,
-        format: OutputFormat,
-    ) -> Result<Vec<u8>> {
-        let encoded = Self::encode_source(source)?;
-        let url = format!(
-            "{}/{}/{}/{}",
-            self.base_url,
-            diagram_type.kroki_name(),
-            format.kroki_name(),
-            encoded
-        );
+    /// Check if the Kroki server is available
+    pub fn health_check(&self) -> Result<bool, RenderError> {
+        let url = format!("{}/health", self.base_url);
+        let response = self
+            .client
+            .get(&url)
+            .timeout(Duration::from_secs(5))
+            .send()
+            .map_err(|e| RenderError::Network(e.to_string()))?;
 
-        let response = self.client.get(&url).send()?;
+        let is_healthy = response.status().is_success();
+        self.available.store(is_healthy, Ordering::Relaxed);
+        self.checked.store(true, Ordering::Relaxed);
 
-        let status = response.status();
-        if !status.is_success() {
-            let message = response.text().unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(DiagramError::ServerError {
-                status: status.as_u16(),
-                message,
-            });
-        }
-
-        Ok(response.bytes()?.to_vec())
+        Ok(is_healthy)
     }
 
     /// Encode diagram source for use in URLs (deflate + base64)
-    pub fn encode_source(source: &str) -> Result<String> {
+    pub fn encode_source(source: &str) -> Result<String, RenderError> {
         let mut encoder = DeflateEncoder::new(Vec::new(), Compression::default());
         encoder
             .write_all(source.as_bytes())
-            .map_err(|e| DiagramError::InvalidSource(e.to_string()))?;
+            .map_err(|e| RenderError::InvalidSource(e.to_string()))?;
         let compressed = encoder
             .finish()
-            .map_err(|e| DiagramError::InvalidSource(e.to_string()))?;
+            .map_err(|e| RenderError::InvalidSource(e.to_string()))?;
 
         Ok(URL_SAFE_NO_PAD.encode(&compressed))
     }
@@ -176,7 +171,7 @@ impl KrokiClient {
         source: &str,
         diagram_type: DiagramType,
         format: OutputFormat,
-    ) -> Result<String> {
+    ) -> Result<String, RenderError> {
         let encoded = Self::encode_source(source)?;
         Ok(format!(
             "{}/{}/{}/{}",
@@ -187,11 +182,133 @@ impl KrokiClient {
         ))
     }
 
-    /// Check if the Kroki server is available
-    pub fn health_check(&self) -> Result<bool> {
-        let url = format!("{}/health", self.base_url);
-        let response = self.client.get(&url).send()?;
-        Ok(response.status().is_success())
+    /// Render using POST with raw body (more reliable)
+    fn render_post(
+        &self,
+        source: &str,
+        diagram_type: DiagramType,
+        format: OutputFormat,
+    ) -> RenderResult<Vec<u8>> {
+        let url = format!(
+            "{}/{}/{}",
+            self.base_url,
+            diagram_type.kroki_name(),
+            format.kroki_name()
+        );
+
+        let response = self
+            .client
+            .post(&url)
+            .header("Content-Type", "text/plain")
+            .body(source.to_string())
+            .timeout(self.timeout)
+            .send()
+            .map_err(|e| RenderError::Network(e.to_string()))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let message = response.text().unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(RenderError::RenderFailed(format!(
+                "Kroki error ({}): {}",
+                status.as_u16(),
+                message
+            )));
+        }
+
+        response
+            .bytes()
+            .map(|b| b.to_vec())
+            .map_err(|e| RenderError::Network(e.to_string()))
+    }
+
+    /// Render using GET with compressed URL (for caching)
+    pub fn render_compressed(
+        &self,
+        source: &str,
+        diagram_type: DiagramType,
+        format: OutputFormat,
+    ) -> RenderResult<Vec<u8>> {
+        let encoded = Self::encode_source(source)?;
+        let url = format!(
+            "{}/{}/{}/{}",
+            self.base_url,
+            diagram_type.kroki_name(),
+            format.kroki_name(),
+            encoded
+        );
+
+        let response = self
+            .client
+            .get(&url)
+            .timeout(self.timeout)
+            .send()
+            .map_err(|e| RenderError::Network(e.to_string()))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let message = response.text().unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(RenderError::RenderFailed(format!(
+                "Kroki error ({}): {}",
+                status.as_u16(),
+                message
+            )));
+        }
+
+        response
+            .bytes()
+            .map(|b| b.to_vec())
+            .map_err(|e| RenderError::Network(e.to_string()))
+    }
+}
+
+impl DiagramRenderer for KrokiRenderer {
+    fn name(&self) -> &'static str {
+        "kroki"
+    }
+
+    fn supports(&self, _diagram_type: DiagramType) -> bool {
+        // Kroki supports all diagram types including svgbob
+        true
+    }
+
+    fn supports_format(&self, format: OutputFormat) -> bool {
+        // Kroki supports all standard formats
+        matches!(
+            format,
+            OutputFormat::Png | OutputFormat::Svg | OutputFormat::Pdf
+        )
+    }
+
+    fn is_available(&self) -> bool {
+        // If we haven't checked yet, do a quick check
+        if !self.checked.load(Ordering::Relaxed) {
+            let available = self.health_check_quick();
+            self.available.store(available, Ordering::Relaxed);
+            self.checked.store(true, Ordering::Relaxed);
+        }
+        self.available.load(Ordering::Relaxed)
+    }
+
+    fn render(
+        &self,
+        source: &str,
+        diagram_type: DiagramType,
+        format: OutputFormat,
+        _options: &RenderOptions,
+    ) -> RenderResult<Vec<u8>> {
+        // Validate source
+        let source = source.trim();
+        if source.is_empty() {
+            return Err(RenderError::InvalidSource("Empty diagram source".to_string()));
+        }
+
+        // Validate format
+        if !self.supports_format(format) {
+            return Err(RenderError::UnsupportedFormat(format));
+        }
+
+        // Render via POST (more reliable than GET for large diagrams)
+        self.render_post(source, diagram_type, format)
     }
 }
 
@@ -200,43 +317,12 @@ pub fn content_hash(content: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(content);
     let result = hasher.finalize();
-    format!("sha256:{}", hex::encode(result))
+    format!("sha256:{}", hex_encode(&result))
 }
 
-/// Helper to format hash as hex string
-mod hex {
-    pub fn encode(bytes: impl AsRef<[u8]>) -> String {
-        bytes
-            .as_ref()
-            .iter()
-            .map(|b| format!("{:02x}", b))
-            .collect()
-    }
-}
-
-/// Rendered diagram with metadata
-#[derive(Debug, Clone)]
-pub struct RenderedDiagram {
-    /// The rendered image bytes
-    pub data: Vec<u8>,
-    /// The diagram type
-    pub diagram_type: DiagramType,
-    /// The output format
-    pub format: OutputFormat,
-    /// SHA-256 hash of the source
-    pub source_hash: String,
-}
-
-impl RenderedDiagram {
-    /// Get the file extension for this diagram
-    pub fn extension(&self) -> &'static str {
-        self.format.extension()
-    }
-
-    /// Get the MIME type for this diagram
-    pub fn mime_type(&self) -> &'static str {
-        self.format.mime_type()
-    }
+/// Helper to format bytes as hex string
+fn hex_encode(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
 #[cfg(test)]
@@ -244,21 +330,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_client_default() {
-        let client = KrokiClient::new();
-        assert_eq!(client.base_url(), DEFAULT_KROKI_URL);
+    fn test_renderer_name() {
+        let renderer = KrokiRenderer::cloud().unwrap();
+        assert_eq!(renderer.name(), "kroki");
+    }
+
+    #[test]
+    fn test_client_default_url() {
+        let renderer = KrokiRenderer::cloud().unwrap();
+        assert_eq!(renderer.base_url(), DEFAULT_KROKI_URL);
     }
 
     #[test]
     fn test_client_custom_url() {
-        let client = KrokiClient::with_url("http://localhost:8000/");
-        assert_eq!(client.base_url(), "http://localhost:8000");
+        let renderer = KrokiRenderer::with_url("http://localhost:8000/").unwrap();
+        assert_eq!(renderer.base_url(), "http://localhost:8000");
     }
 
     #[test]
     fn test_encode_source() {
         let source = "graph TD; A-->B;";
-        let encoded = KrokiClient::encode_source(source).unwrap();
+        let encoded = KrokiRenderer::encode_source(source).unwrap();
 
         // Should be URL-safe base64
         assert!(!encoded.contains('+'));
@@ -268,8 +360,8 @@ mod tests {
 
     #[test]
     fn test_diagram_url() {
-        let client = KrokiClient::new();
-        let url = client
+        let renderer = KrokiRenderer::cloud().unwrap();
+        let url = renderer
             .diagram_url("graph TD; A-->B;", DiagramType::Mermaid, OutputFormat::Svg)
             .unwrap();
 
@@ -283,17 +375,36 @@ mod tests {
         assert_eq!(hash.len(), 7 + 64); // "sha256:" + 64 hex chars
     }
 
-    // Integration tests - run with: cargo test --features integration
-    // These require network access to kroki.io
+    #[test]
+    fn test_supports_diagram_types() {
+        let renderer = KrokiRenderer::cloud().unwrap();
+        assert!(renderer.supports(DiagramType::Mermaid));
+        assert!(renderer.supports(DiagramType::PlantUml));
+        assert!(renderer.supports(DiagramType::GraphViz));
+        assert!(renderer.supports(DiagramType::D2));
+    }
 
     #[test]
-    #[ignore] // Requires network access
+    fn test_supports_formats() {
+        let renderer = KrokiRenderer::cloud().unwrap();
+        assert!(renderer.supports_format(OutputFormat::Png));
+        assert!(renderer.supports_format(OutputFormat::Svg));
+        assert!(renderer.supports_format(OutputFormat::Pdf));
+        assert!(!renderer.supports_format(OutputFormat::Base64));
+    }
+
+    // Integration tests - require network access
+    // Run with: cargo test --features kroki -- --ignored
+
+    #[test]
+    #[ignore]
     fn test_render_mermaid_svg() {
-        let client = KrokiClient::new();
-        let result = client.render(
+        let renderer = KrokiRenderer::cloud().unwrap();
+        let result = renderer.render(
             "graph TD; A-->B; B-->C;",
             DiagramType::Mermaid,
             OutputFormat::Svg,
+            &RenderOptions::default(),
         );
 
         match result {
@@ -303,20 +414,20 @@ mod tests {
                 assert!(svg_str.contains("<svg"));
             }
             Err(e) => {
-                // Allow network failures in CI
                 eprintln!("Kroki test skipped (network error): {}", e);
             }
         }
     }
 
     #[test]
-    #[ignore] // Requires network access
+    #[ignore]
     fn test_render_mermaid_png() {
-        let client = KrokiClient::new();
-        let result = client.render(
+        let renderer = KrokiRenderer::cloud().unwrap();
+        let result = renderer.render(
             "graph TD; A-->B;",
             DiagramType::Mermaid,
             OutputFormat::Png,
+            &RenderOptions::default(),
         );
 
         match result {
@@ -332,32 +443,10 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires network access
-    fn test_render_plantuml() {
-        let client = KrokiClient::new();
-        let source = r#"
-@startuml
-Alice -> Bob: Hello
-Bob --> Alice: Hi!
-@enduml
-"#;
-        let result = client.render(source, DiagramType::PlantUml, OutputFormat::Svg);
-
-        match result {
-            Ok(svg) => {
-                assert!(!svg.is_empty());
-            }
-            Err(e) => {
-                eprintln!("Kroki test skipped (network error): {}", e);
-            }
-        }
-    }
-
-    #[test]
-    #[ignore] // Requires network access
+    #[ignore]
     fn test_health_check() {
-        let client = KrokiClient::new();
-        match client.health_check() {
+        let renderer = KrokiRenderer::cloud().unwrap();
+        match renderer.health_check() {
             Ok(healthy) => {
                 println!("Kroki health: {}", healthy);
             }

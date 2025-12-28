@@ -2,20 +2,58 @@
 name = "utf8dok-diagrams"
 version = "0.1.0"
 edition = "2021"
-description = "Diagram rendering for utf8dok via Kroki and other backends"
+description = "Diagram rendering for utf8dok via native renderers and Kroki fallback"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/alanbld/utf8dok"
 
-[dependencies]
-# HTTP client for Kroki API
-reqwest = { version = "0.12", features = ["blocking", "json"] }
+[features]
+# Default: native rendering + Kroki fallback
+default = ["native", "kroki"]
 
-# Serialization
+# Native Rust diagram rendering (svgbob → SVG → PNG)
+native = ["dep:svgbob", "dep:resvg", "dep:usvg", "dep:tiny-skia"]
+
+# Kroki cloud/local server fallback
+kroki = ["dep:reqwest"]
+
+# Minimal build: native only, no network (~5MB binary contribution)
+minimal = ["native"]
+
+# Full build: everything enabled
+full = ["native", "kroki"]
+
+# Future: Embedded JS runtime for Mermaid (Tier 2)
+# js = ["dep:deno_core"]
+
+[dependencies]
+# === Core (always included) ===
+# Error handling
+thiserror = "2.0"
+
+# Serialization for types
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
-# Content hashing for drift detection
+# Content hashing for caching/drift detection
 sha2 = "0.10"
+
+# Logging for renderer warnings
+log = "0.4"
+
+# === Native rendering (feature: native) ===
+# ASCII art to SVG
+svgbob = { version = "0.7", optional = true }
+
+# SVG parsing and rendering
+usvg = { version = "0.44", optional = true }
+resvg = { version = "0.44", optional = true }
+
+# Raster image backend
+tiny-skia = { version = "0.11", optional = true }
+
+# === Kroki fallback (feature: kroki) ===
+# HTTP client for Kroki API
+reqwest = { version = "0.12", features = ["blocking", "json"], optional = true }
 
 # Base64 encoding for Kroki compressed payloads
 base64 = "0.22"
@@ -23,9 +61,12 @@ base64 = "0.22"
 # Compression for Kroki payloads
 flate2 = "1.0"
 
-# Error handling
-thiserror = "2.0"
+# === Future: Embedded JS (feature: js) ===
+# deno_core = { version = "0.311", optional = true }
 
 [dev-dependencies]
 # For temp file tests
 tempfile = "3.14"
+
+[package.metadata.docs.rs]
+all-features = true

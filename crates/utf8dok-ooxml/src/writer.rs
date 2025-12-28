@@ -21,7 +21,7 @@ use sha2::{Digest, Sha256};
 use utf8dok_ast::{
     Block, Document, FormatType, Heading, Inline, List, ListItem, ListType, Paragraph, Table,
 };
-use utf8dok_diagrams::{DiagramType, KrokiClient, OutputFormat};
+use utf8dok_diagrams::{DiagramEngine, DiagramType};
 
 use crate::archive::OoxmlArchive;
 use crate::error::Result;
@@ -51,6 +51,7 @@ const DIAGRAM_STYLES: &[&str] = &[
     "vega",
     "vegalite",
     "wavedrom",
+    "svgbob", // Native rendering support
 ];
 
 /// DOCX Writer for generating DOCX files from AST
@@ -69,8 +70,8 @@ pub struct DocxWriter {
     next_image_id: usize,
     /// Next drawing ID for docPr
     next_drawing_id: usize,
-    /// Kroki client for diagram rendering
-    kroki_client: Option<KrokiClient>,
+    /// Diagram engine for rendering (uses native + Kroki fallback)
+    diagram_engine: Option<DiagramEngine>,
 }
 
 impl DocxWriter {
@@ -84,7 +85,7 @@ impl DocxWriter {
             manifest: Manifest::new(),
             next_image_id: 1,
             next_drawing_id: 1,
-            kroki_client: None,
+            diagram_engine: None,
         }
     }
 
@@ -137,9 +138,9 @@ impl DocxWriter {
         let mut writer = DocxWriter::new();
         writer.init_from_template(&archive)?;
 
-        // Initialize Kroki client if rendering diagrams
+        // Initialize diagram engine if rendering diagrams
         if render_diagrams {
-            writer.kroki_client = Some(KrokiClient::new());
+            writer.diagram_engine = Some(DiagramEngine::new());
         }
 
         // Generate the document XML
@@ -442,7 +443,7 @@ impl DocxWriter {
         // Check if this is a diagram block
         if let Some(style) = &literal.style_id {
             let style_lower = style.to_lowercase();
-            if DIAGRAM_STYLES.contains(&style_lower.as_str()) && self.kroki_client.is_some() {
+            if DIAGRAM_STYLES.contains(&style_lower.as_str()) && self.diagram_engine.is_some() {
                 // Attempt to render as diagram
                 if self.generate_diagram(literal, &style_lower) {
                     return; // Successfully rendered as diagram
@@ -477,8 +478,8 @@ impl DocxWriter {
     ///
     /// Returns true if successful, false if rendering failed
     fn generate_diagram(&mut self, literal: &utf8dok_ast::LiteralBlock, style: &str) -> bool {
-        let client = match &self.kroki_client {
-            Some(c) => c,
+        let engine = match &self.diagram_engine {
+            Some(e) => e,
             None => return false,
         };
 
@@ -501,11 +502,12 @@ impl DocxWriter {
             "vega" => DiagramType::Vega,
             "vegalite" => DiagramType::VegaLite,
             "wavedrom" => DiagramType::WaveDrom,
+            "svgbob" => DiagramType::Svgbob,
             _ => return false,
         };
 
-        // Render the diagram to PNG
-        let png_data = match client.render(&literal.content, diagram_type, OutputFormat::Png) {
+        // Render the diagram to PNG using the engine (native or Kroki fallback)
+        let png_data = match engine.render_png(&literal.content, diagram_type) {
             Ok(data) => data,
             Err(_) => return false, // Silently fall back to code block
         };
