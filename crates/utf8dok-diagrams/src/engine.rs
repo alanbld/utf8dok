@@ -11,8 +11,8 @@
 //! ├─────────────────────────────────────────────────────────────┤
 //! │  Priority Order:                                             │
 //! │  1. NativeRenderer (svgbob) - offline, fast                 │
-//! │  2. KrokiRenderer - full diagram support                    │
-//! │  3. Future: DenoRenderer - embedded Mermaid.js              │
+//! │  2. JsRenderer (Mermaid) - embedded JS, offline             │
+//! │  3. KrokiRenderer - full diagram support (network)          │
 //! └─────────────────────────────────────────────────────────────┘
 //! ```
 
@@ -27,7 +27,7 @@ use crate::types::{DiagramType, OutputFormat};
 /// to the most appropriate one based on:
 /// 1. Diagram type support
 /// 2. Renderer availability
-/// 3. Priority order (native → cloud)
+/// 3. Priority order (native → js → cloud)
 ///
 /// # Example
 ///
@@ -68,6 +68,7 @@ impl DiagramEngine {
     ///
     /// Renderers are added based on enabled features:
     /// - `native`: NativeRenderer for svgbob
+    /// - `js`: JsRenderer for embedded Mermaid.js
     /// - `kroki`: KrokiRenderer for cloud rendering
     pub fn new() -> Self {
         let mut renderers: Vec<Box<dyn DiagramRenderer>> = Vec::new();
@@ -79,7 +80,19 @@ impl DiagramEngine {
             log::debug!("Registered native renderer");
         }
 
-        // Priority 2: Kroki renderer (fallback for network-available rendering)
+        // Priority 2: JS renderer (embedded Mermaid.js for offline rendering)
+        #[cfg(feature = "js")]
+        {
+            let js_renderer = crate::js::JsRenderer::new();
+            if js_renderer.is_available() {
+                renderers.push(Box::new(js_renderer));
+                log::debug!("Registered JS renderer (Mermaid.js)");
+            } else {
+                log::warn!("JS renderer not available (mermaid.js not found)");
+            }
+        }
+
+        // Priority 3: Kroki renderer (fallback for network-available rendering)
         #[cfg(feature = "kroki")]
         {
             match crate::kroki::KrokiRenderer::new() {

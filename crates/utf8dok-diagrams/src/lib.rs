@@ -29,6 +29,7 @@
 //! |---------|-------------|---------|
 //! | `native` | Native svgbob rendering (offline) | ✓ |
 //! | `kroki` | Kroki cloud/local rendering | ✓ |
+//! | `js` | Embedded Mermaid.js via deno_core | |
 //! | `minimal` | Native only, no network | |
 //! | `full` | All features enabled | |
 //!
@@ -43,6 +44,9 @@
 //!
 //! # Kroki only: no native rendering
 //! cargo build --no-default-features --features kroki
+//!
+//! # With embedded Mermaid.js (offline Mermaid support)
+//! cargo build --features js
 //! ```
 
 // Re-export error types (always available)
@@ -64,6 +68,10 @@ pub mod native;
 // Kroki renderer (requires feature)
 #[cfg(feature = "kroki")]
 pub mod kroki;
+
+// Embedded JS renderer (requires feature)
+#[cfg(feature = "js")]
+pub mod js;
 
 // ============================================================================
 // Public API exports
@@ -89,6 +97,10 @@ pub use kroki::{content_hash, KrokiRenderer, DEFAULT_KROKI_URL, LOCAL_KROKI_URL}
 // Legacy compatibility: re-export KrokiClient as alias
 #[cfg(feature = "kroki")]
 pub use kroki::KrokiRenderer as KrokiClient;
+
+// JS renderer (embedded Mermaid.js)
+#[cfg(feature = "js")]
+pub use js::JsRenderer;
 
 // Error types from error module (for backward compatibility)
 pub use error::{DiagramError, Result};

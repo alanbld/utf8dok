@@ -22,8 +22,8 @@ minimal = ["native"]
 # Full build: everything enabled
 full = ["native", "kroki"]
 
-# Future: Embedded JS runtime for Mermaid (Tier 2)
-# js = ["dep:deno_core"]
+# Embedded JS runtime for Mermaid (Tier 2)
+js = ["dep:deno_core", "dep:once_cell", "dep:tokio"]
 
 [dependencies]
 # === Core (always included) ===
@@ -61,8 +61,10 @@ base64 = "0.22"
 # Compression for Kroki payloads
 flate2 = "1.0"
 
-# === Future: Embedded JS (feature: js) ===
-# deno_core = { version = "0.311", optional = true }
+# === Embedded JS runtime for Mermaid (feature: js) ===
+deno_core = { version = "0.242", optional = true }
+once_cell = { version = "1.18", optional = true }
+tokio = { version = "1", features = ["rt"], optional = true }
 
 [dev-dependencies]
 # For temp file tests
