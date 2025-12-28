@@ -13,12 +13,14 @@
 //! RUST_LOG=debug utf8dok-lsp
 //! ```
 
+mod domain;
 mod intelligence;
 mod structural;
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use domain::DomainEngine;
 use intelligence::{RenameAnalyzer, SelectionAnalyzer};
 use structural::{FoldingAnalyzer, SymbolAnalyzer};
 
@@ -26,15 +28,16 @@ use serde_json::Value;
 use tokio::sync::RwLock;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
-    DiagnosticOptions, DiagnosticRelatedInformation, DiagnosticServerCapabilities,
-    DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentSymbolParams,
-    DocumentSymbolResponse, FoldingRange, FoldingRangeParams, FoldingRangeProviderCapability,
-    InitializeParams, InitializeResult, InitializedParams, Location, MessageType,
-    NumberOrString, OneOf, Position, PrepareRenameResponse, Range, RenameParams,
-    SelectionRange, SelectionRangeParams, SelectionRangeProviderCapability, ServerCapabilities,
-    ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
-    WorkDoneProgressOptions, WorkspaceEdit,
+    CodeActionOrCommand, CodeActionParams, CodeActionProviderCapability,
+    CompletionOptions, CompletionParams, CompletionResponse, DiagnosticOptions,
+    DiagnosticRelatedInformation, DiagnosticServerCapabilities, DiagnosticSeverity,
+    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    DidSaveTextDocumentParams, DocumentSymbolParams, DocumentSymbolResponse, FoldingRange,
+    FoldingRangeParams, FoldingRangeProviderCapability, InitializeParams, InitializeResult,
+    InitializedParams, Location, MessageType, NumberOrString, OneOf, Position,
+    PrepareRenameResponse, Range, RenameParams, SelectionRange, SelectionRangeParams,
+    SelectionRangeProviderCapability, ServerCapabilities, ServerInfo, TextDocumentSyncCapability,
+    TextDocumentSyncKind, Url, WorkDoneProgressOptions, WorkspaceEdit,
 };
 use tower_lsp::lsp_types::Diagnostic;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
@@ -322,6 +325,19 @@ impl LanguageServer for Backend {
                     prepare_provider: Some(true),
                     work_done_progress_options: WorkDoneProgressOptions::default(),
                 })),
+                // Completion (Phase 9)
+                completion_provider: Some(CompletionOptions {
+                    resolve_provider: Some(false),
+                    trigger_characters: Some(vec![
+                        "<".to_string(), // For <<xref
+                        ":".to_string(), // For :attributes
+                        "[".to_string(), // For [blocks]
+                    ]),
+                    work_done_progress_options: WorkDoneProgressOptions::default(),
+                    ..Default::default()
+                }),
+                // Code actions (Phase 9)
+                code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -525,6 +541,68 @@ impl LanguageServer for Backend {
             }))
         } else {
             Ok(None)
+        }
+    }
+
+    async fn completion(
+        &self,
+        params: CompletionParams,
+    ) -> Result<Option<CompletionResponse>> {
+        let uri = params.text_document_position.text_document.uri;
+        debug!("Completion request for: {}", uri);
+
+        // Get document from store
+        let text = match self.get_document(&uri).await {
+            Some(doc) => doc,
+            None => {
+                warn!("Document not found for completion: {}", uri);
+                return Ok(None);
+            }
+        };
+
+        // Get completions from domain engine
+        let engine = DomainEngine::new();
+        let position = params.text_document_position.position;
+        let items = engine.get_completions(&text, position);
+
+        if items.is_empty() {
+            Ok(None)
+        } else {
+            debug!("Generated {} completions for {}", items.len(), uri);
+            Ok(Some(CompletionResponse::Array(items)))
+        }
+    }
+
+    async fn code_action(
+        &self,
+        params: CodeActionParams,
+    ) -> Result<Option<Vec<CodeActionOrCommand>>> {
+        let uri = params.text_document.uri.clone();
+        debug!("Code action request for: {}", uri);
+
+        // Get document from store
+        let text = match self.get_document(&uri).await {
+            Some(doc) => doc,
+            None => {
+                warn!("Document not found for code action: {}", uri);
+                return Ok(None);
+            }
+        };
+
+        // Get code actions from domain engine
+        let engine = DomainEngine::new();
+        let actions = engine.get_code_actions(&text, &params);
+
+        if actions.is_empty() {
+            Ok(None)
+        } else {
+            debug!("Generated {} code actions for {}", actions.len(), uri);
+            // Wrap CodeAction in CodeActionOrCommand
+            let wrapped: Vec<CodeActionOrCommand> = actions
+                .into_iter()
+                .map(CodeActionOrCommand::CodeAction)
+                .collect();
+            Ok(Some(wrapped))
         }
     }
 }
