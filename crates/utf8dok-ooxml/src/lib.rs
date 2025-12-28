@@ -30,16 +30,20 @@ pub mod extract;
 pub mod manifest;
 pub mod relationships;
 pub mod styles;
+pub mod template;
 pub mod writer;
 
 pub use archive::OoxmlArchive;
 pub use conversion::{convert_document, convert_document_with_styles, ConversionContext, ToAst};
-pub use document::{Block, Document, Hyperlink, Paragraph, ParagraphChild, Run, Table, TableCell, TableRow};
+pub use document::{
+    Block, Document, Hyperlink, Paragraph, ParagraphChild, Run, Table, TableCell, TableRow,
+};
 pub use error::{OoxmlError, Result};
 pub use extract::{AsciiDocExtractor, ExtractedDocument};
 pub use manifest::{ElementMeta, Manifest, MANIFEST_PATH};
 pub use relationships::Relationships;
-pub use styles::{Style, StyleSheet, StyleType};
+pub use styles::{ElementType, Style, StyleMap, StyleSheet, StyleType};
+pub use template::Template;
 pub use writer::DocxWriter;
 
 /// Crate version

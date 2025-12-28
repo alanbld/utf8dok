@@ -7,11 +7,12 @@
 //!
 //! ```ignore
 //! use utf8dok_ooxml::writer::DocxWriter;
+//! use utf8dok_ooxml::Template;
 //! use utf8dok_ast::Document;
 //!
 //! let doc = Document::new();
-//! let template = std::fs::read("template.dotx")?;
-//! let output = DocxWriter::generate(&doc, &template)?;
+//! let template = Template::load("template.dotx")?;
+//! let output = DocxWriter::generate_from_template(&doc, template)?;
 //! std::fs::write("output.docx", output)?;
 //! ```
 
@@ -27,9 +28,8 @@ use crate::archive::OoxmlArchive;
 use crate::error::Result;
 use crate::manifest::{ElementMeta, Manifest};
 use crate::relationships::Relationships;
-
-/// Default paragraph style when none is specified
-const DEFAULT_PARAGRAPH_STYLE: &str = "Normal";
+use crate::styles::StyleMap;
+use crate::template::Template;
 
 /// Known diagram style IDs that should be rendered as images
 const DIAGRAM_STYLES: &[&str] = &[
@@ -72,6 +72,8 @@ pub struct DocxWriter {
     next_drawing_id: usize,
     /// Diagram engine for rendering (uses native + Kroki fallback)
     diagram_engine: Option<DiagramEngine>,
+    /// Style mapping for template injection
+    style_map: StyleMap,
 }
 
 impl DocxWriter {
@@ -86,6 +88,22 @@ impl DocxWriter {
             next_image_id: 1,
             next_drawing_id: 1,
             diagram_engine: None,
+            style_map: StyleMap::default(),
+        }
+    }
+
+    /// Create a new DocxWriter with a custom style map
+    fn with_style_map(style_map: StyleMap) -> Self {
+        Self {
+            output: String::new(),
+            relationships: Relationships::new(),
+            media_files: Vec::new(),
+            diagram_sources: Vec::new(),
+            manifest: Manifest::new(),
+            next_image_id: 1,
+            next_drawing_id: 1,
+            diagram_engine: None,
+            style_map,
         }
     }
 
@@ -150,7 +168,97 @@ impl DocxWriter {
         archive.set_string("word/document.xml", document_xml);
 
         // Write word/_rels/document.xml.rels
-        archive.set_string("word/_rels/document.xml.rels", writer.relationships.to_xml());
+        archive.set_string(
+            "word/_rels/document.xml.rels",
+            writer.relationships.to_xml(),
+        );
+
+        // Write media files
+        for (path, data) in &writer.media_files {
+            archive.set(path.clone(), data.clone());
+        }
+
+        // Write diagram source files
+        for (path, content) in &writer.diagram_sources {
+            archive.set(path.clone(), content.as_bytes().to_vec());
+        }
+
+        // Write manifest if we have tracked elements
+        if !writer.manifest.is_empty() {
+            let manifest_json = writer.manifest.to_json()?;
+            archive.set_string("utf8dok/manifest.json", manifest_json);
+        }
+
+        // Update [Content_Types].xml to include PNG if we have images
+        if !writer.media_files.is_empty() {
+            writer.update_content_types(&mut archive)?;
+        }
+
+        // Write to output buffer
+        let mut output = Cursor::new(Vec::new());
+        archive.write_to(&mut output)?;
+
+        Ok(output.into_inner())
+    }
+
+    /// Generate a DOCX file from an AST Document using a Template object
+    ///
+    /// This is the preferred method for template-aware document generation.
+    /// It automatically detects styles from the template and uses them.
+    ///
+    /// # Arguments
+    ///
+    /// * `doc` - The AST document to convert
+    /// * `template` - The loaded Template object (consumed)
+    ///
+    /// # Returns
+    ///
+    /// The generated DOCX file as bytes
+    pub fn generate_from_template(doc: &Document, template: Template) -> Result<Vec<u8>> {
+        Self::generate_from_template_with_options(doc, template, true, None)
+    }
+
+    /// Generate a DOCX file from an AST Document with custom options
+    ///
+    /// # Arguments
+    ///
+    /// * `doc` - The AST document to convert
+    /// * `template` - The loaded Template object (consumed)
+    /// * `render_diagrams` - Whether to render diagrams
+    /// * `custom_style_map` - Optional custom style mapping (uses auto-detected if None)
+    pub fn generate_from_template_with_options(
+        doc: &Document,
+        mut template: Template,
+        render_diagrams: bool,
+        custom_style_map: Option<StyleMap>,
+    ) -> Result<Vec<u8>> {
+        // Get styles from template and create style map
+        let stylesheet = template.get_styles()?;
+        let style_map = custom_style_map.unwrap_or_else(|| StyleMap::from_stylesheet(stylesheet));
+
+        // Get the underlying archive (consume template)
+        let mut archive = template.into_archive();
+
+        // Initialize writer with style map
+        let mut writer = DocxWriter::with_style_map(style_map);
+        writer.init_from_template(&archive)?;
+
+        // Initialize diagram engine if rendering diagrams
+        if render_diagrams {
+            writer.diagram_engine = Some(DiagramEngine::new());
+        }
+
+        // Generate the document XML
+        let document_xml = writer.generate_document_xml(doc);
+
+        // Write word/document.xml
+        archive.set_string("word/document.xml", document_xml);
+
+        // Write word/_rels/document.xml.rels
+        archive.set_string(
+            "word/_rels/document.xml.rels",
+            writer.relationships.to_xml(),
+        );
 
         // Write media files
         for (path, data) in &writer.media_files {
@@ -201,14 +309,22 @@ impl DocxWriter {
         self.output.clear();
 
         // XML declaration and document root with all required namespaces
-        self.output.push_str(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"#);
+        self.output
+            .push_str(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"#);
         self.output.push('\n');
         self.output.push_str(r#"<w:document "#);
-        self.output.push_str(r#"xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" "#);
-        self.output.push_str(r#"xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" "#);
-        self.output.push_str(r#"xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" "#);
-        self.output.push_str(r#"xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" "#);
-        self.output.push_str(r#"xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">"#);
+        self.output
+            .push_str(r#"xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" "#);
+        self.output.push_str(
+            r#"xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" "#,
+        );
+        self.output.push_str(
+            r#"xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" "#,
+        );
+        self.output
+            .push_str(r#"xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" "#);
+        self.output
+            .push_str(r#"xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">"#);
         self.output.push('\n');
         self.output.push_str("<w:body>\n");
 
@@ -241,11 +357,11 @@ impl DocxWriter {
     fn generate_paragraph(&mut self, para: &Paragraph) {
         self.output.push_str("<w:p>\n");
 
-        // Paragraph properties (style)
+        // Paragraph properties (style) - use explicit style_id or mapped style
         let style = para
             .style_id
             .as_deref()
-            .unwrap_or(DEFAULT_PARAGRAPH_STYLE);
+            .unwrap_or_else(|| self.style_map.paragraph());
         self.output.push_str("<w:pPr>\n");
         self.output
             .push_str(&format!("<w:pStyle w:val=\"{}\"/>\n", escape_xml(style)));
@@ -263,16 +379,11 @@ impl DocxWriter {
     fn generate_heading(&mut self, heading: &Heading) {
         self.output.push_str("<w:p>\n");
 
-        // Heading style based on level or explicit style_id
-        let style = heading.style_id.as_deref().unwrap_or(match heading.level {
-            1 => "Heading1",
-            2 => "Heading2",
-            3 => "Heading3",
-            4 => "Heading4",
-            5 => "Heading5",
-            6 => "Heading6",
-            _ => "Heading1",
-        });
+        // Heading style based on level or explicit style_id - use style_map
+        let style = heading
+            .style_id
+            .as_deref()
+            .unwrap_or_else(|| self.style_map.heading(heading.level));
 
         self.output.push_str("<w:pPr>\n");
         self.output
@@ -307,21 +418,19 @@ impl DocxWriter {
                 self.output.push_str("<w:p>\n");
                 self.output.push_str("<w:pPr>\n");
 
-                // Use style_id if provided, otherwise default list style
-                let style = style_id.unwrap_or(match list_type {
-                    ListType::Unordered => "ListBullet",
-                    ListType::Ordered => "ListNumber",
-                    ListType::Description => "ListParagraph",
+                // Use style_id if provided, otherwise use style_map
+                let style = style_id.unwrap_or_else(|| match list_type {
+                    ListType::Unordered => self.style_map.list(false),
+                    ListType::Ordered => self.style_map.list(true),
+                    ListType::Description => self.style_map.get(crate::styles::ElementType::ListDescription),
                 });
                 self.output
                     .push_str(&format!("<w:pStyle w:val=\"{}\"/>\n", escape_xml(style)));
 
                 // List numbering properties
                 self.output.push_str("<w:numPr>\n");
-                self.output.push_str(&format!(
-                    "<w:ilvl w:val=\"{}\"/>\n",
-                    item.level
-                ));
+                self.output
+                    .push_str(&format!("<w:ilvl w:val=\"{}\"/>\n", item.level));
                 // numId would need to reference numbering.xml; use 1 as default
                 let num_id = match list_type {
                     ListType::Unordered => 1,
@@ -351,13 +460,16 @@ impl DocxWriter {
     fn generate_table(&mut self, table: &Table) {
         self.output.push_str("<w:tbl>\n");
 
-        // Table properties
+        // Table properties - use style_id or mapped table style
         self.output.push_str("<w:tblPr>\n");
-        if let Some(style) = &table.style_id {
-            self.output
-                .push_str(&format!("<w:tblStyle w:val=\"{}\"/>\n", escape_xml(style)));
-        }
-        self.output.push_str("<w:tblW w:w=\"5000\" w:type=\"pct\"/>\n");
+        let style = table
+            .style_id
+            .as_deref()
+            .unwrap_or_else(|| self.style_map.table());
+        self.output
+            .push_str(&format!("<w:tblStyle w:val=\"{}\"/>\n", escape_xml(style)));
+        self.output
+            .push_str("<w:tblW w:w=\"5000\" w:type=\"pct\"/>\n");
         self.output.push_str("</w:tblPr>\n");
 
         // Table grid (column definitions)
@@ -452,10 +564,13 @@ impl DocxWriter {
             }
         }
 
-        // Regular code block rendering
+        // Regular code block rendering - use style_map
         self.output.push_str("<w:p>\n");
         self.output.push_str("<w:pPr>\n");
-        let style = literal.style_id.as_deref().unwrap_or("CodeBlock");
+        let style = literal
+            .style_id
+            .as_deref()
+            .unwrap_or_else(|| self.style_map.code_block());
         self.output
             .push_str(&format!("<w:pStyle w:val=\"{}\"/>\n", escape_xml(style)));
         self.output.push_str("</w:pPr>\n");
@@ -463,7 +578,8 @@ impl DocxWriter {
         // Generate the content as a run with preserved whitespace
         self.output.push_str("<w:r>\n");
         self.output.push_str("<w:rPr>\n");
-        self.output.push_str("<w:rFonts w:ascii=\"Courier New\" w:hAnsi=\"Courier New\"/>\n");
+        self.output
+            .push_str("<w:rFonts w:ascii=\"Courier New\" w:hAnsi=\"Courier New\"/>\n");
         self.output.push_str("</w:rPr>\n");
         self.output.push_str(&format!(
             "<w:t xml:space=\"preserve\">{}</w:t>\n",
@@ -533,7 +649,8 @@ impl DocxWriter {
 
         // Store diagram source
         let source_path = format!("utf8dok/diagrams/fig{}.{}", image_id, source_ext);
-        self.diagram_sources.push((source_path.clone(), literal.content.clone()));
+        self.diagram_sources
+            .push((source_path.clone(), literal.content.clone()));
 
         // Add relationship
         let rel_id = self.relationships.add(
@@ -670,14 +787,11 @@ impl DocxWriter {
                     self.output.push_str("</w:hyperlink>\n");
                 } else {
                     // External link: add relationship and use r:id
-                    let rel_id = self.relationships.add(
-                        link.url.clone(),
-                        Relationships::TYPE_HYPERLINK.to_string(),
-                    );
-                    self.output.push_str(&format!(
-                        "<w:hyperlink r:id=\"{}\">\n",
-                        escape_xml(&rel_id)
-                    ));
+                    let rel_id = self
+                        .relationships
+                        .add(link.url.clone(), Relationships::TYPE_HYPERLINK.to_string());
+                    self.output
+                        .push_str(&format!("<w:hyperlink r:id=\"{}\">\n", escape_xml(&rel_id)));
                     self.output.push_str("<w:r>\n");
                     self.output.push_str("<w:rPr>\n");
                     self.output.push_str("<w:rStyle w:val=\"Hyperlink\"/>\n");
@@ -720,13 +834,15 @@ impl DocxWriter {
                 self.output.push_str("<w:i/>\n");
             }
             FormatType::Monospace => {
-                self.output.push_str("<w:rFonts w:ascii=\"Courier New\" w:hAnsi=\"Courier New\"/>\n");
+                self.output
+                    .push_str("<w:rFonts w:ascii=\"Courier New\" w:hAnsi=\"Courier New\"/>\n");
             }
             FormatType::Highlight => {
                 self.output.push_str("<w:highlight w:val=\"yellow\"/>\n");
             }
             FormatType::Superscript => {
-                self.output.push_str("<w:vertAlign w:val=\"superscript\"/>\n");
+                self.output
+                    .push_str("<w:vertAlign w:val=\"superscript\"/>\n");
             }
             FormatType::Subscript => {
                 self.output.push_str("<w:vertAlign w:val=\"subscript\"/>\n");
@@ -798,19 +914,26 @@ mod tests {
 </Relationships>"#).unwrap();
 
         // word/_rels/document.xml.rels
-        zip.start_file("word/_rels/document.xml.rels", options).unwrap();
-        zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+        zip.start_file("word/_rels/document.xml.rels", options)
+            .unwrap();
+        zip.write_all(
+            br#"<?xml version="1.0" encoding="UTF-8"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-</Relationships>"#).unwrap();
+</Relationships>"#,
+        )
+        .unwrap();
 
         // word/document.xml (placeholder, will be replaced)
         zip.start_file("word/document.xml", options).unwrap();
-        zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+        zip.write_all(
+            br#"<?xml version="1.0" encoding="UTF-8"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:body>
     <w:p><w:r><w:t>Template</w:t></w:r></w:p>
   </w:body>
-</w:document>"#).unwrap();
+</w:document>"#,
+        )
+        .unwrap();
 
         zip.finish().unwrap();
         buffer.into_inner()
@@ -834,7 +957,10 @@ mod tests {
                 Block::Paragraph(Paragraph {
                     inlines: vec![
                         Inline::Text("This is a ".to_string()),
-                        Inline::Format(FormatType::Bold, Box::new(Inline::Text("test".to_string()))),
+                        Inline::Format(
+                            FormatType::Bold,
+                            Box::new(Inline::Text("test".to_string())),
+                        ),
                         Inline::Text(" document.".to_string()),
                     ],
                     style_id: None,
@@ -845,7 +971,11 @@ mod tests {
 
         // Generate DOCX without diagram rendering
         let result = DocxWriter::generate_with_options(&doc, &template, false);
-        assert!(result.is_ok(), "Failed to generate DOCX: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to generate DOCX: {:?}",
+            result.err()
+        );
 
         let output = result.unwrap();
 
@@ -1011,9 +1141,15 @@ mod tests {
                 inlines: vec![
                     Inline::Format(FormatType::Bold, Box::new(Inline::Text("bold".to_string()))),
                     Inline::Text(" ".to_string()),
-                    Inline::Format(FormatType::Italic, Box::new(Inline::Text("italic".to_string()))),
+                    Inline::Format(
+                        FormatType::Italic,
+                        Box::new(Inline::Text("italic".to_string())),
+                    ),
                     Inline::Text(" ".to_string()),
-                    Inline::Format(FormatType::Monospace, Box::new(Inline::Text("mono".to_string()))),
+                    Inline::Format(
+                        FormatType::Monospace,
+                        Box::new(Inline::Text("mono".to_string())),
+                    ),
                 ],
                 style_id: None,
                 attributes: HashMap::new(),
@@ -1063,9 +1199,18 @@ mod tests {
         assert!(doc_xml.contains("Example"), "Link text should be present");
 
         // Check relationships file has the hyperlink
-        let rels_xml = archive.get_string("word/_rels/document.xml.rels").unwrap().unwrap();
-        assert!(rels_xml.contains("https://example.com"), "Relationship should have URL");
-        assert!(rels_xml.contains("hyperlink"), "Relationship type should be hyperlink");
+        let rels_xml = archive
+            .get_string("word/_rels/document.xml.rels")
+            .unwrap()
+            .unwrap();
+        assert!(
+            rels_xml.contains("https://example.com"),
+            "Relationship should have URL"
+        );
+        assert!(
+            rels_xml.contains("hyperlink"),
+            "Relationship type should be hyperlink"
+        );
     }
 
     #[test]
@@ -1103,8 +1248,270 @@ mod tests {
         let doc_xml = archive.get_string("word/document.xml").unwrap().unwrap();
 
         // Should be rendered as code block, not image
-        assert!(doc_xml.contains("graph TD"), "Content should be present as code");
-        assert!(doc_xml.contains("Courier New"), "Should have monospace font");
-        assert!(!doc_xml.contains("<w:drawing>"), "Should not have drawing element");
+        assert!(
+            doc_xml.contains("graph TD"),
+            "Content should be present as code"
+        );
+        assert!(
+            doc_xml.contains("Courier New"),
+            "Should have monospace font"
+        );
+        assert!(
+            !doc_xml.contains("<w:drawing>"),
+            "Should not have drawing element"
+        );
+    }
+
+    /// Create a template with corporate-style naming for testing style mapping
+    fn create_corporate_template() -> Vec<u8> {
+        use zip::write::SimpleFileOptions;
+        use zip::CompressionMethod;
+        use zip::ZipWriter;
+
+        let mut buffer = Cursor::new(Vec::new());
+        let mut zip = ZipWriter::new(&mut buffer);
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+
+        // [Content_Types].xml
+        zip.start_file("[Content_Types].xml", options).unwrap();
+        zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.template.main+xml"/>
+  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+</Types>"#).unwrap();
+
+        // _rels/.rels
+        zip.start_file("_rels/.rels", options).unwrap();
+        zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>"#).unwrap();
+
+        // word/_rels/document.xml.rels
+        zip.start_file("word/_rels/document.xml.rels", options)
+            .unwrap();
+        zip.write_all(
+            br#"<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>"#,
+        )
+        .unwrap();
+
+        // word/styles.xml with standard Word style names
+        zip.start_file("word/styles.xml", options).unwrap();
+        zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:style w:type="paragraph" w:styleId="Normal" w:default="1">
+    <w:name w:val="Normal"/>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="Heading1">
+    <w:name w:val="heading 1"/>
+    <w:basedOn w:val="Normal"/>
+    <w:pPr><w:outlineLvl w:val="0"/></w:pPr>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="Heading2">
+    <w:name w:val="heading 2"/>
+    <w:basedOn w:val="Normal"/>
+    <w:pPr><w:outlineLvl w:val="1"/></w:pPr>
+  </w:style>
+  <w:style w:type="table" w:styleId="TableGrid">
+    <w:name w:val="Table Grid"/>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="CodeBlock">
+    <w:name w:val="Code Block"/>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="ListBullet">
+    <w:name w:val="List Bullet"/>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="ListNumber">
+    <w:name w:val="List Number"/>
+  </w:style>
+</w:styles>"#).unwrap();
+
+        // word/document.xml (empty template body)
+        zip.start_file("word/document.xml", options).unwrap();
+        zip.write_all(
+            br#"<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+  </w:body>
+</w:document>"#,
+        )
+        .unwrap();
+
+        zip.finish().unwrap();
+        buffer.into_inner()
+    }
+
+    #[test]
+    fn test_render_with_template() {
+        use crate::Template;
+
+        let template_bytes = create_corporate_template();
+        let template = Template::from_bytes(&template_bytes).unwrap();
+
+        // Create a document with headings, paragraphs, and code
+        let doc = Document {
+            metadata: utf8dok_ast::DocumentMeta::default(),
+            intent: None,
+            blocks: vec![
+                Block::Heading(Heading {
+                    level: 1,
+                    text: vec![Inline::Text("Introduction".to_string())],
+                    style_id: None,
+                    anchor: Some("sec-intro".to_string()),
+                }),
+                Block::Paragraph(Paragraph {
+                    inlines: vec![Inline::Text("This is the first paragraph.".to_string())],
+                    style_id: None,
+                    attributes: HashMap::new(),
+                }),
+                Block::Heading(Heading {
+                    level: 2,
+                    text: vec![Inline::Text("Details".to_string())],
+                    style_id: None,
+                    anchor: None,
+                }),
+                Block::Paragraph(Paragraph {
+                    inlines: vec![
+                        Inline::Text("Here is some ".to_string()),
+                        Inline::Format(
+                            FormatType::Bold,
+                            Box::new(Inline::Text("important".to_string())),
+                        ),
+                        Inline::Text(" information.".to_string()),
+                    ],
+                    style_id: None,
+                    attributes: HashMap::new(),
+                }),
+                Block::Table(Table {
+                    rows: vec![
+                        utf8dok_ast::TableRow {
+                            cells: vec![
+                                utf8dok_ast::TableCell {
+                                    content: vec![Block::Paragraph(Paragraph {
+                                        inlines: vec![Inline::Text("Name".to_string())],
+                                        style_id: None,
+                                        attributes: HashMap::new(),
+                                    })],
+                                    colspan: 1,
+                                    rowspan: 1,
+                                    align: None,
+                                },
+                                utf8dok_ast::TableCell {
+                                    content: vec![Block::Paragraph(Paragraph {
+                                        inlines: vec![Inline::Text("Value".to_string())],
+                                        style_id: None,
+                                        attributes: HashMap::new(),
+                                    })],
+                                    colspan: 1,
+                                    rowspan: 1,
+                                    align: None,
+                                },
+                            ],
+                            is_header: true,
+                        },
+                    ],
+                    style_id: None, // Should use mapped TableGrid
+                    caption: None,
+                    columns: vec![],
+                }),
+            ],
+        };
+
+        // Generate using template-based method (without diagrams for test speed)
+        let result = DocxWriter::generate_from_template_with_options(&doc, template, false, None);
+        assert!(
+            result.is_ok(),
+            "Failed to generate DOCX: {:?}",
+            result.err()
+        );
+
+        let output = result.unwrap();
+
+        // Verify it's a valid ZIP
+        let cursor = Cursor::new(&output);
+        let archive = OoxmlArchive::from_reader(cursor).unwrap();
+
+        // Verify word/document.xml exists and contains correct styles
+        let doc_xml = archive.get_string("word/document.xml").unwrap().unwrap();
+
+        // Check heading styles are correctly applied
+        assert!(
+            doc_xml.contains("<w:pStyle w:val=\"Heading1\"/>"),
+            "Should have Heading1 style"
+        );
+        assert!(
+            doc_xml.contains("<w:pStyle w:val=\"Heading2\"/>"),
+            "Should have Heading2 style"
+        );
+
+        // Check paragraph style
+        assert!(
+            doc_xml.contains("<w:pStyle w:val=\"Normal\"/>"),
+            "Should have Normal style for paragraphs"
+        );
+
+        // Check table style
+        assert!(
+            doc_xml.contains("<w:tblStyle w:val=\"TableGrid\"/>"),
+            "Should have TableGrid table style"
+        );
+
+        // Check content is present
+        assert!(doc_xml.contains("Introduction"), "Heading text missing");
+        assert!(
+            doc_xml.contains("first paragraph"),
+            "Paragraph text missing"
+        );
+        assert!(doc_xml.contains("important"), "Bold text missing");
+        assert!(doc_xml.contains("<w:b/>"), "Bold formatting missing");
+
+        // Verify styles.xml was preserved from template
+        let styles_xml = archive.get_string("word/styles.xml").unwrap();
+        assert!(styles_xml.is_some(), "styles.xml should be preserved");
+    }
+
+    #[test]
+    fn test_custom_style_map() {
+        use crate::styles::{ElementType, StyleMap};
+        use crate::Template;
+
+        let template_bytes = create_corporate_template();
+        let template = Template::from_bytes(&template_bytes).unwrap();
+
+        // Create custom style map with different mappings
+        let mut custom_map = StyleMap::new();
+        custom_map.set(ElementType::Heading(1), "Heading2"); // Use Heading2 for level 1
+        custom_map.set(ElementType::Paragraph, "Normal");
+
+        let doc = Document {
+            metadata: utf8dok_ast::DocumentMeta::default(),
+            intent: None,
+            blocks: vec![Block::Heading(Heading {
+                level: 1,
+                text: vec![Inline::Text("Title".to_string())],
+                style_id: None,
+                anchor: None,
+            })],
+        };
+
+        let result =
+            DocxWriter::generate_from_template_with_options(&doc, template, false, Some(custom_map));
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        let cursor = Cursor::new(&output);
+        let archive = OoxmlArchive::from_reader(cursor).unwrap();
+        let doc_xml = archive.get_string("word/document.xml").unwrap().unwrap();
+
+        // Should use Heading2 because of custom mapping
+        assert!(
+            doc_xml.contains("<w:pStyle w:val=\"Heading2\"/>"),
+            "Should use custom-mapped Heading2 style"
+        );
     }
 }

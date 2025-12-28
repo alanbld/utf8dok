@@ -2,6 +2,12 @@
 //!
 //! This module parses Word style definitions and provides
 //! utilities for understanding the style hierarchy.
+//!
+//! # Style Mapping
+//!
+//! The [`StyleMap`] struct provides a mapping between semantic document elements
+//! (headings, paragraphs, tables) and Word style IDs, enabling template-aware
+//! document generation.
 
 use std::collections::HashMap;
 
@@ -72,7 +78,7 @@ impl StyleSheet {
                     match name.as_ref() {
                         b"style" => {
                             let mut builder = StyleBuilder::default();
-                            
+
                             // Get style type
                             if let Some(t) = get_attr(e, b"w:type") {
                                 builder.style_type = Some(match t.as_str() {
@@ -83,17 +89,17 @@ impl StyleSheet {
                                     _ => StyleType::Paragraph,
                                 });
                             }
-                            
+
                             // Get style ID
                             if let Some(id) = get_attr(e, b"w:styleId") {
                                 builder.id = Some(id);
                             }
-                            
+
                             // Check if default
                             if get_attr(e, b"w:default").as_deref() == Some("1") {
                                 builder.is_default = true;
                             }
-                            
+
                             current_style = Some(builder);
                         }
                         b"name" if current_style.is_some() => {
@@ -172,7 +178,9 @@ impl StyleSheet {
 
     /// Get all paragraph styles
     pub fn paragraph_styles(&self) -> impl Iterator<Item = &Style> {
-        self.styles.values().filter(|s| s.style_type == StyleType::Paragraph)
+        self.styles
+            .values()
+            .filter(|s| s.style_type == StyleType::Paragraph)
     }
 
     /// Get all heading styles (styles with outline level)
@@ -182,7 +190,9 @@ impl StyleSheet {
 
     /// Get all table styles
     pub fn table_styles(&self) -> impl Iterator<Item = &Style> {
-        self.styles.values().filter(|s| s.style_type == StyleType::Table)
+        self.styles
+            .values()
+            .filter(|s| s.style_type == StyleType::Table)
     }
 
     /// Check if a style ID represents a heading
@@ -256,9 +266,270 @@ fn get_attr(e: &BytesStart, name: &[u8]) -> Option<String> {
         .and_then(|a| String::from_utf8(a.value.to_vec()).ok())
 }
 
+// ============================================================================
+// Style Mapping for Template Injection
+// ============================================================================
+
+/// Semantic element types that can be mapped to Word styles
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ElementType {
+    /// Heading level 1-9
+    Heading(u8),
+    /// Normal paragraph
+    Paragraph,
+    /// Code/literal block
+    CodeBlock,
+    /// Unordered list item
+    ListBullet,
+    /// Ordered list item
+    ListNumber,
+    /// Description list item
+    ListDescription,
+    /// Table
+    Table,
+    /// Table header row
+    TableHeader,
+    /// Admonition: Note
+    AdmonitionNote,
+    /// Admonition: Tip
+    AdmonitionTip,
+    /// Admonition: Important
+    AdmonitionImportant,
+    /// Admonition: Warning
+    AdmonitionWarning,
+    /// Admonition: Caution
+    AdmonitionCaution,
+}
+
+/// Maps semantic document elements to Word style IDs
+///
+/// This struct provides the bridge between AST elements and template styles,
+/// enabling template-aware document generation.
+///
+/// # Example
+///
+/// ```
+/// use utf8dok_ooxml::styles::{StyleMap, ElementType};
+///
+/// let mut map = StyleMap::default();
+/// map.set(ElementType::Heading(1), "CorporateHeading1");
+/// map.set(ElementType::Paragraph, "BodyText");
+///
+/// assert_eq!(map.get(ElementType::Heading(1)), "CorporateHeading1");
+/// assert_eq!(map.get(ElementType::Paragraph), "BodyText");
+/// ```
+#[derive(Debug, Clone)]
+pub struct StyleMap {
+    /// Mapping from element type to style ID
+    mappings: HashMap<ElementType, String>,
+}
+
+impl Default for StyleMap {
+    /// Create a StyleMap with sensible defaults for standard Word templates
+    fn default() -> Self {
+        let mut mappings = HashMap::new();
+
+        // Heading styles (Word convention)
+        mappings.insert(ElementType::Heading(1), "Heading1".to_string());
+        mappings.insert(ElementType::Heading(2), "Heading2".to_string());
+        mappings.insert(ElementType::Heading(3), "Heading3".to_string());
+        mappings.insert(ElementType::Heading(4), "Heading4".to_string());
+        mappings.insert(ElementType::Heading(5), "Heading5".to_string());
+        mappings.insert(ElementType::Heading(6), "Heading6".to_string());
+        mappings.insert(ElementType::Heading(7), "Heading7".to_string());
+        mappings.insert(ElementType::Heading(8), "Heading8".to_string());
+        mappings.insert(ElementType::Heading(9), "Heading9".to_string());
+
+        // Paragraph styles
+        mappings.insert(ElementType::Paragraph, "Normal".to_string());
+        mappings.insert(ElementType::CodeBlock, "CodeBlock".to_string());
+
+        // List styles
+        mappings.insert(ElementType::ListBullet, "ListBullet".to_string());
+        mappings.insert(ElementType::ListNumber, "ListNumber".to_string());
+        mappings.insert(ElementType::ListDescription, "ListParagraph".to_string());
+
+        // Table styles
+        mappings.insert(ElementType::Table, "TableGrid".to_string());
+        mappings.insert(ElementType::TableHeader, "TableGrid".to_string());
+
+        // Admonition styles (may not exist in all templates)
+        mappings.insert(ElementType::AdmonitionNote, "Note".to_string());
+        mappings.insert(ElementType::AdmonitionTip, "Tip".to_string());
+        mappings.insert(ElementType::AdmonitionImportant, "Important".to_string());
+        mappings.insert(ElementType::AdmonitionWarning, "Warning".to_string());
+        mappings.insert(ElementType::AdmonitionCaution, "Caution".to_string());
+
+        Self { mappings }
+    }
+}
+
+impl StyleMap {
+    /// Create an empty style map
+    pub fn new() -> Self {
+        Self {
+            mappings: HashMap::new(),
+        }
+    }
+
+    /// Set a mapping from element type to style ID
+    pub fn set(&mut self, element: ElementType, style_id: impl Into<String>) {
+        self.mappings.insert(element, style_id.into());
+    }
+
+    /// Get the style ID for an element type
+    ///
+    /// Returns the mapped style ID, or a sensible fallback if not mapped.
+    pub fn get(&self, element: ElementType) -> &str {
+        self.mappings
+            .get(&element)
+            .map(|s| s.as_str())
+            .unwrap_or_else(|| Self::fallback_style(element))
+    }
+
+    /// Get style ID for a heading level (1-9)
+    pub fn heading(&self, level: u8) -> &str {
+        let level = level.clamp(1, 9);
+        self.get(ElementType::Heading(level))
+    }
+
+    /// Get style ID for paragraphs
+    pub fn paragraph(&self) -> &str {
+        self.get(ElementType::Paragraph)
+    }
+
+    /// Get style ID for code blocks
+    pub fn code_block(&self) -> &str {
+        self.get(ElementType::CodeBlock)
+    }
+
+    /// Get style ID for tables
+    pub fn table(&self) -> &str {
+        self.get(ElementType::Table)
+    }
+
+    /// Get style ID for list items
+    pub fn list(&self, ordered: bool) -> &str {
+        if ordered {
+            self.get(ElementType::ListNumber)
+        } else {
+            self.get(ElementType::ListBullet)
+        }
+    }
+
+    /// Provide fallback styles for unmapped elements
+    fn fallback_style(element: ElementType) -> &'static str {
+        match element {
+            ElementType::Heading(_) => "Heading1",
+            ElementType::Paragraph => "Normal",
+            ElementType::CodeBlock => "Normal",
+            ElementType::ListBullet => "ListBullet",
+            ElementType::ListNumber => "ListNumber",
+            ElementType::ListDescription => "Normal",
+            ElementType::Table => "TableGrid",
+            ElementType::TableHeader => "TableGrid",
+            ElementType::AdmonitionNote
+            | ElementType::AdmonitionTip
+            | ElementType::AdmonitionImportant
+            | ElementType::AdmonitionWarning
+            | ElementType::AdmonitionCaution => "Normal",
+        }
+    }
+
+    /// Create a StyleMap from a StyleSheet by auto-detecting available styles
+    ///
+    /// This inspects the template's styles and maps to the best available match.
+    pub fn from_stylesheet(stylesheet: &StyleSheet) -> Self {
+        let mut map = StyleMap::default();
+
+        // Check for alternative heading styles
+        for level in 1..=9 {
+            let default_id = format!("Heading{}", level);
+            if stylesheet.get(&default_id).is_none() {
+                // Try alternative naming conventions
+                let alternatives = [
+                    format!("heading {}", level),
+                    format!("Heading {}", level),
+                    format!("H{}", level),
+                ];
+                for alt in alternatives {
+                    if stylesheet.get(&alt).is_some() {
+                        map.set(ElementType::Heading(level), alt);
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Check for code block style alternatives
+        let code_alternatives = ["CodeBlock", "Code", "NoSpacing", "SourceCode", "Verbatim"];
+        for alt in code_alternatives {
+            if stylesheet.get(alt).is_some() {
+                map.set(ElementType::CodeBlock, alt);
+                break;
+            }
+        }
+
+        // Check for table style alternatives
+        let table_alternatives = ["TableGrid", "Table Grid", "GridTable1Light", "PlainTable1"];
+        for alt in table_alternatives {
+            if stylesheet.get(alt).is_some() {
+                map.set(ElementType::Table, alt);
+                break;
+            }
+        }
+
+        map
+    }
+
+    /// Validate that all mapped styles exist in the stylesheet
+    ///
+    /// Returns a list of missing style IDs.
+    pub fn validate(&self, stylesheet: &StyleSheet) -> Vec<String> {
+        self.mappings
+            .values()
+            .filter(|style_id| stylesheet.get(style_id).is_none())
+            .cloned()
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_style_map_default() {
+        let map = StyleMap::default();
+        assert_eq!(map.heading(1), "Heading1");
+        assert_eq!(map.heading(2), "Heading2");
+        assert_eq!(map.paragraph(), "Normal");
+        assert_eq!(map.code_block(), "CodeBlock");
+        assert_eq!(map.table(), "TableGrid");
+        assert_eq!(map.list(true), "ListNumber");
+        assert_eq!(map.list(false), "ListBullet");
+    }
+
+    #[test]
+    fn test_style_map_custom() {
+        let mut map = StyleMap::new();
+        map.set(ElementType::Heading(1), "CorporateH1");
+        map.set(ElementType::Paragraph, "BodyText");
+
+        assert_eq!(map.heading(1), "CorporateH1");
+        assert_eq!(map.paragraph(), "BodyText");
+        // Fallback for unmapped
+        assert_eq!(map.heading(2), "Heading1"); // Falls back to default
+    }
+
+    #[test]
+    fn test_style_map_heading_clamp() {
+        let map = StyleMap::default();
+        // Level 0 should clamp to 1
+        assert_eq!(map.heading(0), "Heading1");
+        // Level 10 should clamp to 9
+        assert_eq!(map.heading(10), "Heading9");
+    }
 
     #[test]
     fn test_parse_heading_style() {
@@ -276,7 +547,7 @@ mod tests {
 
         let styles = StyleSheet::parse(xml).unwrap();
         let h1 = styles.get("Heading1").unwrap();
-        
+
         assert_eq!(h1.name, "heading 1");
         assert_eq!(h1.outline_level, Some(0));
         assert_eq!(styles.heading_level("Heading1"), Some(1));
@@ -297,7 +568,7 @@ mod tests {
 
         let styles = StyleSheet::parse(xml).unwrap();
         let chain = styles.resolve_chain("Heading1");
-        
+
         assert_eq!(chain.len(), 2);
         assert_eq!(chain[0].id, "Heading1");
         assert_eq!(chain[1].id, "Normal");
