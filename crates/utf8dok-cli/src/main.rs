@@ -18,7 +18,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 
 use utf8dok_core::diagnostics::Diagnostic;
 use utf8dok_core::{generate, parse};
-use utf8dok_ooxml::{convert_document_with_styles, Document, DocxWriter, OoxmlArchive, StyleSheet};
+use utf8dok_ooxml::{convert_document_with_styles, Document, DocxWriter, OoxmlArchive, StyleSheet, Template};
 use utf8dok_plugins::PluginEngine;
 use utf8dok_validate::ValidationEngine;
 
@@ -245,25 +245,48 @@ fn render_command(
 
     // Step 1: Read input AsciiDoc file
     println!("  Reading: {}", input.display());
-    let content = fs::read_to_string(input)
+    let source_content = fs::read_to_string(input)
         .with_context(|| format!("Failed to read input file: {}", input.display()))?;
 
     // Step 2: Parse AsciiDoc to AST
     println!("  Parsing AsciiDoc...");
-    let ast = parse(&content).context("Failed to parse AsciiDoc content")?;
+    let ast = parse(&source_content).context("Failed to parse AsciiDoc content")?;
     println!("    {} blocks parsed", ast.blocks.len());
 
-    // Step 3: Load template
+    // Step 3: Load template using Template API
     println!("  Loading template: {}", template_path.display());
-    let template_bytes = fs::read(&template_path)
-        .with_context(|| format!("Failed to read template: {}", template_path.display()))?;
+    let template_obj = Template::load(&template_path)
+        .with_context(|| format!("Failed to load template: {}", template_path.display()))?;
 
-    // Step 4: Generate DOCX
-    println!("  Generating DOCX...");
-    let docx_bytes =
-        DocxWriter::generate(&ast, &template_bytes).context("Failed to generate DOCX from AST")?;
+    // Step 4: Load or generate config
+    let config_path = input.parent().unwrap_or(std::path::Path::new(".")).join("utf8dok.toml");
+    let config_content = if config_path.exists() {
+        println!("  Loading config: {}", config_path.display());
+        fs::read_to_string(&config_path)
+            .with_context(|| format!("Failed to read config: {}", config_path.display()))?
+    } else {
+        // Generate minimal config
+        format!(
+            "# utf8dok configuration\n\
+             # Auto-generated during render\n\n\
+             [template]\n\
+             path = \"{}\"\n",
+            template_path.display()
+        )
+    };
 
-    // Step 5: Write output
+    // Step 5: Create writer with embedded content for self-contained DOCX
+    println!("  Generating self-contained DOCX...");
+    let mut writer = DocxWriter::new();
+    writer.set_source(&source_content);
+    writer.set_config(&config_content);
+
+    // Step 6: Generate DOCX
+    let docx_bytes = writer
+        .generate_with_template(&ast, template_obj)
+        .context("Failed to generate DOCX from AST")?;
+
+    // Step 7: Write output
     println!("  Writing: {}", output_path.display());
     fs::write(&output_path, &docx_bytes)
         .with_context(|| format!("Failed to write output file: {}", output_path.display()))?;
@@ -272,6 +295,7 @@ fn render_command(
     println!("Render complete!");
     println!("  Output: {}", output_path.display());
     println!("  Size: {} bytes", docx_bytes.len());
+    println!("  Self-contained: yes (source + config embedded)");
 
     Ok(())
 }

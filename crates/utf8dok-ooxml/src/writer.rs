@@ -74,11 +74,21 @@ pub struct DocxWriter {
     diagram_engine: Option<DiagramEngine>,
     /// Style mapping for template injection
     style_map: StyleMap,
+    /// Original AsciiDoc source (for self-contained DOCX)
+    source_text: Option<String>,
+    /// Configuration TOML (for self-contained DOCX)
+    config_text: Option<String>,
+}
+
+impl Default for DocxWriter {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DocxWriter {
     /// Create a new DocxWriter
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             output: String::new(),
             relationships: Relationships::new(),
@@ -89,6 +99,8 @@ impl DocxWriter {
             next_drawing_id: 1,
             diagram_engine: None,
             style_map: StyleMap::default(),
+            source_text: None,
+            config_text: None,
         }
     }
 
@@ -104,7 +116,27 @@ impl DocxWriter {
             next_drawing_id: 1,
             diagram_engine: None,
             style_map,
+            source_text: None,
+            config_text: None,
         }
+    }
+
+    /// Set the original AsciiDoc source text to embed in the DOCX
+    ///
+    /// This enables round-trip editing - the source can be extracted later.
+    pub fn set_source(&mut self, source: impl Into<String>) {
+        self.source_text = Some(source.into());
+    }
+
+    /// Set the configuration TOML to embed in the DOCX
+    pub fn set_config(&mut self, config: impl Into<String>) {
+        self.config_text = Some(config.into());
+    }
+
+    /// Set both source and config at once
+    pub fn set_embedded_content(&mut self, source: impl Into<String>, config: impl Into<String>) {
+        self.source_text = Some(source.into());
+        self.config_text = Some(config.into());
     }
 
     /// Initialize the writer from a template archive
@@ -122,6 +154,53 @@ impl DocxWriter {
         Ok(())
     }
 
+    /// Write embedded content (source, config) to the archive
+    ///
+    /// This makes the DOCX self-contained for round-trip editing.
+    fn write_embedded_content(&mut self, archive: &mut OoxmlArchive) -> Result<()> {
+        // Write source file if present
+        if let Some(ref source) = self.source_text {
+            let source_path = "utf8dok/source.adoc";
+            archive.set_string(source_path, source.clone());
+
+            // Compute hash for manifest
+            let mut hasher = Sha256::new();
+            hasher.update(source.as_bytes());
+            let hash = format!("{:x}", hasher.finalize());
+
+            // Add to manifest
+            self.manifest.add_element(
+                "source".to_string(),
+                ElementMeta::new("source")
+                    .with_source(source_path.to_string())
+                    .with_hash(hash)
+                    .with_description("Original AsciiDoc source".to_string()),
+            );
+        }
+
+        // Write config file if present
+        if let Some(ref config) = self.config_text {
+            let config_path = "utf8dok/utf8dok.toml";
+            archive.set_string(config_path, config.clone());
+
+            // Compute hash for manifest
+            let mut hasher = Sha256::new();
+            hasher.update(config.as_bytes());
+            let hash = format!("{:x}", hasher.finalize());
+
+            // Add to manifest
+            self.manifest.add_element(
+                "config".to_string(),
+                ElementMeta::new("config")
+                    .with_source(config_path.to_string())
+                    .with_hash(hash)
+                    .with_description("utf8dok configuration".to_string()),
+            );
+        }
+
+        Ok(())
+    }
+
     /// Generate a DOCX file from an AST Document using a template
     ///
     /// # Arguments
@@ -134,6 +213,97 @@ impl DocxWriter {
     /// The generated DOCX file as bytes
     pub fn generate(doc: &Document, template: &[u8]) -> Result<Vec<u8>> {
         Self::generate_with_options(doc, template, true)
+    }
+
+    /// Generate a DOCX file using instance settings (source, config, style_map)
+    ///
+    /// This method allows setting source/config before generation for self-contained DOCX.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use utf8dok_ooxml::{DocxWriter, Template};
+    ///
+    /// let mut writer = DocxWriter::new();
+    /// writer.set_source(&adoc_content);
+    /// writer.set_config(&config_toml);
+    ///
+    /// let template = Template::load("template.dotx")?;
+    /// let output = writer.generate_with_template(&doc, template)?;
+    /// ```
+    pub fn generate_with_template(
+        self,
+        doc: &Document,
+        template: Template,
+    ) -> Result<Vec<u8>> {
+        self.generate_with_template_options(doc, template, true, None)
+    }
+
+    /// Generate a DOCX file with full options using instance settings
+    pub fn generate_with_template_options(
+        mut self,
+        doc: &Document,
+        mut template: Template,
+        render_diagrams: bool,
+        custom_style_map: Option<StyleMap>,
+    ) -> Result<Vec<u8>> {
+        // Get styles from template and create style map
+        let stylesheet = template.get_styles()?;
+        let style_map = custom_style_map.unwrap_or_else(|| StyleMap::from_stylesheet(stylesheet));
+        self.style_map = style_map;
+
+        // Get the underlying archive (consume template)
+        let mut archive = template.into_archive();
+
+        // Initialize from template
+        self.init_from_template(&archive)?;
+
+        // Initialize diagram engine if rendering diagrams
+        if render_diagrams {
+            self.diagram_engine = Some(DiagramEngine::new());
+        }
+
+        // Generate the document XML
+        let document_xml = self.generate_document_xml(doc);
+
+        // Write word/document.xml
+        archive.set_string("word/document.xml", document_xml);
+
+        // Write word/_rels/document.xml.rels
+        archive.set_string(
+            "word/_rels/document.xml.rels",
+            self.relationships.to_xml(),
+        );
+
+        // Write media files
+        for (path, data) in &self.media_files {
+            archive.set(path.clone(), data.clone());
+        }
+
+        // Write diagram source files
+        for (path, content) in &self.diagram_sources {
+            archive.set(path.clone(), content.as_bytes().to_vec());
+        }
+
+        // Write embedded content (source, config) for self-contained DOCX
+        self.write_embedded_content(&mut archive)?;
+
+        // Write manifest if we have tracked elements
+        if !self.manifest.is_empty() {
+            let manifest_json = self.manifest.to_json()?;
+            archive.set_string("utf8dok/manifest.json", manifest_json);
+        }
+
+        // Update [Content_Types].xml to include PNG if we have images
+        if !self.media_files.is_empty() {
+            self.update_content_types(&mut archive)?;
+        }
+
+        // Write to output buffer
+        let mut output = Cursor::new(Vec::new());
+        archive.write_to(&mut output)?;
+
+        Ok(output.into_inner())
     }
 
     /// Generate a DOCX file with options
@@ -182,6 +352,9 @@ impl DocxWriter {
         for (path, content) in &writer.diagram_sources {
             archive.set(path.clone(), content.as_bytes().to_vec());
         }
+
+        // Write embedded content (source, config) for self-contained DOCX
+        writer.write_embedded_content(&mut archive)?;
 
         // Write manifest if we have tracked elements
         if !writer.manifest.is_empty() {
@@ -269,6 +442,9 @@ impl DocxWriter {
         for (path, content) in &writer.diagram_sources {
             archive.set(path.clone(), content.as_bytes().to_vec());
         }
+
+        // Write embedded content (source, config) for self-contained DOCX
+        writer.write_embedded_content(&mut archive)?;
 
         // Write manifest if we have tracked elements
         if !writer.manifest.is_empty() {
@@ -1513,5 +1689,89 @@ mod tests {
             doc_xml.contains("<w:pStyle w:val=\"Heading2\"/>"),
             "Should use custom-mapped Heading2 style"
         );
+    }
+
+    #[test]
+    fn test_self_contained_docx() {
+        use crate::Template;
+
+        let template_bytes = create_corporate_template();
+        let template = Template::from_bytes(&template_bytes).unwrap();
+
+        let source_content = r#"= My Document
+
+This is the *original* AsciiDoc source.
+
+== Section One
+
+Some content here.
+"#;
+
+        let config_content = r#"# utf8dok configuration
+[template]
+path = "template.dotx"
+
+[styles]
+heading1 = "Heading1"
+paragraph = "Normal"
+"#;
+
+        let doc = Document {
+            metadata: utf8dok_ast::DocumentMeta::default(),
+            intent: None,
+            blocks: vec![
+                Block::Heading(Heading {
+                    level: 1,
+                    text: vec![Inline::Text("My Document".to_string())],
+                    style_id: None,
+                    anchor: None,
+                }),
+                Block::Paragraph(Paragraph {
+                    inlines: vec![Inline::Text("Some content.".to_string())],
+                    style_id: None,
+                    attributes: HashMap::new(),
+                }),
+            ],
+        };
+
+        // Create writer and set embedded content
+        let mut writer = DocxWriter::new();
+        writer.set_source(source_content);
+        writer.set_config(config_content);
+
+        // Generate self-contained DOCX
+        let result = writer.generate_with_template(&doc, template);
+        assert!(result.is_ok(), "Failed to generate: {:?}", result.err());
+
+        let output = result.unwrap();
+
+        // Verify embedded content exists
+        let cursor = Cursor::new(&output);
+        let archive = OoxmlArchive::from_reader(cursor).unwrap();
+
+        // Check source.adoc was embedded
+        let embedded_source = archive.get_string("utf8dok/source.adoc").unwrap();
+        assert!(embedded_source.is_some(), "utf8dok/source.adoc should exist");
+        assert_eq!(
+            embedded_source.unwrap(),
+            source_content,
+            "Embedded source should match original"
+        );
+
+        // Check utf8dok.toml was embedded
+        let embedded_config = archive.get_string("utf8dok/utf8dok.toml").unwrap();
+        assert!(embedded_config.is_some(), "utf8dok/utf8dok.toml should exist");
+        assert_eq!(
+            embedded_config.unwrap(),
+            config_content,
+            "Embedded config should match original"
+        );
+
+        // Check manifest exists and contains entries
+        let manifest_json = archive.get_string("utf8dok/manifest.json").unwrap();
+        assert!(manifest_json.is_some(), "utf8dok/manifest.json should exist");
+        let manifest = manifest_json.unwrap();
+        assert!(manifest.contains("source"), "Manifest should have source entry");
+        assert!(manifest.contains("config"), "Manifest should have config entry");
     }
 }
