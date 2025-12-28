@@ -13,11 +13,13 @@
 //! RUST_LOG=debug utf8dok-lsp
 //! ```
 
+mod intelligence;
 mod structural;
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use intelligence::{RenameAnalyzer, SelectionAnalyzer};
 use structural::{FoldingAnalyzer, SymbolAnalyzer};
 
 use serde_json::Value;
@@ -29,8 +31,10 @@ use tower_lsp::lsp_types::{
     DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentSymbolParams,
     DocumentSymbolResponse, FoldingRange, FoldingRangeParams, FoldingRangeProviderCapability,
     InitializeParams, InitializeResult, InitializedParams, Location, MessageType,
-    NumberOrString, OneOf, Position, Range, ServerCapabilities, ServerInfo,
-    TextDocumentSyncCapability, TextDocumentSyncKind, Url, WorkDoneProgressOptions,
+    NumberOrString, OneOf, Position, PrepareRenameResponse, Range, RenameParams,
+    SelectionRange, SelectionRangeParams, SelectionRangeProviderCapability, ServerCapabilities,
+    ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
+    WorkDoneProgressOptions, WorkspaceEdit,
 };
 use tower_lsp::lsp_types::Diagnostic;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
@@ -311,6 +315,13 @@ impl LanguageServer for Backend {
                 folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
                 // Document symbols (Phase 7 Week 2)
                 document_symbol_provider: Some(OneOf::Left(true)),
+                // Selection ranges (Phase 8 Week 1)
+                selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
+                // Rename refactoring (Phase 8 Week 2)
+                rename_provider: Some(OneOf::Right(tower_lsp::lsp_types::RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: WorkDoneProgressOptions::default(),
+                })),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -414,6 +425,107 @@ impl LanguageServer for Backend {
         debug!("Generated {} document symbols for {}", symbols.len(), uri);
 
         Ok(Some(DocumentSymbolResponse::Nested(symbols)))
+    }
+
+    async fn selection_range(
+        &self,
+        params: SelectionRangeParams,
+    ) -> Result<Option<Vec<SelectionRange>>> {
+        let uri = params.text_document.uri;
+        debug!("Selection range request for: {}", uri);
+
+        // Get document from store
+        let text = match self.get_document(&uri).await {
+            Some(doc) => doc,
+            None => {
+                warn!("Document not found for selection: {}", uri);
+                return Ok(None);
+            }
+        };
+
+        // Generate selection ranges for each position
+        let analyzer = SelectionAnalyzer::new(&text);
+        let mut ranges = Vec::new();
+
+        for position in params.positions {
+            if let Some(selection) = analyzer.to_lsp_selection_ranges(position) {
+                ranges.push(selection);
+            }
+        }
+
+        if ranges.is_empty() {
+            Ok(None)
+        } else {
+            debug!("Generated {} selection ranges for {}", ranges.len(), uri);
+            Ok(Some(ranges))
+        }
+    }
+
+    async fn prepare_rename(
+        &self,
+        params: tower_lsp::lsp_types::TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        let uri = params.text_document.uri;
+        debug!("Prepare rename request for: {}", uri);
+
+        // Get document from store
+        let text = match self.get_document(&uri).await {
+            Some(doc) => doc,
+            None => {
+                warn!("Document not found for rename: {}", uri);
+                return Ok(None);
+            }
+        };
+
+        // Check if rename is available at position
+        let analyzer = RenameAnalyzer::new(&text);
+        if let Some((range, placeholder)) = analyzer.can_rename_at(params.position) {
+            Ok(Some(PrepareRenameResponse::RangeWithPlaceholder {
+                range,
+                placeholder,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let uri = params.text_document_position.text_document.uri.clone();
+        debug!("Rename request for: {}", uri);
+
+        // Get document from store
+        let text = match self.get_document(&uri).await {
+            Some(doc) => doc,
+            None => {
+                warn!("Document not found for rename: {}", uri);
+                return Ok(None);
+            }
+        };
+
+        // Perform rename
+        let analyzer = RenameAnalyzer::new(&text);
+        let position = params.text_document_position.position;
+        let new_name = &params.new_name;
+
+        if let Some(result) = analyzer.rename_at_position(position, new_name) {
+            debug!(
+                "Renamed '{}' to '{}' with {} edits",
+                result.old_name,
+                result.new_name,
+                result.edits.len()
+            );
+
+            let mut changes = HashMap::new();
+            changes.insert(uri, result.edits);
+
+            Ok(Some(WorkspaceEdit {
+                changes: Some(changes),
+                document_changes: None,
+                change_annotations: None,
+            }))
+        } else {
+            Ok(None)
+        }
     }
 }
 
