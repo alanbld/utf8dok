@@ -1,0 +1,28 @@
+[package]
+name = "utf8dok-lsp"
+description = "Language Server Protocol implementation for utf8dok"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["asciidoc", "lsp", "language-server"]
+categories = ["development-tools"]
+
+[[bin]]
+name = "utf8dok-lsp"
+path = "src/main.rs"
+
+[dependencies]
+utf8dok-core = { path = "../utf8dok-core" }
+utf8dok-ast = { path = "../utf8dok-ast" }
+utf8dok-validate = { path = "../utf8dok-validate" }
+utf8dok-plugins = { path = "../utf8dok-plugins" }
+tower-lsp = "0.20"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]

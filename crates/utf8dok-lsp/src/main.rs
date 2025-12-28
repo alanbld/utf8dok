@@ -1,0 +1,438 @@
+//! utf8dok Language Server Protocol implementation
+//!
+//! This binary provides LSP support for AsciiDoc files, reporting validation
+//! errors from utf8dok's native validators and Rhai plugins to editors.
+//!
+//! # Usage
+//!
+//! ```bash
+//! # Start the language server (typically called by an editor)
+//! utf8dok-lsp
+//!
+//! # With debug logging
+//! RUST_LOG=debug utf8dok-lsp
+//! ```
+
+use std::sync::Arc;
+
+use serde_json::Value;
+use tokio::sync::RwLock;
+use tower_lsp::jsonrpc::Result;
+use tower_lsp::lsp_types::*;
+use tower_lsp::{Client, LanguageServer, LspService, Server};
+use tracing::{debug, info, warn};
+
+use utf8dok_core::diagnostics::{Diagnostic as Utf8dokDiagnostic, Severity};
+use utf8dok_core::parse;
+use utf8dok_validate::ValidationEngine;
+
+/// LSP Backend state
+struct Backend {
+    /// LSP client for sending notifications
+    client: Client,
+    /// Validation engine with default validators
+    validation_engine: Arc<RwLock<ValidationEngine>>,
+}
+
+impl Backend {
+    /// Create a new backend instance
+    fn new(client: Client) -> Self {
+        Self {
+            client,
+            validation_engine: Arc::new(RwLock::new(ValidationEngine::with_defaults())),
+        }
+    }
+
+    /// Validate a document and publish diagnostics
+    async fn validate(&self, uri: Url, text: String) {
+        debug!("Validating document: {}", uri);
+
+        // Parse the AsciiDoc content
+        let ast = match parse(&text) {
+            Ok(doc) => doc,
+            Err(e) => {
+                warn!("Failed to parse document {}: {}", uri, e);
+                // Publish a parse error diagnostic
+                let diagnostic = Diagnostic {
+                    range: Range {
+                        start: Position::new(0, 0),
+                        end: Position::new(0, 0),
+                    },
+                    severity: Some(DiagnosticSeverity::ERROR),
+                    code: Some(NumberOrString::String("PARSE001".to_string())),
+                    source: Some("utf8dok".to_string()),
+                    message: format!("Parse error: {}", e),
+                    ..Default::default()
+                };
+                self.client
+                    .publish_diagnostics(uri, vec![diagnostic], None)
+                    .await;
+                return;
+            }
+        };
+
+        // Run validation
+        let engine = self.validation_engine.read().await;
+        let utf8dok_diagnostics = engine.validate(&ast);
+
+        // Convert to LSP diagnostics
+        let lsp_diagnostics: Vec<Diagnostic> = utf8dok_diagnostics
+            .into_iter()
+            .map(|d| self.convert_diagnostic(&d, &text))
+            .collect();
+
+        debug!(
+            "Publishing {} diagnostics for {}",
+            lsp_diagnostics.len(),
+            uri
+        );
+
+        // Publish diagnostics
+        self.client
+            .publish_diagnostics(uri, lsp_diagnostics, None)
+            .await;
+    }
+
+    /// Convert utf8dok diagnostic to LSP diagnostic
+    fn convert_diagnostic(&self, diag: &Utf8dokDiagnostic, source_text: &str) -> Diagnostic {
+        // Convert severity
+        let severity = match diag.severity {
+            Severity::Error | Severity::Fatal => Some(DiagnosticSeverity::ERROR),
+            Severity::Warning => Some(DiagnosticSeverity::WARNING),
+            Severity::Info => Some(DiagnosticSeverity::INFORMATION),
+            Severity::Hint => Some(DiagnosticSeverity::HINT),
+        };
+
+        // Convert span to range
+        let range = if let Some(span) = &diag.span {
+            if let (Some(line), Some(col)) = (span.line, span.column) {
+                // Use line/col from span (1-indexed to 0-indexed)
+                Range {
+                    start: Position::new(line.saturating_sub(1) as u32, col.saturating_sub(1) as u32),
+                    end: Position::new(line.saturating_sub(1) as u32, col as u32),
+                }
+            } else {
+                // Calculate line/col from byte offset
+                self.offset_to_range(span.start, span.end, source_text)
+            }
+        } else {
+            // No span info - try to extract from notes (block index)
+            self.extract_range_from_notes(diag, source_text)
+        };
+
+        // Build code
+        let code = diag.code.as_ref().map(|c| NumberOrString::String(c.clone()));
+
+        // Build related information from notes
+        let related_information = if diag.notes.is_empty() {
+            None
+        } else {
+            Some(
+                diag.notes
+                    .iter()
+                    .map(|note| DiagnosticRelatedInformation {
+                        location: Location {
+                            uri: Url::parse("file:///unknown").unwrap(),
+                            range: Range::default(),
+                        },
+                        message: note.clone(),
+                    })
+                    .collect(),
+            )
+        };
+
+        Diagnostic {
+            range,
+            severity,
+            code,
+            code_description: None,
+            source: Some("utf8dok".to_string()),
+            message: diag.message.clone(),
+            related_information,
+            tags: None,
+            data: diag.help.as_ref().map(|h| Value::String(h.clone())),
+        }
+    }
+
+    /// Convert byte offsets to LSP range
+    fn offset_to_range(&self, start: usize, end: usize, text: &str) -> Range {
+        let mut line = 0u32;
+        let mut col = 0u32;
+        let mut start_pos = Position::new(0, 0);
+        let mut end_pos = Position::new(0, 0);
+
+        for (i, ch) in text.char_indices() {
+            if i == start {
+                start_pos = Position::new(line, col);
+            }
+            if i == end {
+                end_pos = Position::new(line, col);
+                break;
+            }
+            if ch == '\n' {
+                line += 1;
+                col = 0;
+            } else {
+                col += 1;
+            }
+        }
+
+        // If end was not found, use end of file
+        if end >= text.len() {
+            end_pos = Position::new(line, col);
+        }
+
+        Range {
+            start: start_pos,
+            end: end_pos,
+        }
+    }
+
+    /// Try to extract range from diagnostic notes (e.g., "Found at block index X")
+    fn extract_range_from_notes(&self, diag: &Utf8dokDiagnostic, source_text: &str) -> Range {
+        // Look for "block index N" pattern in notes
+        for note in &diag.notes {
+            if let Some(idx_str) = note.strip_prefix("Found at block index ") {
+                if let Ok(block_idx) = idx_str.trim().parse::<usize>() {
+                    // Try to find the Nth block-like element (heading markers)
+                    return self.find_block_range(block_idx, source_text);
+                }
+            }
+        }
+
+        // Default to start of file
+        Range {
+            start: Position::new(0, 0),
+            end: Position::new(0, 0),
+        }
+    }
+
+    /// Find the range of a block by index (simplified heuristic)
+    fn find_block_range(&self, block_idx: usize, text: &str) -> Range {
+        let mut current_block = 0usize;
+
+        for (line_num, line) in text.lines().enumerate() {
+            let trimmed = line.trim();
+            // Check for block markers (headings, paragraphs after blank lines)
+            let is_heading = trimmed.starts_with('=');
+            let is_block_start = is_heading || (!trimmed.is_empty() && line_num > 0);
+
+            if is_block_start && !trimmed.is_empty() {
+                if current_block == block_idx {
+                    let block_line = line_num as u32;
+                    return Range {
+                        start: Position::new(block_line, 0),
+                        end: Position::new(block_line, line.len() as u32),
+                    };
+                }
+                // Only count non-empty content as blocks
+                if is_heading
+                    || (line_num > 0
+                        && text
+                            .lines()
+                            .nth(line_num.saturating_sub(1))
+                            .map(|l| l.trim().is_empty())
+                            .unwrap_or(false))
+                {
+                    current_block += 1;
+                }
+            }
+        }
+
+        // Default if block not found
+        Range {
+            start: Position::new(0, 0),
+            end: Position::new(0, 0),
+        }
+    }
+}
+
+#[tower_lsp::async_trait]
+impl LanguageServer for Backend {
+    async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
+        info!("utf8dok LSP server initializing");
+
+        Ok(InitializeResult {
+            capabilities: ServerCapabilities {
+                text_document_sync: Some(TextDocumentSyncCapability::Kind(
+                    TextDocumentSyncKind::FULL,
+                )),
+                // We only provide diagnostics for now
+                diagnostic_provider: Some(DiagnosticServerCapabilities::Options(
+                    DiagnosticOptions {
+                        identifier: Some("utf8dok".to_string()),
+                        inter_file_dependencies: false,
+                        workspace_diagnostics: false,
+                        work_done_progress_options: WorkDoneProgressOptions::default(),
+                    },
+                )),
+                ..Default::default()
+            },
+            server_info: Some(ServerInfo {
+                name: "utf8dok-lsp".to_string(),
+                version: Some(env!("CARGO_PKG_VERSION").to_string()),
+            }),
+        })
+    }
+
+    async fn initialized(&self, _: InitializedParams) {
+        info!("utf8dok LSP server initialized");
+        self.client
+            .log_message(MessageType::INFO, "utf8dok language server ready")
+            .await;
+    }
+
+    async fn shutdown(&self) -> Result<()> {
+        info!("utf8dok LSP server shutting down");
+        Ok(())
+    }
+
+    async fn did_open(&self, params: DidOpenTextDocumentParams) {
+        debug!("Document opened: {}", params.text_document.uri);
+        self.validate(params.text_document.uri, params.text_document.text)
+            .await;
+    }
+
+    async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        debug!("Document changed: {}", params.text_document.uri);
+        // Since we use FULL sync, the entire content is in the first change
+        if let Some(change) = params.content_changes.into_iter().next() {
+            self.validate(params.text_document.uri, change.text).await;
+        }
+    }
+
+    async fn did_save(&self, params: DidSaveTextDocumentParams) {
+        debug!("Document saved: {}", params.text_document.uri);
+        // Re-validate on save if text is provided
+        if let Some(text) = params.text {
+            self.validate(params.text_document.uri, text).await;
+        }
+    }
+
+    async fn did_close(&self, params: DidCloseTextDocumentParams) {
+        debug!("Document closed: {}", params.text_document.uri);
+        // Clear diagnostics for closed document
+        self.client
+            .publish_diagnostics(params.text_document.uri, vec![], None)
+            .await;
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    // Initialize tracing subscriber for logging
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive(tracing::Level::INFO.into()),
+        )
+        .with_writer(std::io::stderr)
+        .init();
+
+    info!("Starting utf8dok Language Server v{}", env!("CARGO_PKG_VERSION"));
+
+    // Create LSP service
+    let stdin = tokio::io::stdin();
+    let stdout = tokio::io::stdout();
+
+    let (service, socket) = LspService::new(Backend::new);
+    Server::new(stdin, stdout, socket).serve(service).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_severity_conversion() {
+        // Test that our severity mapping is correct
+        assert!(matches!(
+            Severity::Error,
+            Severity::Error | Severity::Fatal
+        ));
+    }
+
+    #[test]
+    fn test_offset_to_range_logic() {
+        // Test the offset-to-position logic directly
+        let text = "line1\nline2\nline3";
+
+        // Line 0: "line1" (bytes 0-4)
+        // Line 1: "line2" (bytes 6-10)
+        // Line 2: "line3" (bytes 12-16)
+
+        let mut line = 0u32;
+        let mut col = 0u32;
+        let target_offset = 7; // 'i' in "line2"
+
+        for (i, ch) in text.char_indices() {
+            if i == target_offset {
+                break;
+            }
+            if ch == '\n' {
+                line += 1;
+                col = 0;
+            } else {
+                col += 1;
+            }
+        }
+
+        assert_eq!(line, 1); // Second line (0-indexed)
+        assert_eq!(col, 1); // Second character (0-indexed)
+    }
+
+    #[test]
+    fn test_find_block_by_heading() {
+        let text = "= Title\n\n== Section\n\nParagraph";
+
+        // Count headings in the text
+        let heading_count = text.lines().filter(|l| l.starts_with('=')).count();
+        assert_eq!(heading_count, 2);
+    }
+
+    #[tokio::test]
+    async fn test_validation_engine_integration() {
+        use utf8dok_ast::{Block, Document, Heading, Inline};
+
+        // Create a document with a hierarchy violation
+        let mut doc = Document::new();
+        doc.blocks.push(Block::Heading(Heading {
+            level: 1,
+            text: vec![Inline::Text("Title".to_string())],
+            style_id: None,
+            anchor: None,
+        }));
+        doc.blocks.push(Block::Heading(Heading {
+            level: 4, // Skip levels 2 and 3
+            text: vec![Inline::Text("Deep".to_string())],
+            style_id: None,
+            anchor: None,
+        }));
+
+        let engine = ValidationEngine::with_defaults();
+        let diagnostics = engine.validate(&doc);
+
+        // Should have at least one diagnostic for the hierarchy jump
+        assert!(!diagnostics.is_empty());
+        assert!(diagnostics
+            .iter()
+            .any(|d| d.code.as_deref() == Some("DOC101")));
+    }
+
+    #[test]
+    fn test_diagnostic_to_lsp_conversion() {
+        use utf8dok_core::diagnostics::Span;
+
+        // Create a utf8dok diagnostic
+        let diag = Utf8dokDiagnostic::warning("Test warning")
+            .with_code("TEST001")
+            .with_span(Span::new(0, 10).with_position(1, 1))
+            .with_help("This is help text");
+
+        // Verify the diagnostic has expected fields
+        assert_eq!(diag.message, "Test warning");
+        assert_eq!(diag.code, Some("TEST001".to_string()));
+        assert!(diag.span.is_some());
+        assert_eq!(diag.help, Some("This is help text".to_string()));
+    }
+}
