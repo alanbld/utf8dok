@@ -33,10 +33,12 @@
 //! assert!(asciidoc.contains("World"));
 //! ```
 
+pub mod diagnostics;
 pub mod generator;
 pub mod parser;
 
 // Re-export main types and functions
+pub use diagnostics::{Diagnostic, Diagnostics, Severity, Span};
 pub use generator::{generate, generate_with_config, AsciiDocGenerator, GeneratorConfig};
 pub use parser::parse;
 

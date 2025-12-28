@@ -90,6 +90,7 @@ fn test_write_complex_table_with_colspan_rowspan() {
     // Table with colspan and rowspan
     let doc = Document {
         metadata: DocumentMeta::default(),
+        intent: None,
         blocks: vec![Block::Table(Table {
             rows: vec![
                 // Header row
@@ -185,6 +186,7 @@ fn test_write_table_with_empty_cell() {
     // Table with an empty cell (should get an empty paragraph)
     let doc = Document {
         metadata: DocumentMeta::default(),
+        intent: None,
         blocks: vec![Block::Table(Table {
             rows: vec![TableRow {
                 cells: vec![
@@ -243,6 +245,7 @@ fn test_write_all_admonition_types() {
     for (admon_type, type_name) in admonition_types {
         let doc = Document {
             metadata: DocumentMeta::default(),
+        intent: None,
             blocks: vec![Block::Admonition(Admonition {
                 admonition_type: admon_type,
                 title: Some(vec![Inline::Text(format!("{} Title", type_name))]),
@@ -280,6 +283,7 @@ fn test_write_admonition_without_title() {
 
     let doc = Document {
         metadata: DocumentMeta::default(),
+        intent: None,
         blocks: vec![Block::Admonition(Admonition {
             admonition_type: AdmonitionType::Note,
             title: None, // No title
@@ -318,6 +322,7 @@ fn test_write_nested_unordered_list() {
 
     let doc = Document {
         metadata: DocumentMeta::default(),
+        intent: None,
         blocks: vec![Block::List(List {
             list_type: ListType::Unordered,
             items: vec![
@@ -386,6 +391,7 @@ fn test_write_ordered_list() {
 
     let doc = Document {
         metadata: DocumentMeta::default(),
+        intent: None,
         blocks: vec![Block::List(List {
             list_type: ListType::Ordered,
             items: vec![
@@ -434,6 +440,7 @@ fn test_write_description_list() {
 
     let doc = Document {
         metadata: DocumentMeta::default(),
+        intent: None,
         blocks: vec![Block::List(List {
             list_type: ListType::Description,
             items: vec![ListItem {
@@ -471,6 +478,7 @@ fn test_write_list_with_custom_style() {
 
     let doc = Document {
         metadata: DocumentMeta::default(),
+        intent: None,
         blocks: vec![Block::List(List {
             list_type: ListType::Unordered,
             items: vec![ListItem {
@@ -504,6 +512,7 @@ fn test_write_list_with_non_paragraph_content() {
     // List item containing a heading (non-paragraph block)
     let doc = Document {
         metadata: DocumentMeta::default(),
+        intent: None,
         blocks: vec![Block::List(List {
             list_type: ListType::Unordered,
             items: vec![ListItem {
@@ -546,6 +555,7 @@ fn test_write_internal_hyperlink() {
 
     let doc = Document {
         metadata: DocumentMeta::default(),
+        intent: None,
         blocks: vec![Block::Paragraph(Paragraph {
             inlines: vec![Inline::Link(Link {
                 url: "#section-intro".to_string(), // Internal link
@@ -583,6 +593,7 @@ fn test_write_external_hyperlink() {
 
     let doc = Document {
         metadata: DocumentMeta::default(),
+        intent: None,
         blocks: vec![Block::Paragraph(Paragraph {
             inlines: vec![Inline::Link(Link {
                 url: "https://example.com".to_string(), // External link
@@ -624,6 +635,7 @@ fn test_write_all_format_types() {
 
     let doc = Document {
         metadata: DocumentMeta::default(),
+        intent: None,
         blocks: vec![Block::Paragraph(Paragraph {
             inlines: vec![
                 Inline::Format(
@@ -676,6 +688,7 @@ fn test_write_break_types() {
     // Test page break
     let doc = Document {
         metadata: DocumentMeta::default(),
+        intent: None,
         blocks: vec![
             Block::Paragraph(Paragraph {
                 inlines: vec![Inline::Text("Before break".to_string())],
@@ -707,6 +720,7 @@ fn test_write_section_break() {
 
     let doc = Document {
         metadata: DocumentMeta::default(),
+        intent: None,
         blocks: vec![
             Block::Paragraph(Paragraph {
                 inlines: vec![Inline::Text("Section 1".to_string())],
@@ -750,6 +764,7 @@ fn test_write_literal_block() {
             title: None,
             style_id: Some("CodeBlock".to_string()),
         })],
+        intent: None,
     };
 
     let result = DocxWriter::generate(&doc, &template).unwrap();
@@ -781,6 +796,7 @@ fn test_write_inline_span() {
 
     let doc = Document {
         metadata: DocumentMeta::default(),
+        intent: None,
         blocks: vec![Block::Paragraph(Paragraph {
             inlines: vec![Inline::Span(vec![
                 Inline::Text("First ".to_string()),
@@ -804,6 +820,7 @@ fn test_write_inline_image_placeholder() {
 
     let doc = Document {
         metadata: DocumentMeta::default(),
+        intent: None,
         blocks: vec![Block::Paragraph(Paragraph {
             inlines: vec![Inline::Image(utf8dok_ast::Image {
                 src: "image.png".to_string(),
@@ -831,6 +848,7 @@ fn test_write_inline_break() {
 
     let doc = Document {
         metadata: DocumentMeta::default(),
+        intent: None,
         blocks: vec![Block::Paragraph(Paragraph {
             inlines: vec![
                 Inline::Text("Line 1".to_string()),
@@ -858,6 +876,7 @@ fn test_write_heading_levels() {
 
     let doc = Document {
         metadata: DocumentMeta::default(),
+        intent: None,
         blocks: vec![
             Block::Heading(Heading {
                 level: 1,
@@ -912,6 +931,7 @@ fn test_write_heading_with_custom_style() {
 
     let doc = Document {
         metadata: DocumentMeta::default(),
+        intent: None,
         blocks: vec![Block::Heading(Heading {
             level: 1,
             text: vec![Inline::Text("Custom".to_string())],
@@ -936,6 +956,7 @@ fn test_xml_escaping() {
 
     let doc = Document {
         metadata: DocumentMeta::default(),
+        intent: None,
         blocks: vec![Block::Paragraph(Paragraph {
             inlines: vec![Inline::Text("A & B < C > D \"E\" 'F'".to_string())],
             style_id: None,

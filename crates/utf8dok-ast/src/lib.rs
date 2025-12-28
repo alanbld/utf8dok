@@ -27,6 +27,7 @@
 pub mod block;
 pub mod document;
 pub mod inline;
+pub mod intent;
 
 // Re-export key types for convenience
 pub use block::{
@@ -35,6 +36,7 @@ pub use block::{
 };
 pub use document::{Document, DocumentMeta};
 pub use inline::{FormatType, Image, Inline, Link};
+pub use intent::{DocumentIntent, Invariant, ValidationLevel};
 
 /// Crate version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

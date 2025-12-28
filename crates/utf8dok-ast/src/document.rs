@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 
 use crate::block::Block;
+use crate::intent::DocumentIntent;
 
 /// A complete document
 #[derive(Debug, Clone, PartialEq)]
@@ -14,6 +15,8 @@ pub struct Document {
     pub metadata: DocumentMeta,
     /// Document content blocks
     pub blocks: Vec<Block>,
+    /// Document compilation intent
+    pub intent: Option<DocumentIntent>,
 }
 
 /// Document metadata
@@ -35,6 +38,7 @@ impl Document {
         Self {
             metadata: DocumentMeta::default(),
             blocks: Vec::new(),
+            intent: None,
         }
     }
 
@@ -46,7 +50,14 @@ impl Document {
                 ..Default::default()
             },
             blocks: Vec::new(),
+            intent: None,
         }
+    }
+
+    /// Set the document intent
+    pub fn with_intent(mut self, intent: DocumentIntent) -> Self {
+        self.intent = Some(intent);
+        self
     }
 
     /// Add a block to the document

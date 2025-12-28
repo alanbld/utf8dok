@@ -261,6 +261,7 @@ impl ToAst for Document {
         utf8dok_ast::Document {
             metadata: utf8dok_ast::DocumentMeta::default(),
             blocks: self.blocks.iter().map(|b| b.to_ast(ctx)).collect(),
+            intent: None,
         }
     }
 }

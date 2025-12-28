@@ -59,6 +59,7 @@ Hello *world*."#;
                 attributes: HashMap::new(),
             }),
         ],
+        intent: None,
     };
 
     let result = parser::parse(input).expect("Parser should not error");

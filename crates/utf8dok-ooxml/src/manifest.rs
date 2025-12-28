@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+use utf8dok_ast::DocumentIntent;
 
 use crate::error::Result;
 
@@ -24,6 +25,9 @@ pub struct Manifest {
     /// Map of element IDs to their metadata
     #[serde(default)]
     pub elements: HashMap<String, ElementMeta>,
+    /// Compiler intent for document compilation
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compiler: Option<DocumentIntent>,
 }
 
 /// Metadata for a tracked element within the document
@@ -51,6 +55,7 @@ impl Manifest {
             generator: format!("utf8dok v{}", env!("CARGO_PKG_VERSION")),
             generated_at: Self::current_timestamp(),
             elements: HashMap::new(),
+            compiler: None,
         }
     }
 

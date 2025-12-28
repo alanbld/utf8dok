@@ -96,6 +96,7 @@ impl Parser {
         Ok(Document {
             metadata: self.metadata,
             blocks: self.blocks,
+            intent: None,
         })
     }
 

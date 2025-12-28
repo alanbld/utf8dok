@@ -823,6 +823,7 @@ mod tests {
         // Create a simple document
         let doc = Document {
             metadata: utf8dok_ast::DocumentMeta::default(),
+            intent: None,
             blocks: vec![
                 Block::Heading(Heading {
                     level: 1,
@@ -879,6 +880,7 @@ mod tests {
 
         let doc = Document {
             metadata: utf8dok_ast::DocumentMeta::default(),
+            intent: None,
             blocks: vec![Block::List(List {
                 list_type: ListType::Unordered,
                 items: vec![
@@ -924,6 +926,7 @@ mod tests {
 
         let doc = Document {
             metadata: utf8dok_ast::DocumentMeta::default(),
+            intent: None,
             blocks: vec![Block::Table(Table {
                 rows: vec![
                     utf8dok_ast::TableRow {
@@ -1003,6 +1006,7 @@ mod tests {
 
         let doc = Document {
             metadata: utf8dok_ast::DocumentMeta::default(),
+            intent: None,
             blocks: vec![Block::Paragraph(Paragraph {
                 inlines: vec![
                     Inline::Format(FormatType::Bold, Box::new(Inline::Text("bold".to_string()))),
@@ -1035,6 +1039,7 @@ mod tests {
 
         let doc = Document {
             metadata: utf8dok_ast::DocumentMeta::default(),
+            intent: None,
             blocks: vec![Block::Paragraph(Paragraph {
                 inlines: vec![Inline::Link(utf8dok_ast::Link {
                     url: "https://example.com".to_string(),
@@ -1079,6 +1084,7 @@ mod tests {
         // Create a document with a mermaid block but disable diagram rendering
         let doc = Document {
             metadata: utf8dok_ast::DocumentMeta::default(),
+            intent: None,
             blocks: vec![Block::Literal(utf8dok_ast::LiteralBlock {
                 content: "graph TD; A-->B;".to_string(),
                 language: None,

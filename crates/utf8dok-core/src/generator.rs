@@ -774,6 +774,7 @@ This is *important* information.
                 style_id: None,
                 attributes: HashMap::new(),
             })],
+            intent: None,
         };
 
         let config = GeneratorConfig {
