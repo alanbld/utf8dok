@@ -50,6 +50,10 @@ pub struct Diagnostic {
     /// Related notes or secondary locations
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<String>,
+
+    /// Source context (code snippet) for LLM consumption
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<String>,
 }
 
 /// Severity level of a diagnostic
@@ -103,6 +107,7 @@ impl Diagnostic {
             file: None,
             help: None,
             notes: Vec::new(),
+            context: None,
         }
     }
 
@@ -153,6 +158,12 @@ impl Diagnostic {
     /// Add a note
     pub fn with_note(mut self, note: impl Into<String>) -> Self {
         self.notes.push(note.into());
+        self
+    }
+
+    /// Set source context (code snippet) for LLM consumption
+    pub fn with_context(mut self, context: impl Into<String>) -> Self {
+        self.context = Some(context.into());
         self
     }
 
@@ -414,8 +425,7 @@ mod tests {
 
     #[test]
     fn test_diagnostic_serialize() {
-        let diag = Diagnostic::warning("Unused variable")
-            .with_code("W0042");
+        let diag = Diagnostic::warning("Unused variable").with_code("W0042");
 
         let json = serde_json::to_string(&diag).unwrap();
         assert!(json.contains("\"severity\":\"warning\""));

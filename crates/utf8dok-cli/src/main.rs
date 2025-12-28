@@ -14,10 +14,22 @@ use std::fs;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
+use utf8dok_core::diagnostics::Diagnostic;
 use utf8dok_core::{generate, parse};
-use utf8dok_ooxml::{convert_document_with_styles, DocxWriter, Document, OoxmlArchive, StyleSheet};
+use utf8dok_ooxml::{convert_document_with_styles, Document, DocxWriter, OoxmlArchive, StyleSheet};
+use utf8dok_validate::ValidationEngine;
+
+/// Output format for diagnostics
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+pub enum OutputFormat {
+    /// Human-readable text output
+    #[default]
+    Text,
+    /// JSON output for LLM/tool consumption
+    Json,
+}
 
 #[derive(Parser)]
 #[command(name = "utf8dok")]
@@ -52,6 +64,16 @@ enum Commands {
         #[arg(short, long)]
         template: Option<PathBuf>,
     },
+
+    /// Check an AsciiDoc file for issues (validation)
+    Check {
+        /// Input AsciiDoc file
+        input: PathBuf,
+
+        /// Output format (text or json)
+        #[arg(short, long, value_enum, default_value = "text")]
+        format: OutputFormat,
+    },
 }
 
 fn main() -> Result<()> {
@@ -67,6 +89,9 @@ fn main() -> Result<()> {
             template,
         } => {
             render_command(&input, output.as_deref(), template.as_deref())?;
+        }
+        Commands::Check { input, format } => {
+            check_command(&input, format)?;
         }
     }
 
@@ -91,8 +116,7 @@ fn extract_command(input: &PathBuf, output_dir: &PathBuf) -> Result<()> {
     let document_xml = archive
         .document_xml()
         .context("Failed to read document.xml from archive")?;
-    let document =
-        Document::parse(document_xml).context("Failed to parse document content")?;
+    let document = Document::parse(document_xml).context("Failed to parse document content")?;
 
     // Parse styles
     let styles_xml = archive
@@ -107,8 +131,12 @@ fn extract_command(input: &PathBuf, output_dir: &PathBuf) -> Result<()> {
     let asciidoc = generate(&ast_doc);
 
     // Create output directory
-    fs::create_dir_all(output_dir)
-        .with_context(|| format!("Failed to create output directory: {}", output_dir.display()))?;
+    fs::create_dir_all(output_dir).with_context(|| {
+        format!(
+            "Failed to create output directory: {}",
+            output_dir.display()
+        )
+    })?;
 
     // Write AsciiDoc file
     let adoc_path = output_dir.join("document.adoc");
@@ -227,8 +255,8 @@ fn render_command(
 
     // Step 4: Generate DOCX
     println!("  Generating DOCX...");
-    let docx_bytes = DocxWriter::generate(&ast, &template_bytes)
-        .context("Failed to generate DOCX from AST")?;
+    let docx_bytes =
+        DocxWriter::generate(&ast, &template_bytes).context("Failed to generate DOCX from AST")?;
 
     // Step 5: Write output
     println!("  Writing: {}", output_path.display());
@@ -239,6 +267,64 @@ fn render_command(
     println!("Render complete!");
     println!("  Output: {}", output_path.display());
     println!("  Size: {} bytes", docx_bytes.len());
+
+    Ok(())
+}
+
+/// Execute the check command
+fn check_command(input: &std::path::Path, format: OutputFormat) -> Result<()> {
+    // Check input file exists
+    if !input.exists() {
+        anyhow::bail!("Input file not found: {}", input.display());
+    }
+
+    // Step 1: Read input AsciiDoc file
+    let content = fs::read_to_string(input)
+        .with_context(|| format!("Failed to read input file: {}", input.display()))?;
+
+    // Step 2: Parse AsciiDoc to AST
+    let ast = parse(&content).context("Failed to parse AsciiDoc content")?;
+
+    // Step 3: Run validation engine
+    let engine = ValidationEngine::with_defaults();
+    let diagnostics: Vec<Diagnostic> = engine
+        .validate(&ast)
+        .into_iter()
+        .map(|d| d.with_file(input.display().to_string()))
+        .collect();
+
+    // Step 4: Output based on format
+    match format {
+        OutputFormat::Json => {
+            // JSON output for LLM consumption
+            let json = serde_json::to_string_pretty(&diagnostics)
+                .context("Failed to serialize diagnostics to JSON")?;
+            println!("{}", json);
+        }
+        OutputFormat::Text => {
+            // Human-readable output
+            if diagnostics.is_empty() {
+                println!("✓ No issues found in {}", input.display());
+            } else {
+                for diag in &diagnostics {
+                    println!("{}", diag);
+                    println!();
+                }
+                let error_count = diagnostics.iter().filter(|d| d.is_error()).count();
+                let warning_count = diagnostics.iter().filter(|d| d.is_warning()).count();
+                println!(
+                    "Found {} error(s) and {} warning(s)",
+                    error_count, warning_count
+                );
+            }
+        }
+    }
+
+    // Exit with error code if there are errors
+    let has_errors = diagnostics.iter().any(|d| d.is_error());
+    if has_errors {
+        std::process::exit(1);
+    }
 
     Ok(())
 }
@@ -299,6 +385,34 @@ mod tests {
                 assert_eq!(template, Some(PathBuf::from("tmpl.dotx")));
             }
             _ => panic!("Expected Render command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_check() {
+        let args = vec!["utf8dok", "check", "doc.adoc"];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Commands::Check { input, format } => {
+                assert_eq!(input, PathBuf::from("doc.adoc"));
+                assert!(matches!(format, OutputFormat::Text));
+            }
+            _ => panic!("Expected Check command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_check_json() {
+        let args = vec!["utf8dok", "check", "doc.adoc", "--format", "json"];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Commands::Check { input, format } => {
+                assert_eq!(input, PathBuf::from("doc.adoc"));
+                assert!(matches!(format, OutputFormat::Json));
+            }
+            _ => panic!("Expected Check command"),
         }
     }
 }
