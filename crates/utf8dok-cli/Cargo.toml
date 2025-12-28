@@ -18,6 +18,7 @@ utf8dok-core = { path = "../utf8dok-core" }
 utf8dok-ast = { path = "../utf8dok-ast" }
 utf8dok-ooxml = { path = "../utf8dok-ooxml" }
 utf8dok-validate = { path = "../utf8dok-validate" }
+utf8dok-plugins = { path = "../utf8dok-plugins" }
 clap.workspace = true
 anyhow.workspace = true
 serde_json = "1.0"

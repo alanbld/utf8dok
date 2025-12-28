@@ -19,6 +19,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use utf8dok_core::diagnostics::Diagnostic;
 use utf8dok_core::{generate, parse};
 use utf8dok_ooxml::{convert_document_with_styles, Document, DocxWriter, OoxmlArchive, StyleSheet};
+use utf8dok_plugins::PluginEngine;
 use utf8dok_validate::ValidationEngine;
 
 /// Output format for diagnostics
@@ -73,6 +74,10 @@ enum Commands {
         /// Output format (text or json)
         #[arg(short, long, value_enum, default_value = "text")]
         format: OutputFormat,
+
+        /// Rhai plugin script(s) for custom validation rules
+        #[arg(short, long)]
+        plugin: Vec<PathBuf>,
     },
 }
 
@@ -90,8 +95,8 @@ fn main() -> Result<()> {
         } => {
             render_command(&input, output.as_deref(), template.as_deref())?;
         }
-        Commands::Check { input, format } => {
-            check_command(&input, format)?;
+        Commands::Check { input, format, plugin } => {
+            check_command(&input, format, &plugin)?;
         }
     }
 
@@ -272,7 +277,7 @@ fn render_command(
 }
 
 /// Execute the check command
-fn check_command(input: &std::path::Path, format: OutputFormat) -> Result<()> {
+fn check_command(input: &std::path::Path, format: OutputFormat, plugins: &[PathBuf]) -> Result<()> {
     // Check input file exists
     if !input.exists() {
         anyhow::bail!("Input file not found: {}", input.display());
@@ -285,15 +290,41 @@ fn check_command(input: &std::path::Path, format: OutputFormat) -> Result<()> {
     // Step 2: Parse AsciiDoc to AST
     let ast = parse(&content).context("Failed to parse AsciiDoc content")?;
 
-    // Step 3: Run validation engine
+    // Step 3: Run built-in validation engine
     let engine = ValidationEngine::with_defaults();
-    let diagnostics: Vec<Diagnostic> = engine
+    let mut diagnostics: Vec<Diagnostic> = engine
         .validate(&ast)
         .into_iter()
         .map(|d| d.with_file(input.display().to_string()))
         .collect();
 
-    // Step 4: Output based on format
+    // Step 4: Run plugin scripts
+    if !plugins.is_empty() {
+        let plugin_engine = PluginEngine::new();
+
+        for plugin_path in plugins {
+            if !plugin_path.exists() {
+                anyhow::bail!("Plugin script not found: {}", plugin_path.display());
+            }
+
+            // Compile the script
+            let script_ast = plugin_engine
+                .compile_file(plugin_path)
+                .with_context(|| format!("Failed to compile plugin: {}", plugin_path.display()))?;
+
+            // Run validation
+            let plugin_diagnostics = plugin_engine
+                .run_validation(&ast, &script_ast)
+                .with_context(|| format!("Failed to run plugin: {}", plugin_path.display()))?;
+
+            // Add file info and merge diagnostics
+            for diag in plugin_diagnostics {
+                diagnostics.push(diag.with_file(input.display().to_string()));
+            }
+        }
+    }
+
+    // Step 5: Output based on format
     match format {
         OutputFormat::Json => {
             // JSON output for LLM consumption
@@ -394,9 +425,10 @@ mod tests {
         let cli = Cli::try_parse_from(args).unwrap();
 
         match cli.command {
-            Commands::Check { input, format } => {
+            Commands::Check { input, format, plugin } => {
                 assert_eq!(input, PathBuf::from("doc.adoc"));
                 assert!(matches!(format, OutputFormat::Text));
+                assert!(plugin.is_empty());
             }
             _ => panic!("Expected Check command"),
         }
@@ -408,9 +440,44 @@ mod tests {
         let cli = Cli::try_parse_from(args).unwrap();
 
         match cli.command {
-            Commands::Check { input, format } => {
+            Commands::Check { input, format, plugin } => {
                 assert_eq!(input, PathBuf::from("doc.adoc"));
                 assert!(matches!(format, OutputFormat::Json));
+                assert!(plugin.is_empty());
+            }
+            _ => panic!("Expected Check command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_check_with_plugin() {
+        let args = vec!["utf8dok", "check", "doc.adoc", "--plugin", "rules/test.rhai"];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Commands::Check { input, format, plugin } => {
+                assert_eq!(input, PathBuf::from("doc.adoc"));
+                assert!(matches!(format, OutputFormat::Text));
+                assert_eq!(plugin.len(), 1);
+                assert_eq!(plugin[0], PathBuf::from("rules/test.rhai"));
+            }
+            _ => panic!("Expected Check command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_check_multiple_plugins() {
+        let args = vec![
+            "utf8dok", "check", "doc.adoc",
+            "--plugin", "rules/a.rhai",
+            "--plugin", "rules/b.rhai",
+        ];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Commands::Check { input, format: _, plugin } => {
+                assert_eq!(input, PathBuf::from("doc.adoc"));
+                assert_eq!(plugin.len(), 2);
             }
             _ => panic!("Expected Check command"),
         }

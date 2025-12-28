@@ -5,10 +5,12 @@
 
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
+
 use crate::inline::Inline;
 
 /// Block-level content element
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Block {
     /// A paragraph of text
     Paragraph(Paragraph),
@@ -27,7 +29,7 @@ pub enum Block {
 }
 
 /// A paragraph block
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Paragraph {
     /// Inline content within the paragraph
     pub inlines: Vec<Inline>,
@@ -38,7 +40,7 @@ pub struct Paragraph {
 }
 
 /// A section heading
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Heading {
     /// Heading level (1-6, where 1 is the highest)
     pub level: u8,
@@ -51,7 +53,7 @@ pub struct Heading {
 }
 
 /// A list (ordered or unordered)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct List {
     /// Type of list
     pub list_type: ListType,
@@ -62,7 +64,7 @@ pub struct List {
 }
 
 /// List type variants
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ListType {
     /// Unordered/bullet list
     Unordered,
@@ -73,7 +75,7 @@ pub enum ListType {
 }
 
 /// A single list item
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ListItem {
     /// Item content (can contain nested blocks)
     pub content: Vec<Block>,
@@ -84,7 +86,7 @@ pub struct ListItem {
 }
 
 /// A table
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Table {
     /// Table rows
     pub rows: Vec<TableRow>,
@@ -97,7 +99,7 @@ pub struct Table {
 }
 
 /// A table row
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TableRow {
     /// Cells in this row
     pub cells: Vec<TableCell>,
@@ -106,7 +108,7 @@ pub struct TableRow {
 }
 
 /// A table cell
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TableCell {
     /// Cell content (blocks)
     pub content: Vec<Block>,
@@ -119,7 +121,7 @@ pub struct TableCell {
 }
 
 /// Column specification
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ColumnSpec {
     /// Relative width (e.g., 1, 2, 3 for proportional sizing)
     pub width: Option<u32>,
@@ -128,7 +130,7 @@ pub struct ColumnSpec {
 }
 
 /// Text alignment
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Alignment {
     Left,
     Center,
@@ -136,7 +138,7 @@ pub enum Alignment {
 }
 
 /// An admonition block (note, warning, tip, etc.)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Admonition {
     /// Type of admonition
     pub admonition_type: AdmonitionType,
@@ -147,7 +149,7 @@ pub struct Admonition {
 }
 
 /// Admonition type variants
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum AdmonitionType {
     Note,
     Tip,
@@ -157,7 +159,7 @@ pub enum AdmonitionType {
 }
 
 /// A literal/code block
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LiteralBlock {
     /// The literal content
     pub content: String,
@@ -170,7 +172,7 @@ pub struct LiteralBlock {
 }
 
 /// Break type variants
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum BreakType {
     /// Page break
     Page,

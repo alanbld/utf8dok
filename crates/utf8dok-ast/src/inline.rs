@@ -3,8 +3,10 @@
 //! This module defines inline-level elements that appear within blocks,
 //! such as text, formatting, links, and images.
 
+use serde::{Deserialize, Serialize};
+
 /// Inline-level content element
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Inline {
     /// Plain text content
     Text(String),
@@ -21,7 +23,7 @@ pub enum Inline {
 }
 
 /// Text formatting types
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum FormatType {
     /// Bold text
     Bold,
@@ -38,7 +40,7 @@ pub enum FormatType {
 }
 
 /// A hyperlink element
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Link {
     /// The URL target
     pub url: String,
@@ -47,7 +49,7 @@ pub struct Link {
 }
 
 /// An image element
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Image {
     /// Image source path or URL
     pub src: String,

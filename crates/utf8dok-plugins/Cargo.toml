@@ -1,0 +1,20 @@
+[package]
+name = "utf8dok-plugins"
+description = "Rhai plugin system for utf8dok custom validation rules"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["asciidoc", "plugins", "rhai", "scripting"]
+categories = ["development-tools"]
+
+[dependencies]
+utf8dok-ast = { path = "../utf8dok-ast" }
+utf8dok-core = { path = "../utf8dok-core" }
+rhai = { version = "1.16", features = ["sync", "serde"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+
+[dev-dependencies]

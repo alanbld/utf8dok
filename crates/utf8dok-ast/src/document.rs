@@ -5,11 +5,13 @@
 
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
+
 use crate::block::Block;
 use crate::intent::DocumentIntent;
 
 /// A complete document
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Document {
     /// Document metadata (title, authors, attributes)
     pub metadata: DocumentMeta,
@@ -20,7 +22,7 @@ pub struct Document {
 }
 
 /// Document metadata
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct DocumentMeta {
     /// Document title
     pub title: Option<String>,
