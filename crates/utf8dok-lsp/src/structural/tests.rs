@@ -312,3 +312,248 @@ fn test_scanner_other_lines() {
     assert_eq!(StructuralScanner::scan("Regular text"), LineType::Other);
     assert_eq!(StructuralScanner::scan("* List item"), LineType::Other);
 }
+
+// ============================================================================
+// DOCUMENT SYMBOL TESTS (Week 2)
+// ============================================================================
+
+use super::symbols::SymbolAnalyzer;
+use tower_lsp::lsp_types::SymbolKind;
+
+/// TEST S1: Basic Header Hierarchy
+/// Headers should create nested symbols with correct kinds
+#[test]
+fn test_symbol_basic_header_hierarchy() {
+    let text = "\
+= Main Title
+
+== Section One
+Content here.
+
+=== Subsection
+More content.
+
+== Section Two
+Final content.";
+
+    let symbols = SymbolAnalyzer::extract_symbols(text);
+
+    // Should have root symbol
+    assert!(!symbols.is_empty(), "Should extract at least one symbol");
+
+    // Root should be "Main Title"
+    let root = &symbols[0];
+    assert_eq!(root.name, "Main Title");
+    assert_eq!(root.kind, SymbolKind::MODULE);
+
+    // Should have 2 children: Section One, Section Two
+    let children = root.children.as_ref().expect("Root should have children");
+    assert_eq!(children.len(), 2, "Root should have 2 section children");
+
+    let section_one = &children[0];
+    assert_eq!(section_one.name, "Section One");
+    assert_eq!(section_one.kind, SymbolKind::NAMESPACE);
+
+    // Section One should have 1 child: Subsection
+    let section_one_children = section_one.children.as_ref().expect("Section One should have children");
+    assert_eq!(section_one_children.len(), 1);
+    let subsection = &section_one_children[0];
+    assert_eq!(subsection.name, "Subsection");
+    assert_eq!(subsection.kind, SymbolKind::CLASS);
+}
+
+/// TEST S2: Attributes as Variables
+/// Document attributes should appear as VARIABLE symbols with values
+#[test]
+fn test_symbol_attributes_as_variables() {
+    let text = "\
+:author: Alan
+:version: 1.0
+:status: draft
+
+= Document Title
+
+== Section";
+
+    let symbols = SymbolAnalyzer::extract_symbols(text);
+
+    // Should have document title as root
+    assert!(!symbols.is_empty(), "Should have symbols");
+
+    // Find attribute symbols (they should be at root level before the title)
+    let attr_symbols: Vec<_> = symbols
+        .iter()
+        .filter(|s| s.kind == SymbolKind::VARIABLE)
+        .collect();
+
+    assert_eq!(attr_symbols.len(), 3, "Should have 3 attribute symbols");
+
+    // Check first attribute
+    assert_eq!(attr_symbols[0].name, "author");
+    assert_eq!(attr_symbols[0].detail.as_deref(), Some("Alan"));
+
+    assert_eq!(attr_symbols[1].name, "version");
+    assert_eq!(attr_symbols[1].detail.as_deref(), Some("1.0"));
+}
+
+/// TEST S3: Blocks as Objects
+/// Code blocks should appear as OBJECT symbols with line count
+#[test]
+fn test_symbol_blocks_as_objects() {
+    let text = "\
+== Section
+
+Some text.
+
+----
+function hello() {
+    return 'world';
+}
+----
+
+More text.";
+
+    let symbols = SymbolAnalyzer::extract_symbols(text);
+
+    // Should have section
+    assert!(!symbols.is_empty(), "Should have section symbol");
+    let section = &symbols[0];
+    assert_eq!(section.name, "Section");
+
+    // Section should have a block child
+    let children = section.children.as_ref();
+    assert!(children.is_some(), "Section should have children");
+
+    let block_symbols: Vec<_> = children
+        .unwrap()
+        .iter()
+        .filter(|s| s.kind == SymbolKind::OBJECT)
+        .collect();
+
+    assert_eq!(block_symbols.len(), 1, "Should have 1 block symbol");
+    assert!(
+        block_symbols[0].name.contains("block"),
+        "Block name should contain 'block'"
+    );
+}
+
+/// TEST S4: Empty Document
+/// Empty document should have no symbols
+#[test]
+fn test_symbol_empty_document() {
+    let symbols = SymbolAnalyzer::extract_symbols("");
+    assert!(symbols.is_empty(), "Empty document should have no symbols");
+}
+
+/// TEST S5: Real ADR Example
+/// Tests a realistic Architecture Decision Record document
+#[test]
+fn test_symbol_real_adr_example() {
+    let text = "\
+:author: Architecture Team
+:date: 2025-12-29
+:status: proposed
+
+= ADR-001: API Gateway Implementation
+
+== Context
+Our monolith is hard to scale.
+
+== Decision
+We will use Kong as API Gateway.
+
+Technical details:
+
+----
+upstreams:
+  - user-service:8080
+  - order-service:8081
+----
+
+== Consequences
+Positive: Scalability.
+Negative: Complexity.";
+
+    let symbols = SymbolAnalyzer::extract_symbols(text);
+
+    // Should have attributes + document structure
+    assert!(!symbols.is_empty(), "Should have symbols");
+
+    // Count attributes
+    let attr_count = symbols
+        .iter()
+        .filter(|s| s.kind == SymbolKind::VARIABLE)
+        .count();
+    assert_eq!(attr_count, 3, "Should have 3 attribute symbols");
+
+    // Find main title
+    let title = symbols
+        .iter()
+        .find(|s| s.kind == SymbolKind::MODULE);
+    assert!(title.is_some(), "Should have title symbol");
+    assert_eq!(title.unwrap().name, "ADR-001: API Gateway Implementation");
+
+    // Title should have section children
+    let title_children = title.unwrap().children.as_ref();
+    assert!(title_children.is_some(), "Title should have children");
+
+    let sections: Vec<_> = title_children
+        .unwrap()
+        .iter()
+        .filter(|s| s.kind == SymbolKind::NAMESPACE)
+        .collect();
+    assert_eq!(sections.len(), 3, "Should have 3 section symbols (Context, Decision, Consequences)");
+}
+
+/// TEST S6: Document without title
+/// Document starting with == should still work
+#[test]
+fn test_symbol_no_title() {
+    let text = "\
+== Section One
+Content.
+
+== Section Two
+More content.";
+
+    let symbols = SymbolAnalyzer::extract_symbols(text);
+
+    // Should have 2 top-level section symbols
+    let section_symbols: Vec<_> = symbols
+        .iter()
+        .filter(|s| s.kind == SymbolKind::NAMESPACE)
+        .collect();
+
+    assert_eq!(section_symbols.len(), 2, "Should have 2 section symbols");
+    assert_eq!(section_symbols[0].name, "Section One");
+    assert_eq!(section_symbols[1].name, "Section Two");
+}
+
+/// TEST S7: Performance - Large Document
+/// Should process 1000+ lines quickly
+#[test]
+fn test_symbol_large_document_performance() {
+    // Build a large document
+    let mut text = String::new();
+    text.push_str("= Large Document\n\n");
+
+    for i in 0..20 {
+        text.push_str(&format!("== Section {}\n\n", i));
+        for j in 0..5 {
+            text.push_str(&format!("=== Subsection {}.{}\n\n", i, j));
+            text.push_str("Some content here.\n\n");
+        }
+    }
+
+    // Should complete in reasonable time
+    let start = std::time::Instant::now();
+    let symbols = SymbolAnalyzer::extract_symbols(&text);
+    let duration = start.elapsed();
+
+    assert!(!symbols.is_empty(), "Should extract symbols");
+    assert!(
+        duration < std::time::Duration::from_millis(100),
+        "Should process large document in <100ms, took {:?}",
+        duration
+    );
+}

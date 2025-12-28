@@ -11,6 +11,7 @@ pub mod scanner;
 pub mod symbols;
 
 pub use folding::FoldingAnalyzer;
+pub use symbols::SymbolAnalyzer;
 
 #[cfg(test)]
 mod tests;

@@ -18,7 +18,7 @@ mod structural;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use structural::FoldingAnalyzer;
+use structural::{FoldingAnalyzer, SymbolAnalyzer};
 
 use serde_json::Value;
 use tokio::sync::RwLock;
@@ -26,11 +26,11 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
     DiagnosticOptions, DiagnosticRelatedInformation, DiagnosticServerCapabilities,
     DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, FoldingRange,
-    FoldingRangeParams, FoldingRangeProviderCapability, InitializeParams, InitializeResult,
-    InitializedParams, Location, MessageType, NumberOrString, Position, Range,
-    ServerCapabilities, ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
-    WorkDoneProgressOptions,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentSymbolParams,
+    DocumentSymbolResponse, FoldingRange, FoldingRangeParams, FoldingRangeProviderCapability,
+    InitializeParams, InitializeResult, InitializedParams, Location, MessageType,
+    NumberOrString, OneOf, Position, Range, ServerCapabilities, ServerInfo,
+    TextDocumentSyncCapability, TextDocumentSyncKind, Url, WorkDoneProgressOptions,
 };
 use tower_lsp::lsp_types::Diagnostic;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
@@ -307,8 +307,10 @@ impl LanguageServer for Backend {
                         work_done_progress_options: WorkDoneProgressOptions::default(),
                     },
                 )),
-                // Folding ranges (Phase 7)
+                // Folding ranges (Phase 7 Week 1)
                 folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
+                // Document symbols (Phase 7 Week 2)
+                document_symbol_provider: Some(OneOf::Left(true)),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -389,6 +391,29 @@ impl LanguageServer for Backend {
         debug!("Generated {} folding ranges for {}", ranges.len(), uri);
 
         Ok(Some(ranges))
+    }
+
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> Result<Option<DocumentSymbolResponse>> {
+        let uri = params.text_document.uri;
+        debug!("Document symbol request for: {}", uri);
+
+        // Get document from store
+        let text = match self.get_document(&uri).await {
+            Some(doc) => doc,
+            None => {
+                warn!("Document not found for symbols: {}", uri);
+                return Ok(None);
+            }
+        };
+
+        // Generate document symbols
+        let symbols = SymbolAnalyzer::extract_symbols(&text);
+        debug!("Generated {} document symbols for {}", symbols.len(), uri);
+
+        Ok(Some(DocumentSymbolResponse::Nested(symbols)))
     }
 }
 
