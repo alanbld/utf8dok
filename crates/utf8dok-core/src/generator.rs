@@ -121,8 +121,10 @@ impl AsciiDocGenerator {
             }
         }
 
-        // Heading prefix: = for level 1, == for level 2, etc.
-        let prefix = "=".repeat(heading.level as usize);
+        // Heading prefix: == for level 1, === for level 2, etc.
+        // AsciiDoc uses = for doc title (level 0), == for section level 1, etc.
+        // So we add 1 to the level to get the correct number of = signs.
+        let prefix = "=".repeat(heading.level as usize + 1);
         write!(self.output, "{} ", prefix).unwrap();
 
         // Generate heading text
@@ -382,7 +384,8 @@ mod tests {
         }));
 
         let output = generate(&doc);
-        assert_eq!(output, "= My Title");
+        // Level 1 heading -> == (level + 1 equals signs)
+        assert_eq!(output, "== My Title");
     }
 
     #[test]
@@ -408,9 +411,10 @@ mod tests {
         }));
 
         let output = generate(&doc);
-        assert!(output.contains("= Level 1"));
-        assert!(output.contains("== Level 2"));
-        assert!(output.contains("=== Level 3"));
+        // Levels map to: 1->==, 2->===, 3->====
+        assert!(output.contains("== Level 1"));
+        assert!(output.contains("=== Level 2"));
+        assert!(output.contains("==== Level 3"));
     }
 
     #[test]
@@ -736,14 +740,14 @@ mod tests {
 
         let output = generate(&doc);
 
-        // Verify structure
-        assert!(output.contains("= Getting Started"));
+        // Verify structure (level 1 -> ==)
+        assert!(output.contains("== Getting Started"));
         assert!(output.contains("This is *important* information."));
         assert!(output.contains("* Install dependencies"));
         assert!(output.contains("* Run the build"));
 
         // Verify proper formatting
-        let expected = "= Getting Started
+        let expected = "== Getting Started
 
 This is *important* information.
 

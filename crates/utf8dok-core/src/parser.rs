@@ -33,7 +33,7 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashMap;
 use utf8dok_ast::{
-    Block, Document, DocumentMeta, FormatType, Heading, Inline, List, ListItem, ListType,
+    Block, Document, DocumentMeta, FormatType, Heading, Inline, Link, List, ListItem, ListType,
     Paragraph, Table, TableCell, TableRow,
 };
 
@@ -397,6 +397,8 @@ fn parse_inlines(text: &str) -> Vec<Inline> {
     let bold_re = Regex::new(r"\*([^*]+)\*").unwrap();
     let italic_re = Regex::new(r"_([^_]+)_").unwrap();
     let mono_re = Regex::new(r"`([^`]+)`").unwrap();
+    // Cross-reference: <<anchor,text>> or <<anchor>>
+    let xref_re = Regex::new(r"<<([^,>]+),([^>]+)>>|<<([^>]+)>>").unwrap();
 
     let mut result = Vec::new();
     let mut remaining = text;
@@ -406,12 +408,14 @@ fn parse_inlines(text: &str) -> Vec<Inline> {
         let bold_match = bold_re.find(remaining);
         let italic_match = italic_re.find(remaining);
         let mono_match = mono_re.find(remaining);
+        let xref_match = xref_re.find(remaining);
 
         // Determine which match comes first
         let earliest = [
             bold_match.map(|m| (m.start(), m.end(), "bold")),
             italic_match.map(|m| (m.start(), m.end(), "italic")),
             mono_match.map(|m| (m.start(), m.end(), "mono")),
+            xref_match.map(|m| (m.start(), m.end(), "xref")),
         ]
         .into_iter()
         .flatten()
@@ -426,21 +430,51 @@ fn parse_inlines(text: &str) -> Vec<Inline> {
 
                 // Extract the content inside the markers
                 let matched = &remaining[start..end];
-                let content = &matched[1..matched.len() - 1]; // Remove markers
 
-                // Create the formatted inline
+                // Create the appropriate inline element
                 let inline = match format_type {
                     "bold" => {
+                        let content = &matched[1..matched.len() - 1]; // Remove * markers
                         Inline::Format(FormatType::Bold, Box::new(Inline::Text(content.to_string())))
                     }
-                    "italic" => Inline::Format(
-                        FormatType::Italic,
-                        Box::new(Inline::Text(content.to_string())),
-                    ),
-                    "mono" => Inline::Format(
-                        FormatType::Monospace,
-                        Box::new(Inline::Text(content.to_string())),
-                    ),
+                    "italic" => {
+                        let content = &matched[1..matched.len() - 1]; // Remove _ markers
+                        Inline::Format(
+                            FormatType::Italic,
+                            Box::new(Inline::Text(content.to_string())),
+                        )
+                    }
+                    "mono" => {
+                        let content = &matched[1..matched.len() - 1]; // Remove ` markers
+                        Inline::Format(
+                            FormatType::Monospace,
+                            Box::new(Inline::Text(content.to_string())),
+                        )
+                    }
+                    "xref" => {
+                        // Parse cross-reference: <<anchor,text>> or <<anchor>>
+                        if let Some(caps) = xref_re.captures(matched) {
+                            if let (Some(anchor), Some(text_match)) = (caps.get(1), caps.get(2)) {
+                                // <<anchor,text>> format
+                                Inline::Link(Link {
+                                    url: format!("#{}", anchor.as_str()),
+                                    text: vec![Inline::Text(text_match.as_str().to_string())],
+                                })
+                            } else if let Some(anchor) = caps.get(3) {
+                                // <<anchor>> format (no text, use anchor as text)
+                                let anchor_str = anchor.as_str();
+                                Inline::Link(Link {
+                                    url: format!("#{}", anchor_str),
+                                    text: vec![Inline::Text(anchor_str.to_string())],
+                                })
+                            } else {
+                                // Fallback: treat as plain text
+                                Inline::Text(matched.to_string())
+                            }
+                        } else {
+                            Inline::Text(matched.to_string())
+                        }
+                    }
                     _ => unreachable!(),
                 };
                 result.push(inline);
@@ -508,5 +542,72 @@ mod tests {
         assert_eq!(inlines.len(), 2);
         assert_eq!(inlines[0], Inline::Text("Hello ".to_string()));
         assert!(matches!(inlines[1], Inline::Format(FormatType::Bold, _)));
+    }
+
+    #[test]
+    fn test_parse_inlines_xref_with_text() {
+        let inlines = parse_inlines("See <<section1,Section One>> for details");
+        assert_eq!(inlines.len(), 3);
+        assert_eq!(inlines[0], Inline::Text("See ".to_string()));
+
+        if let Inline::Link(link) = &inlines[1] {
+            assert_eq!(link.url, "#section1");
+            assert_eq!(link.text.len(), 1);
+            if let Inline::Text(text) = &link.text[0] {
+                assert_eq!(text, "Section One");
+            } else {
+                panic!("Expected Text inline in link");
+            }
+        } else {
+            panic!("Expected Link inline");
+        }
+
+        assert_eq!(inlines[2], Inline::Text(" for details".to_string()));
+    }
+
+    #[test]
+    fn test_parse_inlines_xref_without_text() {
+        let inlines = parse_inlines("See <<section1>> for details");
+        assert_eq!(inlines.len(), 3);
+
+        if let Inline::Link(link) = &inlines[1] {
+            assert_eq!(link.url, "#section1");
+            assert_eq!(link.text.len(), 1);
+            if let Inline::Text(text) = &link.text[0] {
+                assert_eq!(text, "section1"); // Uses anchor as text
+            } else {
+                panic!("Expected Text inline in link");
+            }
+        } else {
+            panic!("Expected Link inline");
+        }
+    }
+
+    #[test]
+    fn test_parse_heading_levels() {
+        // == should parse as level 1
+        let doc = parse("== Level 1 Heading").unwrap();
+        assert_eq!(doc.blocks.len(), 1);
+        if let Block::Heading(h) = &doc.blocks[0] {
+            assert_eq!(h.level, 1);
+        } else {
+            panic!("Expected Heading block");
+        }
+
+        // === should parse as level 2
+        let doc = parse("=== Level 2 Heading").unwrap();
+        if let Block::Heading(h) = &doc.blocks[0] {
+            assert_eq!(h.level, 2);
+        } else {
+            panic!("Expected Heading block");
+        }
+
+        // ==== should parse as level 3
+        let doc = parse("==== Level 3 Heading").unwrap();
+        if let Block::Heading(h) = &doc.blocks[0] {
+            assert_eq!(h.level, 3);
+        } else {
+            panic!("Expected Heading block");
+        }
     }
 }

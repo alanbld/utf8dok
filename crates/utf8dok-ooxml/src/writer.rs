@@ -379,19 +379,41 @@ impl DocxWriter {
                 }
             }
             Inline::Link(link) => {
-                // Links require relationship handling; for now, output as styled text
-                self.output.push_str("<w:r>\n");
-                self.output.push_str("<w:rPr>\n");
-                self.output.push_str("<w:color w:val=\"0000FF\"/>\n");
-                self.output.push_str("<w:u w:val=\"single\"/>\n");
-                self.output.push_str("</w:rPr>\n");
-                for text_inline in &link.text {
-                    if let Inline::Text(text) = text_inline {
-                        self.output
-                            .push_str(&format!("<w:t>{}</w:t>\n", escape_xml(text)));
+                if link.url.starts_with('#') {
+                    // Internal link (cross-reference): use w:hyperlink with w:anchor
+                    let anchor = &link.url[1..]; // Strip the leading #
+                    self.output.push_str(&format!(
+                        "<w:hyperlink w:anchor=\"{}\">\n",
+                        escape_xml(anchor)
+                    ));
+                    self.output.push_str("<w:r>\n");
+                    self.output.push_str("<w:rPr>\n");
+                    self.output.push_str("<w:rStyle w:val=\"Hyperlink\"/>\n");
+                    self.output.push_str("</w:rPr>\n");
+                    for text_inline in &link.text {
+                        if let Inline::Text(text) = text_inline {
+                            self.output
+                                .push_str(&format!("<w:t>{}</w:t>\n", escape_xml(text)));
+                        }
                     }
+                    self.output.push_str("</w:r>\n");
+                    self.output.push_str("</w:hyperlink>\n");
+                } else {
+                    // External link: requires r:id relationship (TODO: implement properly)
+                    // For now, output as styled text with blue underline
+                    self.output.push_str("<w:r>\n");
+                    self.output.push_str("<w:rPr>\n");
+                    self.output.push_str("<w:color w:val=\"0000FF\"/>\n");
+                    self.output.push_str("<w:u w:val=\"single\"/>\n");
+                    self.output.push_str("</w:rPr>\n");
+                    for text_inline in &link.text {
+                        if let Inline::Text(text) = text_inline {
+                            self.output
+                                .push_str(&format!("<w:t>{}</w:t>\n", escape_xml(text)));
+                        }
+                    }
+                    self.output.push_str("</w:r>\n");
                 }
-                self.output.push_str("</w:r>\n");
             }
             Inline::Image(_image) => {
                 // Images require relationship and drawing handling; placeholder for now
