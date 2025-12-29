@@ -9,9 +9,13 @@ repository.workspace = true
 keywords = ["asciidoc", "lsp", "language-server"]
 categories = ["development-tools"]
 
+[lib]
+name = "utf8dok_lsp"
+path = "src/lib.rs"
+
 [[bin]]
 name = "utf8dok-lsp"
-path = "src/main.rs"
+path = "src/bin/main.rs"
 
 [dependencies]
 utf8dok-core = { path = "../utf8dok-core" }

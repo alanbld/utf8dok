@@ -1,31 +1,14 @@
-//! utf8dok Language Server Protocol implementation
+//! LSP Server implementation
 //!
-//! This binary provides LSP support for AsciiDoc files, reporting validation
-//! errors from utf8dok's native validators and Rhai plugins to editors.
-//!
-//! # Usage
-//!
-//! ```bash
-//! # Start the language server (typically called by an editor)
-//! utf8dok-lsp
-//!
-//! # With debug logging
-//! RUST_LOG=debug utf8dok-lsp
-//! ```
-
-mod compliance;
-mod domain;
-mod intelligence;
-mod structural;
-mod workspace;
+//! Contains the Backend state machine and LanguageServer trait implementation.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use domain::DomainEngine;
-use intelligence::{RenameAnalyzer, SelectionAnalyzer};
-use structural::{FoldingAnalyzer, SymbolAnalyzer};
-use workspace::WorkspaceGraph;
+use crate::domain::DomainEngine;
+use crate::intelligence::{RenameAnalyzer, SelectionAnalyzer};
+use crate::structural::{FoldingAnalyzer, SymbolAnalyzer};
+use crate::workspace::WorkspaceGraph;
 
 use serde_json::Value;
 use tokio::sync::RwLock;
@@ -54,7 +37,7 @@ use utf8dok_core::parse;
 use utf8dok_validate::ValidationEngine;
 
 /// LSP Backend state
-struct Backend {
+pub struct Backend {
     /// LSP client for sending notifications
     client: Client,
     /// Validation engine with default validators
@@ -67,7 +50,7 @@ struct Backend {
 
 impl Backend {
     /// Create a new backend instance
-    fn new(client: Client) -> Self {
+    pub fn new(client: Client) -> Self {
         Self {
             client,
             validation_engine: Arc::new(RwLock::new(ValidationEngine::with_defaults())),
@@ -364,7 +347,7 @@ impl LanguageServer for Backend {
                     SemanticTokensServerCapabilities::SemanticTokensOptions(
                         SemanticTokensOptions {
                             legend: SemanticTokensLegend {
-                                token_types: domain::semantic::SemanticAnalyzer::token_legend(),
+                                token_types: crate::domain::semantic::SemanticAnalyzer::token_legend(),
                                 token_modifiers: vec![],
                             },
                             full: Some(SemanticTokensFullOptions::Bool(true)),
@@ -719,7 +702,7 @@ impl LanguageServer for Backend {
             .into_iter()
             .map(|sym| SymbolInformation {
                 name: sym.name.clone(),
-                kind: workspace::symbol_provider::SymbolProvider::convert_symbol_kind(sym.kind),
+                kind: crate::workspace::symbol_provider::SymbolProvider::convert_symbol_kind(sym.kind),
                 tags: None,
                 deprecated: None,
                 location: sym.location.clone(),
@@ -737,8 +720,11 @@ impl LanguageServer for Backend {
     }
 }
 
-#[tokio::main]
-async fn main() {
+/// Run the LSP server
+///
+/// This is the main entry point for the language server.
+/// It initializes tracing and starts the server on stdin/stdout.
+pub async fn run_server() {
     // Initialize tracing subscriber for logging
     tracing_subscriber::fmt()
         .with_env_filter(

@@ -1,14 +1,6 @@
-//! utf8dok CLI - Command-line interface for the utf8dok document processor
+//! CLI Application logic
 //!
-//! # Usage
-//!
-//! ```bash
-//! # Extract AsciiDoc from a DOCX file
-//! utf8dok extract document.docx --output result/
-//!
-//! # Render AsciiDoc to DOCX (coming soon)
-//! utf8dok render document.adoc --output result.docx
-//! ```
+//! Contains the command-line interface implementation.
 
 use std::fs;
 use std::path::PathBuf;
@@ -87,7 +79,11 @@ enum Commands {
     },
 }
 
-fn main() -> Result<()> {
+/// Run the CLI application
+///
+/// This is the main entry point for the command-line interface.
+/// It parses arguments and dispatches to the appropriate command.
+pub fn run_cli() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
@@ -118,7 +114,7 @@ fn main() -> Result<()> {
 }
 
 /// Execute the extract command
-fn extract_command(input: &PathBuf, output_dir: &PathBuf, force_parse: bool) -> Result<()> {
+pub fn extract_command(input: &PathBuf, output_dir: &PathBuf, force_parse: bool) -> Result<()> {
     println!("utf8dok v{}", utf8dok_core::VERSION);
     println!("Extracting: {}", input.display());
 
@@ -227,7 +223,7 @@ fn generate_config_toml(styles: &StyleSheet, input: &std::path::Path) -> String 
 }
 
 /// Execute the render command
-fn render_command(
+pub fn render_command(
     input: &std::path::Path,
     output: Option<&std::path::Path>,
     template: Option<&std::path::Path>,
@@ -326,7 +322,7 @@ fn render_command(
 }
 
 /// Execute the check command
-fn check_command(input: &std::path::Path, format: OutputFormat, plugins: &[PathBuf]) -> Result<()> {
+pub fn check_command(input: &std::path::Path, format: OutputFormat, plugins: &[PathBuf]) -> Result<()> {
     // Check input file exists
     if !input.exists() {
         anyhow::bail!("Input file not found: {}", input.display());

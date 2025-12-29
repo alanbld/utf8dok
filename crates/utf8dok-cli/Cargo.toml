@@ -9,9 +9,13 @@ repository.workspace = true
 keywords = ["asciidoc", "cli", "documentation"]
 categories = ["command-line-utilities"]
 
+[lib]
+name = "utf8dok_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "utf8dok"
-path = "src/main.rs"
+path = "src/bin/main.rs"
 
 [dependencies]
 utf8dok-core = { path = "../utf8dok-core" }
