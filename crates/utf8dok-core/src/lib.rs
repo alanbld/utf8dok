@@ -53,7 +53,7 @@ mod tests {
 
     #[test]
     fn test_version() {
-        assert_eq!(VERSION, "0.1.0");
+        assert_eq!(VERSION, "1.0.0");
     }
 
     /// Test round-trip fidelity: AST -> AsciiDoc -> AST
