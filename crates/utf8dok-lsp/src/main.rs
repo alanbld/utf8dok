@@ -16,6 +16,7 @@
 mod domain;
 mod intelligence;
 mod structural;
+mod workspace;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -23,6 +24,7 @@ use std::sync::Arc;
 use domain::DomainEngine;
 use intelligence::{RenameAnalyzer, SelectionAnalyzer};
 use structural::{FoldingAnalyzer, SymbolAnalyzer};
+use workspace::WorkspaceGraph;
 
 use serde_json::Value;
 use tokio::sync::RwLock;
@@ -38,8 +40,9 @@ use tower_lsp::lsp_types::{
     PrepareRenameResponse, Range, RenameParams, SelectionRange, SelectionRangeParams,
     SelectionRangeProviderCapability, SemanticToken, SemanticTokens, SemanticTokensFullOptions,
     SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult,
-    SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo, TextDocumentSyncCapability,
-    TextDocumentSyncKind, Url, WorkDoneProgressOptions, WorkspaceEdit,
+    SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo, SymbolInformation,
+    TextDocumentSyncCapability, TextDocumentSyncKind, Url, WorkDoneProgressOptions,
+    WorkspaceEdit, WorkspaceSymbolParams,
 };
 use tower_lsp::lsp_types::Diagnostic;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
@@ -57,6 +60,8 @@ struct Backend {
     validation_engine: Arc<RwLock<ValidationEngine>>,
     /// Document store for open documents
     documents: Arc<RwLock<HashMap<Url, String>>>,
+    /// Workspace graph for cross-file intelligence
+    workspace_graph: Arc<RwLock<WorkspaceGraph>>,
 }
 
 impl Backend {
@@ -66,6 +71,7 @@ impl Backend {
             client,
             validation_engine: Arc::new(RwLock::new(ValidationEngine::with_defaults())),
             documents: Arc::new(RwLock::new(HashMap::new())),
+            workspace_graph: Arc::new(RwLock::new(WorkspaceGraph::new())),
         }
     }
 
@@ -85,6 +91,18 @@ impl Backend {
     async fn remove_document(&self, uri: &Url) {
         let mut docs = self.documents.write().await;
         docs.remove(uri);
+    }
+
+    /// Update the workspace graph with document content
+    async fn update_workspace_graph(&self, uri: &Url, text: &str) {
+        let mut graph = self.workspace_graph.write().await;
+        graph.add_document(uri.as_str(), text);
+    }
+
+    /// Remove document from workspace graph
+    async fn remove_from_workspace_graph(&self, uri: &Url) {
+        let mut graph = self.workspace_graph.write().await;
+        graph.remove_document(uri.as_str());
     }
 
     /// Validate a document and publish diagnostics
@@ -354,6 +372,8 @@ impl LanguageServer for Backend {
                         },
                     ),
                 ),
+                // Workspace symbols (Phase 11)
+                workspace_symbol_provider: Some(OneOf::Left(true)),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -380,6 +400,7 @@ impl LanguageServer for Backend {
         let uri = params.text_document.uri.clone();
         let text = params.text_document.text.clone();
         self.store_document(uri.clone(), text.clone()).await;
+        self.update_workspace_graph(&uri, &text).await;
         self.validate(uri, text).await;
     }
 
@@ -390,6 +411,7 @@ impl LanguageServer for Backend {
             let uri = params.text_document.uri.clone();
             let text = change.text.clone();
             self.store_document(uri.clone(), text.clone()).await;
+            self.update_workspace_graph(&uri, &text).await;
             self.validate(uri, text).await;
         }
     }
@@ -400,6 +422,7 @@ impl LanguageServer for Backend {
         if let Some(text) = params.text {
             let uri = params.text_document.uri.clone();
             self.store_document(uri.clone(), text.clone()).await;
+            self.update_workspace_graph(&uri, &text).await;
             self.validate(uri, text).await;
         }
     }
@@ -407,6 +430,7 @@ impl LanguageServer for Backend {
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         debug!("Document closed: {}", params.text_document.uri);
         self.remove_document(&params.text_document.uri).await;
+        self.remove_from_workspace_graph(&params.text_document.uri).await;
         // Clear diagnostics for closed document
         self.client
             .publish_diagnostics(params.text_document.uri, vec![], None)
@@ -678,6 +702,37 @@ impl LanguageServer for Backend {
                 })
                 .collect(),
         })))
+    }
+
+    #[allow(deprecated)]
+    async fn symbol(
+        &self,
+        params: WorkspaceSymbolParams,
+    ) -> Result<Option<Vec<SymbolInformation>>> {
+        debug!("Workspace symbol request: query='{}'", params.query);
+
+        let graph = self.workspace_graph.read().await;
+        let symbols = graph.query_symbols(&params.query);
+
+        let result: Vec<SymbolInformation> = symbols
+            .into_iter()
+            .map(|sym| SymbolInformation {
+                name: sym.name.clone(),
+                kind: workspace::symbol_provider::SymbolProvider::convert_symbol_kind(sym.kind),
+                tags: None,
+                deprecated: None,
+                location: sym.location.clone(),
+                container_name: None,
+            })
+            .collect();
+
+        debug!("Found {} workspace symbols", result.len());
+
+        if result.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(result))
+        }
     }
 }
 
