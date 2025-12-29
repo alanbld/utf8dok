@@ -36,7 +36,9 @@ use tower_lsp::lsp_types::{
     FoldingRangeParams, FoldingRangeProviderCapability, InitializeParams, InitializeResult,
     InitializedParams, Location, MessageType, NumberOrString, OneOf, Position,
     PrepareRenameResponse, Range, RenameParams, SelectionRange, SelectionRangeParams,
-    SelectionRangeProviderCapability, ServerCapabilities, ServerInfo, TextDocumentSyncCapability,
+    SelectionRangeProviderCapability, SemanticToken, SemanticTokens, SemanticTokensFullOptions,
+    SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult,
+    SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo, TextDocumentSyncCapability,
     TextDocumentSyncKind, Url, WorkDoneProgressOptions, WorkspaceEdit,
 };
 use tower_lsp::lsp_types::Diagnostic;
@@ -338,6 +340,20 @@ impl LanguageServer for Backend {
                 }),
                 // Code actions (Phase 9)
                 code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+                // Semantic tokens (Phase 10)
+                semantic_tokens_provider: Some(
+                    SemanticTokensServerCapabilities::SemanticTokensOptions(
+                        SemanticTokensOptions {
+                            legend: SemanticTokensLegend {
+                                token_types: domain::semantic::SemanticAnalyzer::token_legend(),
+                                token_modifiers: vec![],
+                            },
+                            full: Some(SemanticTokensFullOptions::Bool(true)),
+                            range: None,
+                            work_done_progress_options: WorkDoneProgressOptions::default(),
+                        },
+                    ),
+                ),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -604,6 +620,64 @@ impl LanguageServer for Backend {
                 .collect();
             Ok(Some(wrapped))
         }
+    }
+
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokensResult>> {
+        let uri = params.text_document.uri;
+        debug!("Semantic tokens request for: {}", uri);
+
+        // Get document from store
+        let text = match self.get_document(&uri).await {
+            Some(doc) => doc,
+            None => {
+                warn!("Document not found for semantic tokens: {}", uri);
+                return Ok(None);
+            }
+        };
+
+        // Get semantic tokens from domain engine
+        let engine = DomainEngine::new();
+        let token_infos = engine.get_semantic_tokens(&text);
+
+        if token_infos.is_empty() {
+            return Ok(None);
+        }
+
+        // Convert to LSP format
+        let lsp_tokens = engine.semantic_analyzer().to_lsp_tokens(&token_infos);
+
+        // Convert to final format
+        let data: Vec<u32> = lsp_tokens
+            .into_iter()
+            .flat_map(|t| {
+                vec![
+                    t.delta_line,
+                    t.delta_start,
+                    t.length,
+                    t.token_type,
+                    t.token_modifiers,
+                ]
+            })
+            .collect();
+
+        debug!("Generated {} semantic tokens for {}", data.len() / 5, uri);
+
+        Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
+            result_id: None,
+            data: data
+                .chunks(5)
+                .map(|chunk| SemanticToken {
+                    delta_line: chunk[0],
+                    delta_start: chunk[1],
+                    length: chunk[2],
+                    token_type: chunk[3],
+                    token_modifiers_bitset: chunk[4],
+                })
+                .collect(),
+        })))
     }
 }
 
