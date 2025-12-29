@@ -3,7 +3,7 @@
 //! Stores definitions, references, and symbols across all workspace documents.
 //! Enables cross-file navigation, validation, and refactoring.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Location, Position, Range, Url};
 
 use super::indexer::WorkspaceIndexer;
@@ -66,6 +66,9 @@ pub struct WorkspaceGraph {
 
     /// Map from document URI to symbol indices (for cleanup)
     document_symbols: HashMap<String, Vec<usize>>,
+
+    /// Map from document URI to its attributes (:name: value)
+    document_attributes: HashMap<String, HashMap<String, String>>,
 }
 
 impl WorkspaceGraph {
@@ -78,6 +81,7 @@ impl WorkspaceGraph {
             document_refs: HashMap::new(),
             symbols: Vec::new(),
             document_symbols: HashMap::new(),
+            document_attributes: HashMap::new(),
         }
     }
 
@@ -170,6 +174,12 @@ impl WorkspaceGraph {
             self.document_symbols
                 .insert(uri.to_string(), symbol_indices);
         }
+
+        // Extract document attributes
+        let attrs = WorkspaceIndexer::extract_attributes(content);
+        if !attrs.is_empty() {
+            self.document_attributes.insert(uri.to_string(), attrs);
+        }
     }
 
     /// Remove a document from the graph
@@ -206,6 +216,9 @@ impl WorkspaceGraph {
                 }
             }
         }
+
+        // Remove attributes
+        self.document_attributes.remove(uri);
     }
 
     /// Resolve an ID to its definition location
@@ -300,6 +313,96 @@ impl WorkspaceGraph {
             references: self.references.values().map(|v| v.len()).sum(),
             symbols: self.symbols.iter().filter(|s| !s.name.is_empty()).count(),
         }
+    }
+
+    // ==================== COMPLIANCE ENGINE ACCESSORS ====================
+
+    /// Get all document URIs in the graph
+    #[allow(dead_code)]
+    pub fn document_uris(&self) -> Vec<&String> {
+        self.document_ids.keys().collect()
+    }
+
+    /// Get attributes for a specific document
+    #[allow(dead_code)]
+    pub fn get_document_attributes(&self, uri: &str) -> Option<&HashMap<String, String>> {
+        self.document_attributes.get(uri)
+    }
+
+    /// Get a specific attribute value for a document
+    #[allow(dead_code)]
+    pub fn get_document_attribute(&self, uri: &str, attr_name: &str) -> Option<&String> {
+        self.document_attributes
+            .get(uri)
+            .and_then(|attrs| attrs.get(attr_name))
+    }
+
+    /// Get all IDs defined in a document
+    #[allow(dead_code)]
+    pub fn get_document_ids(&self, uri: &str) -> Option<&Vec<String>> {
+        self.document_ids.get(uri)
+    }
+
+    /// Get all reference IDs in a document
+    #[allow(dead_code)]
+    pub fn get_document_refs(&self, uri: &str) -> Option<&Vec<String>> {
+        self.document_refs.get(uri)
+    }
+
+    /// Check if an ID is defined anywhere in the workspace
+    #[allow(dead_code)]
+    pub fn is_id_defined(&self, id: &str) -> bool {
+        self.definitions.contains_key(id)
+    }
+
+    /// Get the URI where an ID is defined
+    #[allow(dead_code)]
+    pub fn get_definition_uri(&self, id: &str) -> Option<&Url> {
+        self.definitions.get(id).map(|loc| &loc.uri)
+    }
+
+    /// Get all documents that reference a given ID
+    #[allow(dead_code)]
+    pub fn get_referencing_documents(&self, id: &str) -> Vec<&Url> {
+        self.references
+            .get(id)
+            .map(|locs| locs.iter().map(|loc| &loc.uri).collect())
+            .unwrap_or_default()
+    }
+
+    /// Find all documents reachable from entry points via references
+    /// Returns the set of reachable document URIs
+    #[allow(dead_code)]
+    pub fn find_reachable_documents(&self, entry_points: &[&str]) -> HashSet<String> {
+        let mut reachable = HashSet::new();
+        let mut queue: Vec<String> = Vec::new();
+
+        // Start with entry points
+        for entry in entry_points {
+            if self.document_ids.contains_key(*entry) {
+                reachable.insert(entry.to_string());
+                queue.push(entry.to_string());
+            }
+        }
+
+        // BFS traversal
+        while let Some(current_uri) = queue.pop() {
+            // Get all references from this document
+            if let Some(refs) = self.document_refs.get(&current_uri) {
+                for ref_id in refs {
+                    // Find which document defines this ID
+                    if let Some(def_loc) = self.definitions.get(ref_id) {
+                        let def_uri = def_loc.uri.as_str().to_string();
+                        if !reachable.contains(&def_uri) {
+                            reachable.insert(def_uri.clone());
+                            queue.push(def_uri);
+                        }
+                    }
+                }
+            }
+        }
+
+        reachable
     }
 }
 

@@ -1,0 +1,146 @@
+//! Orphan Rule for Bridge Framework
+//!
+//! Detects documents that are not reachable from any entry point (index, README).
+
+use tower_lsp::lsp_types::{Position, Range, Url};
+
+use crate::compliance::{ComplianceRule, Violation, ViolationSeverity};
+use crate::workspace::graph::WorkspaceGraph;
+
+/// Rule: All documents should be reachable from an entry point (index, README).
+/// Orphaned documents are those with no incoming references.
+#[allow(dead_code)]
+pub struct OrphanRule {
+    /// Known entry point patterns (case-insensitive matching on filename)
+    entry_point_patterns: Vec<&'static str>,
+}
+
+#[allow(dead_code)]
+impl OrphanRule {
+    pub fn new() -> Self {
+        Self {
+            entry_point_patterns: vec![
+                "index.adoc",
+                "readme.adoc",
+                "index.asciidoc",
+                "readme.asciidoc",
+                "readme.md",
+                "index.md",
+            ],
+        }
+    }
+
+    /// Check if a URI is an entry point
+    fn is_entry_point(&self, uri: &str) -> bool {
+        let uri_lower = uri.to_lowercase();
+        self.entry_point_patterns
+            .iter()
+            .any(|pattern| uri_lower.ends_with(pattern))
+    }
+
+    /// Find all entry point URIs in the graph
+    fn find_entry_points<'a>(&self, graph: &'a WorkspaceGraph) -> Vec<&'a str> {
+        graph
+            .document_uris()
+            .into_iter()
+            .filter(|uri| self.is_entry_point(uri))
+            .map(|s| s.as_str())
+            .collect()
+    }
+}
+
+impl Default for OrphanRule {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ComplianceRule for OrphanRule {
+    fn check(&self, graph: &WorkspaceGraph) -> Vec<Violation> {
+        let mut violations = Vec::new();
+
+        // Find entry points
+        let entry_points = self.find_entry_points(graph);
+
+        // If no entry points, we can't determine orphans
+        if entry_points.is_empty() {
+            return violations;
+        }
+
+        // Find all reachable documents
+        let reachable = graph.find_reachable_documents(&entry_points);
+
+        // Check each document
+        for uri in graph.document_uris() {
+            // Skip entry points themselves
+            if self.is_entry_point(uri) {
+                continue;
+            }
+
+            // Check if this document is reachable
+            if !reachable.contains(uri) {
+                let parsed_uri = Url::parse(uri).unwrap_or_else(|_| {
+                    Url::parse("file:///unknown").unwrap()
+                });
+
+                // Extract filename for better error message
+                let filename = uri
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(uri);
+
+                violations.push(Violation {
+                    uri: parsed_uri,
+                    range: Range {
+                        start: Position { line: 0, character: 0 },
+                        end: Position { line: 0, character: 0 },
+                    },
+                    message: format!(
+                        "Orphaned document: '{}' is not reachable from any entry point (index.adoc, README.adoc)",
+                        filename
+                    ),
+                    severity: ViolationSeverity::Warning,
+                    code: "BRIDGE003".to_string(),
+                });
+            }
+        }
+
+        violations
+    }
+
+    fn code(&self) -> &'static str {
+        "BRIDGE003"
+    }
+
+    fn description(&self) -> &'static str {
+        "All documents should be reachable from an entry point"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_entry_point() {
+        let rule = OrphanRule::new();
+
+        assert!(rule.is_entry_point("file:///project/index.adoc"));
+        assert!(rule.is_entry_point("file:///project/README.adoc"));
+        assert!(rule.is_entry_point("file:///project/INDEX.ADOC")); // case insensitive
+        assert!(!rule.is_entry_point("file:///project/adr-001.adoc"));
+    }
+
+    #[test]
+    fn test_find_entry_points() {
+        let mut graph = WorkspaceGraph::new();
+        graph.add_document("file:///index.adoc", "= Index");
+        graph.add_document("file:///adr-001.adoc", "= ADR 001");
+
+        let rule = OrphanRule::new();
+        let entry_points = rule.find_entry_points(&graph);
+
+        assert_eq!(entry_points.len(), 1);
+        assert!(entry_points[0].contains("index.adoc"));
+    }
+}

@@ -13,6 +13,7 @@
 //! RUST_LOG=debug utf8dok-lsp
 //! ```
 
+mod compliance;
 mod domain;
 mod intelligence;
 mod structural;

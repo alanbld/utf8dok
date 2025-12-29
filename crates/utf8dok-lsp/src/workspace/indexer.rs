@@ -3,6 +3,7 @@
 //! Scans document content to extract definitions, references, and symbols.
 
 use regex::Regex;
+use std::collections::HashMap;
 use std::sync::OnceLock;
 
 /// Workspace indexer for extracting structural information from documents
@@ -69,6 +70,29 @@ impl WorkspaceIndexer {
         }
 
         results
+    }
+
+    /// Extract document attributes (:name: value)
+    /// Returns HashMap<name, value>
+    pub fn extract_attributes(content: &str) -> HashMap<String, String> {
+        static ATTR_RE: OnceLock<Regex> = OnceLock::new();
+        let attr_re = ATTR_RE.get_or_init(|| {
+            Regex::new(r"^:([\w\-]+):\s*(.*)$").unwrap()
+        });
+
+        let mut attrs = HashMap::new();
+
+        for line in content.lines() {
+            if let Some(cap) = attr_re.captures(line) {
+                let name = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                let value = cap.get(2).map(|m| m.as_str().trim().to_string()).unwrap_or_default();
+                if !name.is_empty() {
+                    attrs.insert(name, value);
+                }
+            }
+        }
+
+        attrs
     }
 
     /// Extract both definitions and headers combined
