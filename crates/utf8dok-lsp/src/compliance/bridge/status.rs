@@ -28,7 +28,11 @@ impl StatusRule {
     /// Create a StatusRule configured from settings
     pub fn with_settings(settings: &Settings) -> Self {
         Self {
-            severity: settings.compliance.bridge.superseded_status.to_violation_severity(),
+            severity: settings
+                .compliance
+                .bridge
+                .superseded_status
+                .to_violation_severity(),
         }
     }
 
@@ -78,9 +82,8 @@ impl ComplianceRule for StatusRule {
                         if let Some(status) = graph.get_document_attribute(def_uri_str, "status") {
                             if !Self::is_valid_superseded_status(status) {
                                 // Create violation at the superseding document
-                                let parsed_uri = Url::parse(uri).unwrap_or_else(|_| {
-                                    Url::parse("file:///unknown").unwrap()
-                                });
+                                let parsed_uri = Url::parse(uri)
+                                    .unwrap_or_else(|_| Url::parse("file:///unknown").unwrap());
 
                                 violations.push(Violation {
                                     uri: parsed_uri,
@@ -98,9 +101,8 @@ impl ComplianceRule for StatusRule {
                             }
                         } else {
                             // No status attribute - also a violation (should have status)
-                            let parsed_uri = Url::parse(uri).unwrap_or_else(|_| {
-                                Url::parse("file:///unknown").unwrap()
-                            });
+                            let parsed_uri = Url::parse(uri)
+                                .unwrap_or_else(|_| Url::parse("file:///unknown").unwrap());
 
                             violations.push(Violation {
                                 uri: parsed_uri,
@@ -118,9 +120,8 @@ impl ComplianceRule for StatusRule {
                         }
                     } else {
                         // Supersedes a non-existent ID
-                        let parsed_uri = Url::parse(uri).unwrap_or_else(|_| {
-                            Url::parse("file:///unknown").unwrap()
-                        });
+                        let parsed_uri = Url::parse(uri)
+                            .unwrap_or_else(|_| Url::parse("file:///unknown").unwrap());
 
                         violations.push(Violation {
                             uri: parsed_uri,

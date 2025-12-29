@@ -186,7 +186,8 @@ impl WorkspaceGraph {
         }
 
         // Store document text for code actions
-        self.document_texts.insert(uri.to_string(), content.to_string());
+        self.document_texts
+            .insert(uri.to_string(), content.to_string());
     }
 
     /// Remove a document from the graph
@@ -283,10 +284,7 @@ impl WorkspaceGraph {
                                         "WS001".to_string(),
                                     )),
                                     source: Some("utf8dok-workspace".to_string()),
-                                    message: format!(
-                                        "Broken reference: '{}' is not defined",
-                                        id
-                                    ),
+                                    message: format!("Broken reference: '{}' is not defined", id),
                                     ..Default::default()
                                 });
                             }

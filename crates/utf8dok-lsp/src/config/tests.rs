@@ -294,7 +294,10 @@ entry_points = ["docs/main.adoc", "docs/api.adoc"]
         let settings: Settings = toml::from_str(toml).unwrap();
 
         assert_eq!(settings.workspace.entry_points.len(), 2);
-        assert!(settings.workspace.entry_points.contains(&"docs/main.adoc".to_string()));
+        assert!(settings
+            .workspace
+            .entry_points
+            .contains(&"docs/main.adoc".to_string()));
     }
 
     /// Test 17: Default entry points
@@ -303,7 +306,13 @@ entry_points = ["docs/main.adoc", "docs/api.adoc"]
         let settings = Settings::default();
 
         // Default entry points should include common names
-        assert!(settings.workspace.entry_points.contains(&"index.adoc".to_string()));
-        assert!(settings.workspace.entry_points.contains(&"README.adoc".to_string()));
+        assert!(settings
+            .workspace
+            .entry_points
+            .contains(&"index.adoc".to_string()));
+        assert!(settings
+            .workspace
+            .entry_points
+            .contains(&"README.adoc".to_string()));
     }
 }

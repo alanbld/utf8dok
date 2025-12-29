@@ -22,7 +22,10 @@ impl FoldingAnalyzer {
         }
 
         // Scan all lines once
-        let line_types: Vec<LineType> = lines.iter().map(|line| StructuralScanner::scan(line)).collect();
+        let line_types: Vec<LineType> = lines
+            .iter()
+            .map(|line| StructuralScanner::scan(line))
+            .collect();
 
         // Track state for different fold types
         let mut attr_group_start: Option<usize> = None;

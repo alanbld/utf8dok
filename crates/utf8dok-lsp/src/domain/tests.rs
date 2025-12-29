@@ -45,11 +45,27 @@ See <<"#;
 
         // Should find all section IDs (including auto-generated from Document Title)
         let labels: Vec<String> = completions.iter().map(|c| c.label.clone()).collect();
-        assert!(labels.contains(&"architecture-overview".to_string()), "Should find architecture-overview");
-        assert!(labels.contains(&"api-design".to_string()), "Should find api-design");
-        assert!(labels.contains(&"database-schema".to_string()), "Should find database-schema");
-        assert!(labels.contains(&"document-title".to_string()), "Should find document-title (auto-generated)");
-        assert_eq!(completions.len(), 4, "Should have exactly 4 completions (3 anchored + 1 title)");
+        assert!(
+            labels.contains(&"architecture-overview".to_string()),
+            "Should find architecture-overview"
+        );
+        assert!(
+            labels.contains(&"api-design".to_string()),
+            "Should find api-design"
+        );
+        assert!(
+            labels.contains(&"database-schema".to_string()),
+            "Should find database-schema"
+        );
+        assert!(
+            labels.contains(&"document-title".to_string()),
+            "Should find document-title (auto-generated)"
+        );
+        assert_eq!(
+            completions.len(),
+            4,
+            "Should have exactly 4 completions (3 anchored + 1 title)"
+        );
 
         // Items should have correct metadata
         for item in &completions {
@@ -104,16 +120,34 @@ See <<"#;
         let labels: Vec<String> = completions.iter().map(|c| c.label.clone()).collect();
 
         // Should suggest common attributes
-        assert!(labels.contains(&"status".to_string()), "Should suggest status");
-        assert!(labels.contains(&"author".to_string()), "Should suggest author");
+        assert!(
+            labels.contains(&"status".to_string()),
+            "Should suggest status"
+        );
+        assert!(
+            labels.contains(&"author".to_string()),
+            "Should suggest author"
+        );
         assert!(labels.contains(&"date".to_string()), "Should suggest date");
-        assert!(labels.contains(&"version".to_string()), "Should suggest version");
+        assert!(
+            labels.contains(&"version".to_string()),
+            "Should suggest version"
+        );
         assert!(labels.contains(&"toc".to_string()), "Should suggest toc");
 
         // Should include ADR/Bridge attributes
-        assert!(labels.contains(&"context".to_string()), "Should suggest context");
-        assert!(labels.contains(&"decision".to_string()), "Should suggest decision");
-        assert!(labels.contains(&"consequences".to_string()), "Should suggest consequences");
+        assert!(
+            labels.contains(&"context".to_string()),
+            "Should suggest context"
+        );
+        assert!(
+            labels.contains(&"decision".to_string()),
+            "Should suggest decision"
+        );
+        assert!(
+            labels.contains(&"consequences".to_string()),
+            "Should suggest consequences"
+        );
 
         // Items should have documentation
         for item in &completions {
@@ -134,9 +168,18 @@ See <<"#;
 
         let labels: Vec<String> = completions.iter().map(|c| c.label.clone()).collect();
 
-        assert!(labels.contains(&"status".to_string()), "Should match 'status'");
-        assert!(labels.contains(&"stage".to_string()), "Should match 'stage'");
-        assert!(!labels.contains(&"author".to_string()), "Should not match 'author'");
+        assert!(
+            labels.contains(&"status".to_string()),
+            "Should match 'status'"
+        );
+        assert!(
+            labels.contains(&"stage".to_string()),
+            "Should match 'stage'"
+        );
+        assert!(
+            !labels.contains(&"author".to_string()),
+            "Should not match 'author'"
+        );
     }
 
     /// TEST 6: Attribute value completion for status
@@ -148,14 +191,33 @@ See <<"#;
 
         let labels: Vec<String> = completions.iter().map(|c| c.label.clone()).collect();
 
-        assert!(labels.contains(&"Draft".to_string()), "Should suggest Draft");
-        assert!(labels.contains(&"Accepted".to_string()), "Should suggest Accepted");
-        assert!(labels.contains(&"Rejected".to_string()), "Should suggest Rejected");
-        assert!(labels.contains(&"Deprecated".to_string()), "Should suggest Deprecated");
-        assert!(labels.contains(&"Superseded".to_string()), "Should suggest Superseded");
+        assert!(
+            labels.contains(&"Draft".to_string()),
+            "Should suggest Draft"
+        );
+        assert!(
+            labels.contains(&"Accepted".to_string()),
+            "Should suggest Accepted"
+        );
+        assert!(
+            labels.contains(&"Rejected".to_string()),
+            "Should suggest Rejected"
+        );
+        assert!(
+            labels.contains(&"Deprecated".to_string()),
+            "Should suggest Deprecated"
+        );
+        assert!(
+            labels.contains(&"Superseded".to_string()),
+            "Should suggest Superseded"
+        );
 
         for item in &completions {
-            assert!(item.detail.is_some(), "Status '{}' should have detail", item.label);
+            assert!(
+                item.detail.is_some(),
+                "Status '{}' should have detail",
+                item.label
+            );
         }
     }
 
@@ -354,7 +416,8 @@ Test."#;
     /// TEST 2: Code action to fix invalid status
     #[test]
     fn test_code_action_fix_invalid_status() {
-        let text = ":status: Invalid\n\n== Context\nTest.\n\n== Decision\nTest.\n\n== Consequences\nTest.";
+        let text =
+            ":status: Invalid\n\n== Context\nTest.\n\n== Decision\nTest.\n\n== Consequences\nTest.";
 
         let validator = DomainValidator::new();
         let params = make_params("file:///test.adoc", 0);

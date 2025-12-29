@@ -83,15 +83,49 @@ impl Default for BridgeSettings {
 }
 
 /// Plugin configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PluginSettings {
     /// Enable API documentation analysis
     pub api_docs: bool,
     /// Enable writing quality checks
     pub writing_quality: bool,
+    /// Enable diagram syntax highlighting and validation
+    pub diagrams: bool,
     /// Custom Rhai rule files
     pub custom_rules: Vec<String>,
+    /// Custom weasel words for quality plugin
+    pub custom_weasel_words: Vec<String>,
+}
+
+impl Default for PluginSettings {
+    fn default() -> Self {
+        Self {
+            api_docs: false,
+            writing_quality: true,
+            diagrams: true,
+            custom_rules: Vec::new(),
+            custom_weasel_words: default_weasel_words(),
+        }
+    }
+}
+
+/// Default list of weasel words to detect
+fn default_weasel_words() -> Vec<String> {
+    vec![
+        "clearly".to_string(),
+        "obviously".to_string(),
+        "basically".to_string(),
+        "simply".to_string(),
+        "just".to_string(),
+        "actually".to_string(),
+        "really".to_string(),
+        "very".to_string(),
+        "quite".to_string(),
+        "perhaps".to_string(),
+        "maybe".to_string(),
+        "possibly".to_string(),
+    ]
 }
 
 /// Workspace configuration
@@ -108,10 +142,7 @@ impl Default for WorkspaceSettings {
     fn default() -> Self {
         Self {
             root: None,
-            entry_points: vec![
-                "index.adoc".to_string(),
-                "README.adoc".to_string(),
-            ],
+            entry_points: vec!["index.adoc".to_string(), "README.adoc".to_string()],
         }
     }
 }

@@ -117,7 +117,11 @@ impl<'a> RenameAnalyzer<'a> {
     }
 
     /// Find rename target at position
-    fn find_rename_target(&self, line: &str, char_idx: usize) -> Option<(String, RenameTargetType)> {
+    fn find_rename_target(
+        &self,
+        line: &str,
+        char_idx: usize,
+    ) -> Option<(String, RenameTargetType)> {
         // Check for section ID: [[id]]
         if let Some(id) = self.find_section_id_at(line, char_idx) {
             return Some((id, RenameTargetType::SectionId));
@@ -225,7 +229,12 @@ impl<'a> RenameAnalyzer<'a> {
     }
 
     /// Find name range at cursor position
-    fn find_name_range_at(&self, line: &str, char_idx: usize, target_type: RenameTargetType) -> Option<(usize, usize)> {
+    fn find_name_range_at(
+        &self,
+        line: &str,
+        char_idx: usize,
+        target_type: RenameTargetType,
+    ) -> Option<(usize, usize)> {
         let re: &Regex = match target_type {
             RenameTargetType::SectionId => {
                 static RE: OnceLock<Regex> = OnceLock::new();
@@ -258,7 +267,11 @@ impl<'a> RenameAnalyzer<'a> {
     }
 
     /// Find all references to target
-    fn find_all_references(&self, target: &str, target_type: RenameTargetType) -> Vec<(Range, RenameTargetType)> {
+    fn find_all_references(
+        &self,
+        target: &str,
+        target_type: RenameTargetType,
+    ) -> Vec<(Range, RenameTargetType)> {
         let mut references = Vec::new();
         let escaped = regex::escape(target);
 
@@ -277,10 +290,12 @@ impl<'a> RenameAnalyzer<'a> {
             }
             RenameTargetType::Attribute | RenameTargetType::AttributeUsage => {
                 // Find definition :name:
-                references.extend(self.find_pattern_ranges(
-                    &format!(r"^:{}:", escaped),
-                    RenameTargetType::Attribute,
-                ));
+                references.extend(
+                    self.find_pattern_ranges(
+                        &format!(r"^:{}:", escaped),
+                        RenameTargetType::Attribute,
+                    ),
+                );
                 // Find usages {name}
                 references.extend(self.find_pattern_ranges(
                     &format!(r"\{{{}\}}", escaped),
@@ -293,7 +308,11 @@ impl<'a> RenameAnalyzer<'a> {
     }
 
     /// Find ranges matching pattern
-    fn find_pattern_ranges(&self, pattern: &str, ref_type: RenameTargetType) -> Vec<(Range, RenameTargetType)> {
+    fn find_pattern_ranges(
+        &self,
+        pattern: &str,
+        ref_type: RenameTargetType,
+    ) -> Vec<(Range, RenameTargetType)> {
         let re = match Regex::new(pattern) {
             Ok(r) => r,
             Err(_) => return Vec::new(),

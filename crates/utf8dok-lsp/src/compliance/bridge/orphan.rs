@@ -105,15 +105,11 @@ impl ComplianceRule for OrphanRule {
 
             // Check if this document is reachable
             if !reachable.contains(uri) {
-                let parsed_uri = Url::parse(uri).unwrap_or_else(|_| {
-                    Url::parse("file:///unknown").unwrap()
-                });
+                let parsed_uri =
+                    Url::parse(uri).unwrap_or_else(|_| Url::parse("file:///unknown").unwrap());
 
                 // Extract filename for better error message
-                let filename = uri
-                    .rsplit('/')
-                    .next()
-                    .unwrap_or(uri);
+                let filename = uri.rsplit('/').next().unwrap_or(uri);
 
                 violations.push(Violation {
                     uri: parsed_uri,

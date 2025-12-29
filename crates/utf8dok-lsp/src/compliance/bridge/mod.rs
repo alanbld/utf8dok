@@ -24,10 +24,7 @@ impl BridgeRules {
     /// Create a new set of Bridge rules
     pub fn new() -> Self {
         Self {
-            rules: vec![
-                Box::new(StatusRule::new()),
-                Box::new(OrphanRule::new()),
-            ],
+            rules: vec![Box::new(StatusRule::new()), Box::new(OrphanRule::new())],
         }
     }
 

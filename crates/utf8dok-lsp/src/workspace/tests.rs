@@ -165,7 +165,10 @@ mod symbol_tests {
 
         let all_symbols = graph.query_symbols("");
 
-        assert!(all_symbols.len() >= 2, "Empty query should return all symbols");
+        assert!(
+            all_symbols.len() >= 2,
+            "Empty query should return all symbols"
+        );
     }
 
     /// Test 10: Symbol Location Has Correct Line Numbers
@@ -216,7 +219,10 @@ mod validation_tests {
 
         let diagnostics = graph.validate_links("file:///b.adoc");
 
-        assert!(diagnostics.is_empty(), "Valid links should not produce diagnostics");
+        assert!(
+            diagnostics.is_empty(),
+            "Valid links should not produce diagnostics"
+        );
     }
 
     /// Test 13: Multiple Broken Links in One File
@@ -235,11 +241,18 @@ mod validation_tests {
     fn test_cross_file_link_validation() {
         let mut graph = WorkspaceGraph::new();
         graph.add_document("file:///a.adoc", "[[defined-here]]\n== Section");
-        graph.add_document("file:///b.adoc", "Links to <<defined-here>> and <<not-defined>>");
+        graph.add_document(
+            "file:///b.adoc",
+            "Links to <<defined-here>> and <<not-defined>>",
+        );
 
         let diagnostics = graph.validate_links("file:///b.adoc");
 
-        assert_eq!(diagnostics.len(), 1, "Should only flag the undefined reference");
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "Should only flag the undefined reference"
+        );
         assert!(diagnostics[0].message.contains("not-defined"));
     }
 
@@ -252,7 +265,10 @@ mod validation_tests {
 
         let all_diagnostics = graph.validate_all_links();
 
-        assert!(all_diagnostics.len() >= 2, "Should find broken links in multiple files");
+        assert!(
+            all_diagnostics.len() >= 2,
+            "Should find broken links in multiple files"
+        );
     }
 }
 

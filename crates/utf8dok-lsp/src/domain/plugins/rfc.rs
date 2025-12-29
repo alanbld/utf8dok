@@ -171,7 +171,10 @@ impl RfcPlugin {
     /// Get attribute name completions
     fn complete_attribute_names(&self, prefix: &str) -> Vec<CompletionItem> {
         let attributes = [
-            ("category", "RFC category (standards-track, informational, etc.)"),
+            (
+                "category",
+                "RFC category (standards-track, informational, etc.)",
+            ),
             ("author", "Document author(s)"),
             ("date", "Publication date"),
             ("area", "IETF area"),
@@ -291,10 +294,7 @@ impl DocumentDomain for RfcPlugin {
 
             "attribute_value" => {
                 // Check if it's a category value
-                if RFC_CATEGORIES
-                    .iter()
-                    .any(|c| c.eq_ignore_ascii_case(value))
-                {
+                if RFC_CATEGORIES.iter().any(|c| c.eq_ignore_ascii_case(value)) {
                     Some(SemanticTokenType::KEYWORD)
                 } else {
                     Some(SemanticTokenType::STRING)

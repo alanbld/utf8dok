@@ -67,13 +67,14 @@ impl XrefCompleter {
                 let title = cap.get(2).unwrap().as_str().to_string();
 
                 // Use pending anchor or generate ID from title
-                let (id, anchor_line) = if let Some((anchor_id, anchor_line)) = pending_anchor.take() {
-                    (anchor_id, anchor_line)
-                } else {
-                    // Generate ID from title (simplified)
-                    let id = self.title_to_id(&title);
-                    (id, line_num)
-                };
+                let (id, anchor_line) =
+                    if let Some((anchor_id, anchor_line)) = pending_anchor.take() {
+                        (anchor_id, anchor_line)
+                    } else {
+                        // Generate ID from title (simplified)
+                        let id = self.title_to_id(&title);
+                        (id, line_num)
+                    };
 
                 sections.push(SectionInfo {
                     id,

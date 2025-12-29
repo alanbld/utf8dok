@@ -40,7 +40,11 @@ Line 2";
         let ranges = analyzer.get_selection_hierarchy(cursor);
 
         // Should have multiple selection levels
-        assert!(ranges.len() >= 3, "Should have at least 3 selection levels, got {}", ranges.len());
+        assert!(
+            ranges.len() >= 3,
+            "Should have at least 3 selection levels, got {}",
+            ranges.len()
+        );
 
         // Level 1: Word "Line"
         assert_eq!(ranges[0].range, range(3, 0, 3, 4), "Level 1: Word 'Line'");
@@ -70,9 +74,9 @@ Line 2";
         assert_eq!(ranges[0].range, range(0, 1, 0, 7), "Should select 'author'");
 
         // Should include entire attribute group
-        let has_group = ranges.iter().any(|r|
-            r.range.start.line == 0 && r.range.end.line == 2
-        );
+        let has_group = ranges
+            .iter()
+            .any(|r| r.range.start.line == 0 && r.range.end.line == 2);
         assert!(has_group, "Should include entire attribute group");
     }
 
@@ -97,7 +101,8 @@ Epilogue";
         let ranges = analyzer.get_selection_hierarchy(cursor);
 
         // Should include block as a selection level
-        let has_block_range = ranges.iter()
+        let has_block_range = ranges
+            .iter()
             .any(|r| r.range.start.line == 2 && r.range.end.line == 5);
         assert!(has_block_range, "Should include entire block as selection");
     }
@@ -117,7 +122,11 @@ Epilogue";
         assert!(ranges.len() >= 2, "Should have at least 2 levels");
 
         // Level 1: Word "Important"
-        assert_eq!(ranges[0].range, range(0, 3, 0, 12), "Should select word 'Important'");
+        assert_eq!(
+            ranges[0].range,
+            range(0, 3, 0, 12),
+            "Should select word 'Important'"
+        );
     }
 
     /// TEST 5: Empty/Whitespace Selection
@@ -183,8 +192,8 @@ Epilogue";
         assert!(ranges.len() >= 2, "Should have at least 2 levels");
 
         // Should select the xref id "my-section" (positions 6-16)
-        let has_id = ranges.iter().any(|r|
-            r.range == range(0, 6, 0, 16) // "my-section"
+        let has_id = ranges.iter().any(
+            |r| r.range == range(0, 6, 0, 16), // "my-section"
         );
         assert!(has_id, "Should select xref id 'my-section'");
     }
@@ -215,12 +224,26 @@ mod rename_tests {
         assert_eq!(result.edits.len(), 2, "Should have 2 edits");
 
         // Check definition edit
-        let def_edit = result.edits.iter().find(|e| e.range.start.line == 0).unwrap();
-        assert!(def_edit.new_text.contains("app_ver"), "Definition should have new name");
+        let def_edit = result
+            .edits
+            .iter()
+            .find(|e| e.range.start.line == 0)
+            .unwrap();
+        assert!(
+            def_edit.new_text.contains("app_ver"),
+            "Definition should have new name"
+        );
 
         // Check usage edit
-        let usage_edit = result.edits.iter().find(|e| e.range.start.line == 1).unwrap();
-        assert!(usage_edit.new_text.contains("app_ver"), "Usage should have new name");
+        let usage_edit = result
+            .edits
+            .iter()
+            .find(|e| e.range.start.line == 1)
+            .unwrap();
+        assert!(
+            usage_edit.new_text.contains("app_ver"),
+            "Usage should have new name"
+        );
     }
 
     /// TEST 2: Rename Section ID
@@ -240,12 +263,23 @@ mod rename_tests {
         assert_eq!(result.edits.len(), 2, "Should have 2 edits");
 
         // Check ID edit
-        let id_edit = result.edits.iter().find(|e| e.range.start.line == 0).unwrap();
+        let id_edit = result
+            .edits
+            .iter()
+            .find(|e| e.range.start.line == 0)
+            .unwrap();
         assert_eq!(id_edit.new_text, "[[new-id]]", "ID should be [[new-id]]");
 
         // Check xref edit
-        let xref_edit = result.edits.iter().find(|e| e.range.start.line == 2).unwrap();
-        assert_eq!(xref_edit.new_text, "<<new-id>>", "Xref should be <<new-id>>");
+        let xref_edit = result
+            .edits
+            .iter()
+            .find(|e| e.range.start.line == 2)
+            .unwrap();
+        assert_eq!(
+            xref_edit.new_text, "<<new-id>>",
+            "Xref should be <<new-id>>"
+        );
     }
 
     /// TEST 3: Multiple References
@@ -270,7 +304,10 @@ Also see <<target>> here.";
 
         // All should have new name
         for edit in &result.edits {
-            assert!(edit.new_text.contains("destination"), "All edits should use new name");
+            assert!(
+                edit.new_text.contains("destination"),
+                "All edits should use new name"
+            );
         }
     }
 

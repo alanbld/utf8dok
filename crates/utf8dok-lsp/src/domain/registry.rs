@@ -19,10 +19,8 @@ impl DomainRegistry {
     /// Create a new registry with default plugins
     pub fn new() -> Self {
         // Register built-in plugins (order matters for tie-breaking)
-        let domains: Vec<Arc<dyn DocumentDomain>> = vec![
-            Arc::new(BridgePlugin::new()),
-            Arc::new(RfcPlugin::new()),
-        ];
+        let domains: Vec<Arc<dyn DocumentDomain>> =
+            vec![Arc::new(BridgePlugin::new()), Arc::new(RfcPlugin::new())];
 
         Self {
             domains,

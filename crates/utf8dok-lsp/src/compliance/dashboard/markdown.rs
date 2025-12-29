@@ -47,7 +47,10 @@ impl MarkdownGenerator {
         md.push_str(&format!("| Errors | {} |\n", result.errors));
         md.push_str(&format!("| Warnings | {} |\n", result.warnings));
         md.push_str(&format!("| Info | {} |\n", result.info));
-        md.push_str(&format!("| Compliance Score | {}% |\n", result.compliance_score));
+        md.push_str(&format!(
+            "| Compliance Score | {}% |\n",
+            result.compliance_score
+        ));
         md.push('\n');
 
         // Violations section

@@ -6,15 +6,15 @@
 //! - Attribute values: :status: Draft
 //! - Block types: [source]
 
-mod xref;
 mod attribute;
-mod value;
 mod block;
+mod value;
+mod xref;
 
-pub use xref::XrefCompleter;
 pub use attribute::AttributeCompleter;
-pub use value::ValueCompleter;
 pub use block::BlockCompleter;
+pub use value::ValueCompleter;
+pub use xref::XrefCompleter;
 
 use regex::Regex;
 use std::sync::OnceLock;
@@ -66,18 +66,14 @@ impl CompletionEngine {
         let context = self.detect_context(text, position);
 
         match context {
-            CompletionContext::Xref { prefix } => {
-                self.xref_completer.complete(text, &prefix)
-            }
+            CompletionContext::Xref { prefix } => self.xref_completer.complete(text, &prefix),
             CompletionContext::AttributeName { prefix } => {
                 self.attribute_completer.complete(&prefix)
             }
             CompletionContext::AttributeValue { name, prefix } => {
                 self.value_completer.complete(&name, &prefix)
             }
-            CompletionContext::BlockType { prefix } => {
-                self.block_completer.complete(&prefix)
-            }
+            CompletionContext::BlockType { prefix } => self.block_completer.complete(&prefix),
             CompletionContext::None => Vec::new(),
         }
     }
@@ -124,7 +120,9 @@ impl CompletionEngine {
         let re = XREF_RE.get_or_init(|| Regex::new(r"<<([\w\-]*)$").unwrap());
 
         re.captures(line_before).map(|cap| {
-            cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default()
+            cap.get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default()
         })
     }
 
@@ -133,7 +131,9 @@ impl CompletionEngine {
         let trimmed = line_before.trim_start();
 
         // Must be at line start (or only whitespace before)
-        if line_before.len() - trimmed.len() > 0 && !line_before.chars().all(|c| c.is_whitespace() || c == ':') {
+        if line_before.len() - trimmed.len() > 0
+            && !line_before.chars().all(|c| c.is_whitespace() || c == ':')
+        {
             return None;
         }
 
@@ -141,7 +141,9 @@ impl CompletionEngine {
         let re = ATTR_RE.get_or_init(|| Regex::new(r"^:([\w\-]*)$").unwrap());
 
         re.captures(trimmed).map(|cap| {
-            cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default()
+            cap.get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default()
         })
     }
 
@@ -151,8 +153,14 @@ impl CompletionEngine {
         let re = VALUE_RE.get_or_init(|| Regex::new(r"^:([\w\-]+):\s*(\S*)$").unwrap());
 
         re.captures(line_before.trim_start()).map(|cap| {
-            let name = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
-            let prefix = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let name = cap
+                .get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
+            let prefix = cap
+                .get(2)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
             (name, prefix)
         })
     }
@@ -165,7 +173,9 @@ impl CompletionEngine {
         let re = BLOCK_RE.get_or_init(|| Regex::new(r"^\[([\w\-]*)$").unwrap());
 
         re.captures(trimmed).map(|cap| {
-            cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default()
+            cap.get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default()
         })
     }
 }

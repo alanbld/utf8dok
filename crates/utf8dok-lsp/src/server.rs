@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use crate::compliance::ComplianceEngine;
 use crate::config::Settings;
+use crate::domain::plugins::{DiagramPlugin, QualityPlugin};
 use crate::domain::DomainEngine;
 use crate::intelligence::{RenameAnalyzer, SelectionAnalyzer};
 use crate::structural::{FoldingAnalyzer, SymbolAnalyzer};
@@ -15,22 +16,22 @@ use crate::workspace::WorkspaceGraph;
 use serde_json::Value;
 use tokio::sync::RwLock;
 use tower_lsp::jsonrpc::Result;
-use tower_lsp::lsp_types::{
-    CodeActionOrCommand, CodeActionParams, CodeActionProviderCapability,
-    CompletionOptions, CompletionParams, CompletionResponse, DiagnosticOptions,
-    DiagnosticRelatedInformation, DiagnosticServerCapabilities, DiagnosticSeverity,
-    DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentSymbolParams,
-    DocumentSymbolResponse, FoldingRange, FoldingRangeParams, FoldingRangeProviderCapability,
-    InitializeParams, InitializeResult, InitializedParams, Location, MessageType,
-    NumberOrString, OneOf, Position, PrepareRenameResponse, Range, RenameParams,
-    SelectionRange, SelectionRangeParams, SelectionRangeProviderCapability, SemanticToken,
-    SemanticTokens, SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions,
-    SemanticTokensParams, SemanticTokensResult, SemanticTokensServerCapabilities,
-    ServerCapabilities, ServerInfo, SymbolInformation, TextDocumentSyncCapability,
-    TextDocumentSyncKind, Url, WorkDoneProgressOptions, WorkspaceEdit, WorkspaceSymbolParams,
-};
 use tower_lsp::lsp_types::Diagnostic;
+use tower_lsp::lsp_types::{
+    CodeActionOrCommand, CodeActionParams, CodeActionProviderCapability, CompletionOptions,
+    CompletionParams, CompletionResponse, DiagnosticOptions, DiagnosticRelatedInformation,
+    DiagnosticServerCapabilities, DiagnosticSeverity, DidChangeConfigurationParams,
+    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    DidSaveTextDocumentParams, DocumentSymbolParams, DocumentSymbolResponse, FoldingRange,
+    FoldingRangeParams, FoldingRangeProviderCapability, InitializeParams, InitializeResult,
+    InitializedParams, Location, MessageType, NumberOrString, OneOf, Position,
+    PrepareRenameResponse, Range, RenameParams, SelectionRange, SelectionRangeParams,
+    SelectionRangeProviderCapability, SemanticToken, SemanticTokens, SemanticTokensFullOptions,
+    SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult,
+    SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo, SymbolInformation,
+    TextDocumentSyncCapability, TextDocumentSyncKind, Url, WorkDoneProgressOptions, WorkspaceEdit,
+    WorkspaceSymbolParams,
+};
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 use tracing::{debug, info, warn};
 
@@ -52,6 +53,10 @@ pub struct Backend {
     settings: Arc<RwLock<Settings>>,
     /// Compliance engine for cross-file validation
     compliance_engine: Arc<RwLock<ComplianceEngine>>,
+    /// Writing quality plugin (Phase 17)
+    quality_plugin: Arc<RwLock<QualityPlugin>>,
+    /// Diagram validation plugin (Phase 17)
+    diagram_plugin: Arc<RwLock<DiagramPlugin>>,
 }
 
 impl Backend {
@@ -59,6 +64,8 @@ impl Backend {
     pub fn new(client: Client) -> Self {
         let settings = Settings::default();
         let compliance_engine = ComplianceEngine::with_settings(&settings);
+        let quality_plugin = QualityPlugin::with_settings(&settings);
+        let diagram_plugin = DiagramPlugin::with_settings(&settings);
 
         Self {
             client,
@@ -67,16 +74,24 @@ impl Backend {
             workspace_graph: Arc::new(RwLock::new(WorkspaceGraph::new())),
             settings: Arc::new(RwLock::new(settings)),
             compliance_engine: Arc::new(RwLock::new(compliance_engine)),
+            quality_plugin: Arc::new(RwLock::new(quality_plugin)),
+            diagram_plugin: Arc::new(RwLock::new(diagram_plugin)),
         }
     }
 
-    /// Update settings and recreate compliance engine
+    /// Update settings and recreate all configured engines/plugins
     async fn update_settings(&self, new_settings: Settings) {
         let mut settings = self.settings.write().await;
         *settings = new_settings.clone();
 
         let mut engine = self.compliance_engine.write().await;
         *engine = ComplianceEngine::with_settings(&new_settings);
+
+        let mut quality = self.quality_plugin.write().await;
+        *quality = QualityPlugin::with_settings(&new_settings);
+
+        let mut diagram = self.diagram_plugin.write().await;
+        *diagram = DiagramPlugin::with_settings(&new_settings);
     }
 
     /// Get document text by URI
@@ -142,10 +157,20 @@ impl Backend {
         let utf8dok_diagnostics = engine.validate(&ast);
 
         // Convert to LSP diagnostics
-        let lsp_diagnostics: Vec<Diagnostic> = utf8dok_diagnostics
+        let mut lsp_diagnostics: Vec<Diagnostic> = utf8dok_diagnostics
             .into_iter()
             .map(|d| self.convert_diagnostic(&d, &text))
             .collect();
+
+        // Add writing quality diagnostics (Phase 17)
+        let quality = self.quality_plugin.read().await;
+        let quality_diagnostics = quality.validate_writing_quality(&text);
+        lsp_diagnostics.extend(quality_diagnostics);
+
+        // Add diagram validation diagnostics (Phase 17)
+        let diagram = self.diagram_plugin.read().await;
+        let diagram_diagnostics = diagram.validate_diagrams(&text);
+        lsp_diagnostics.extend(diagram_diagnostics);
 
         debug!(
             "Publishing {} diagnostics for {}",
@@ -367,7 +392,8 @@ impl LanguageServer for Backend {
                     SemanticTokensServerCapabilities::SemanticTokensOptions(
                         SemanticTokensOptions {
                             legend: SemanticTokensLegend {
-                                token_types: crate::domain::semantic::SemanticAnalyzer::token_legend(),
+                                token_types:
+                                    crate::domain::semantic::SemanticAnalyzer::token_legend(),
                                 token_modifiers: vec![],
                             },
                             full: Some(SemanticTokensFullOptions::Bool(true)),
@@ -434,7 +460,8 @@ impl LanguageServer for Backend {
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         debug!("Document closed: {}", params.text_document.uri);
         self.remove_document(&params.text_document.uri).await;
-        self.remove_from_workspace_graph(&params.text_document.uri).await;
+        self.remove_from_workspace_graph(&params.text_document.uri)
+            .await;
         // Clear diagnostics for closed document
         self.client
             .publish_diagnostics(params.text_document.uri, vec![], None)
@@ -475,10 +502,7 @@ impl LanguageServer for Backend {
         }
     }
 
-    async fn folding_range(
-        &self,
-        params: FoldingRangeParams,
-    ) -> Result<Option<Vec<FoldingRange>>> {
+    async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
         let uri = params.text_document.uri;
         debug!("Folding range request for: {}", uri);
 
@@ -622,10 +646,7 @@ impl LanguageServer for Backend {
         }
     }
 
-    async fn completion(
-        &self,
-        params: CompletionParams,
-    ) -> Result<Option<CompletionResponse>> {
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let uri = params.text_document_position.text_document.uri;
         debug!("Completion request for: {}", uri);
 
@@ -784,7 +805,9 @@ impl LanguageServer for Backend {
             .into_iter()
             .map(|sym| SymbolInformation {
                 name: sym.name.clone(),
-                kind: crate::workspace::symbol_provider::SymbolProvider::convert_symbol_kind(sym.kind),
+                kind: crate::workspace::symbol_provider::SymbolProvider::convert_symbol_kind(
+                    sym.kind,
+                ),
                 tags: None,
                 deprecated: None,
                 location: sym.location.clone(),

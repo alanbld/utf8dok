@@ -29,7 +29,11 @@ fn test_attribute_grouping() {
         .filter(|r| r.kind == Some(FoldingRangeKind::Imports))
         .collect();
 
-    assert_eq!(attr_folds.len(), 1, "Should have exactly one attribute folding range");
+    assert_eq!(
+        attr_folds.len(),
+        1,
+        "Should have exactly one attribute folding range"
+    );
 
     let fold = attr_folds[0];
     assert_eq!(fold.start_line, 0, "Should start at line 0");
@@ -76,7 +80,8 @@ Content C";
         .find(|r| r.start_line == 2 && r.kind == Some(FoldingRangeKind::Region));
     assert!(section_a.is_some(), "Section A should be foldable");
     assert_eq!(
-        section_a.unwrap().end_line, 8,
+        section_a.unwrap().end_line,
+        8,
         "Section A should fold until line 8 (before Section C)"
     );
 
@@ -110,7 +115,8 @@ Epilogue";
 
     assert!(block_fold.is_some(), "Block should be foldable");
     assert_eq!(
-        block_fold.unwrap().end_line, 5,
+        block_fold.unwrap().end_line,
+        5,
         "Should fold entire block including delimiters"
     );
 }
@@ -197,7 +203,11 @@ Negative: Adds deployment complexity.";
         .iter()
         .find(|r| r.start_line == 0 && r.kind == Some(FoldingRangeKind::Imports));
     assert!(attr_fold.is_some(), "Should have attribute group fold");
-    assert_eq!(attr_fold.unwrap().end_line, 3, "Attribute fold should end at line 3");
+    assert_eq!(
+        attr_fold.unwrap().end_line,
+        3,
+        "Attribute fold should end at line 3"
+    );
 
     // Verify we have multiple folds (headers + block)
     assert!(
@@ -268,17 +278,29 @@ use super::scanner::{LineType, StructuralScanner};
 fn test_scanner_header_detection() {
     assert_eq!(StructuralScanner::scan("= Title"), LineType::Header(1));
     assert_eq!(StructuralScanner::scan("== Section"), LineType::Header(2));
-    assert_eq!(StructuralScanner::scan("=== Subsection"), LineType::Header(3));
+    assert_eq!(
+        StructuralScanner::scan("=== Subsection"),
+        LineType::Header(3)
+    );
     assert_eq!(StructuralScanner::scan("==== Level 4"), LineType::Header(4));
-    assert_eq!(StructuralScanner::scan("===== Level 5"), LineType::Header(5));
-    assert_eq!(StructuralScanner::scan("====== Level 6"), LineType::Header(6));
+    assert_eq!(
+        StructuralScanner::scan("===== Level 5"),
+        LineType::Header(5)
+    );
+    assert_eq!(
+        StructuralScanner::scan("====== Level 6"),
+        LineType::Header(6)
+    );
     // 7+ equals is not a valid header
     assert_eq!(StructuralScanner::scan("======= Too Deep"), LineType::Other);
 }
 
 #[test]
 fn test_scanner_attribute_detection() {
-    assert_eq!(StructuralScanner::scan(":author: Alan"), LineType::Attribute);
+    assert_eq!(
+        StructuralScanner::scan(":author: Alan"),
+        LineType::Attribute
+    );
     assert_eq!(
         StructuralScanner::scan(":some-attr: value"),
         LineType::Attribute
@@ -355,7 +377,10 @@ Final content.";
     assert_eq!(section_one.kind, SymbolKind::NAMESPACE);
 
     // Section One should have 1 child: Subsection
-    let section_one_children = section_one.children.as_ref().expect("Section One should have children");
+    let section_one_children = section_one
+        .children
+        .as_ref()
+        .expect("Section One should have children");
     assert_eq!(section_one_children.len(), 1);
     let subsection = &section_one_children[0];
     assert_eq!(subsection.name, "Subsection");
@@ -487,9 +512,7 @@ Negative: Complexity.";
     assert_eq!(attr_count, 3, "Should have 3 attribute symbols");
 
     // Find main title
-    let title = symbols
-        .iter()
-        .find(|s| s.kind == SymbolKind::MODULE);
+    let title = symbols.iter().find(|s| s.kind == SymbolKind::MODULE);
     assert!(title.is_some(), "Should have title symbol");
     assert_eq!(title.unwrap().name, "ADR-001: API Gateway Implementation");
 
@@ -502,7 +525,11 @@ Negative: Complexity.";
         .iter()
         .filter(|s| s.kind == SymbolKind::NAMESPACE)
         .collect();
-    assert_eq!(sections.len(), 3, "Should have 3 section symbols (Context, Decision, Consequences)");
+    assert_eq!(
+        sections.len(),
+        3,
+        "Should have 3 section symbols (Context, Decision, Consequences)"
+    );
 }
 
 /// TEST S6: Document without title

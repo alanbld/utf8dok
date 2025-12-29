@@ -3,8 +3,8 @@
 //! These tests verify that the LSP crate works correctly as a library,
 //! proving that the binary/library refactor was successful.
 
-use utf8dok_lsp::workspace::graph::WorkspaceGraph;
 use utf8dok_lsp::compliance::ComplianceEngine;
+use utf8dok_lsp::workspace::graph::WorkspaceGraph;
 
 #[test]
 fn test_library_graph_access() {
@@ -44,14 +44,8 @@ fn test_workspace_graph_document_operations() {
     let mut graph = WorkspaceGraph::new();
 
     // Add documents
-    graph.add_document(
-        "file:///test1.adoc",
-        "= Title\n\nContent here."
-    );
-    graph.add_document(
-        "file:///test2.adoc",
-        "= Another\n\n<<test1>>"
-    );
+    graph.add_document("file:///test1.adoc", "= Title\n\nContent here.");
+    graph.add_document("file:///test2.adoc", "= Another\n\n<<test1>>");
 
     assert_eq!(graph.document_count(), 2);
 
@@ -68,11 +62,11 @@ fn test_compliance_with_documents() {
     // Add a well-formed ADR structure
     graph.add_document(
         "file:///index.adoc",
-        "[[index]]\n= ADR Index\n\n<<adr-001>>"
+        "[[index]]\n= ADR Index\n\n<<adr-001>>",
     );
     graph.add_document(
         "file:///adr-001.adoc",
-        "[[adr-001]]\n= ADR 001\n:status: Accepted"
+        "[[adr-001]]\n= ADR 001\n:status: Accepted",
     );
 
     let result = engine.run_with_stats(&graph);

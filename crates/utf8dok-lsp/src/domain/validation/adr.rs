@@ -6,8 +6,8 @@ use regex::Regex;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use tower_lsp::lsp_types::{
-    CodeAction, CodeActionKind, CodeActionParams, Diagnostic, DiagnosticSeverity,
-    Position, Range, TextEdit, WorkspaceEdit,
+    CodeAction, CodeActionKind, CodeActionParams, Diagnostic, DiagnosticSeverity, Position, Range,
+    TextEdit, WorkspaceEdit,
 };
 
 /// Required ADR sections
@@ -20,7 +20,10 @@ const REQUIRED_SECTIONS: &[(&str, &str)] = &[
 /// Optional but recommended ADR sections
 #[allow(dead_code)]
 const OPTIONAL_SECTIONS: &[(&str, &str)] = &[
-    ("Status", "Current status of the decision (can also be an attribute)"),
+    (
+        "Status",
+        "Current status of the decision (can also be an attribute)",
+    ),
     ("Alternatives", "Other options considered"),
     ("Related", "Related decisions or documents"),
 ];
@@ -41,7 +44,10 @@ impl AdrValidator {
 
         // Check for missing required sections
         for (section_name, description) in REQUIRED_SECTIONS {
-            if !sections.iter().any(|(name, _)| name.eq_ignore_ascii_case(section_name)) {
+            if !sections
+                .iter()
+                .any(|(name, _)| name.eq_ignore_ascii_case(section_name))
+            {
                 // Find a good position for the diagnostic (end of document or after last section)
                 let position = self.find_insertion_position(text);
 
@@ -51,7 +57,9 @@ impl AdrValidator {
                         end: position,
                     },
                     severity: Some(DiagnosticSeverity::WARNING),
-                    code: Some(tower_lsp::lsp_types::NumberOrString::String("ADR001".to_string())),
+                    code: Some(tower_lsp::lsp_types::NumberOrString::String(
+                        "ADR001".to_string(),
+                    )),
                     source: Some("utf8dok-domain".to_string()),
                     message: format!(
                         "Missing required ADR section: '{}'. {}",
@@ -72,7 +80,10 @@ impl AdrValidator {
 
         // Find missing sections and offer to insert them
         for (section_name, _description) in REQUIRED_SECTIONS {
-            if !sections.iter().any(|(name, _)| name.eq_ignore_ascii_case(section_name)) {
+            if !sections
+                .iter()
+                .any(|(name, _)| name.eq_ignore_ascii_case(section_name))
+            {
                 let insert_pos = self.find_insertion_position(text);
 
                 // Only offer if cursor is near end of document
@@ -159,9 +170,7 @@ impl AdrValidator {
     /// Find all sections in the document
     fn find_sections(&self, text: &str) -> Vec<(String, usize)> {
         static SECTION_RE: OnceLock<Regex> = OnceLock::new();
-        let section_re = SECTION_RE.get_or_init(|| {
-            Regex::new(r"^(=+)\s+(.+)$").unwrap()
-        });
+        let section_re = SECTION_RE.get_or_init(|| Regex::new(r"^(=+)\s+(.+)$").unwrap());
 
         let mut sections = Vec::new();
 
@@ -204,11 +213,7 @@ impl AdrValidator {
             .map(|(_, desc)| *desc)
             .unwrap_or("Description here.");
 
-        format!(
-            "\n== {}\n\n// TODO: {}\n",
-            section_name,
-            description
-        )
+        format!("\n== {}\n\n// TODO: {}\n", section_name, description)
     }
 }
 

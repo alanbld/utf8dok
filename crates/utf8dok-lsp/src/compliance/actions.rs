@@ -92,10 +92,7 @@ pub fn find_index_insert_position(text: &str) -> Range {
 /// Generate a link to add an orphan document to an index
 pub fn generate_orphan_link(orphan_uri: &str) -> String {
     // Extract filename from URI
-    let filename = orphan_uri
-        .rsplit('/')
-        .next()
-        .unwrap_or("document.adoc");
+    let filename = orphan_uri.rsplit('/').next().unwrap_or("document.adoc");
 
     // Generate a link entry
     format!("\n* link:{}[]", filename)

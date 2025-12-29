@@ -297,10 +297,7 @@ impl DocumentDomain for BridgePlugin {
 
             "attribute_value" => {
                 // Check if it's a status value
-                if VALID_STATUSES
-                    .iter()
-                    .any(|s| s.eq_ignore_ascii_case(value))
-                {
+                if VALID_STATUSES.iter().any(|s| s.eq_ignore_ascii_case(value)) {
                     Some(SemanticTokenType::ENUM_MEMBER)
                 } else {
                     Some(SemanticTokenType::STRING)

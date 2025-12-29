@@ -24,13 +24,23 @@ mod registry_tests {
         let rfc_doc = "= RFC 1234: Some Protocol\n:category: standards-track\n\n== Abstract\nThis document describes...";
 
         // THEN: Correct domain is identified with confidence score
-        let (bridge_domain, bridge_score) = registry.detect_domain(bridge_doc).expect("Should detect Bridge");
+        let (bridge_domain, bridge_score) = registry
+            .detect_domain(bridge_doc)
+            .expect("Should detect Bridge");
         let (rfc_domain, rfc_score) = registry.detect_domain(rfc_doc).expect("Should detect RFC");
 
         assert_eq!(bridge_domain.name(), "bridge");
         assert_eq!(rfc_domain.name(), "rfc");
-        assert!(bridge_score > 0.5 && bridge_score <= 1.0, "Bridge score {} should be > 0.5", bridge_score);
-        assert!(rfc_score > 0.5 && rfc_score <= 1.0, "RFC score {} should be > 0.5", rfc_score);
+        assert!(
+            bridge_score > 0.5 && bridge_score <= 1.0,
+            "Bridge score {} should be > 0.5",
+            bridge_score
+        );
+        assert!(
+            rfc_score > 0.5 && rfc_score <= 1.0,
+            "RFC score {} should be > 0.5",
+            rfc_score
+        );
     }
 
     /// Test 2: Registry Fallback to "Generic" Domain
@@ -47,7 +57,11 @@ mod registry_tests {
         assert!(result.is_some());
         let (domain, score) = result.unwrap();
         assert_eq!(domain.name(), "generic");
-        assert!(score > 0.0 && score < 0.5, "Generic score {} should be < 0.5", score);
+        assert!(
+            score > 0.0 && score < 0.5,
+            "Generic score {} should be < 0.5",
+            score
+        );
     }
 
     /// Test 3: Registry can retrieve domain by name
@@ -83,7 +97,7 @@ mod registry_tests {
 
 mod plugin_tests {
     use super::*;
-    use crate::domain::plugins::{BridgePlugin, RfcPlugin, GenericPlugin};
+    use crate::domain::plugins::{BridgePlugin, GenericPlugin, RfcPlugin};
     use crate::domain::traits::DocumentDomain;
 
     /// Test 5: Bridge Plugin Correctly Implements Domain Trait
@@ -96,11 +110,17 @@ mod plugin_tests {
 
         // Should score ADR documents highly
         let adr_doc = "= ADR 001: Test\n:status: Draft\n\n== Context\nTest.\n\n== Decision\nTest.";
-        assert!(plugin.score_document(adr_doc) > 0.8, "ADR doc should score > 0.8");
+        assert!(
+            plugin.score_document(adr_doc) > 0.8,
+            "ADR doc should score > 0.8"
+        );
 
         // Should score non-ADR documents low
         let plain_doc = "= Regular Document\n\nSome content.";
-        assert!(plugin.score_document(plain_doc) < 0.3, "Plain doc should score < 0.3");
+        assert!(
+            plugin.score_document(plain_doc) < 0.3,
+            "Plain doc should score < 0.3"
+        );
     }
 
     /// Test 6: Bridge Plugin Validates ADR Documents
@@ -109,14 +129,18 @@ mod plugin_tests {
         let plugin = BridgePlugin::new();
 
         // Invalid status should produce diagnostic
-        let invalid_doc = "= ADR 001: Test\n:status: Invalid\n\n== Context\nTest.\n\n== Decision\nTest.";
+        let invalid_doc =
+            "= ADR 001: Test\n:status: Invalid\n\n== Context\nTest.\n\n== Decision\nTest.";
         let diagnostics = plugin.validate(invalid_doc);
         assert!(!diagnostics.is_empty(), "Should flag invalid status");
 
         // Valid document should have no diagnostics
         let valid_doc = "= ADR 001: Test\n:status: Draft\n\n== Context\nTest.\n\n== Decision\nTest.\n\n== Consequences\nTest.";
         let diagnostics = plugin.validate(valid_doc);
-        assert!(diagnostics.is_empty(), "Valid ADR should have no diagnostics");
+        assert!(
+            diagnostics.is_empty(),
+            "Valid ADR should have no diagnostics"
+        );
     }
 
     /// Test 7: Bridge Plugin Provides Completions
@@ -169,7 +193,10 @@ mod plugin_tests {
 
         // RFC should score RFC documents highly
         let rfc_doc = "= RFC 1234: Protocol\n:category: standards-track\n\n== Abstract\nTest.";
-        assert!(rfc_plugin.score_document(rfc_doc) > 0.8, "RFC doc should score > 0.8");
+        assert!(
+            rfc_plugin.score_document(rfc_doc) > 0.8,
+            "RFC doc should score > 0.8"
+        );
 
         // Same attribute name, different semantic meaning per domain
         // In Bridge, "category" is a generic property
@@ -193,7 +220,11 @@ mod plugin_tests {
 
         // Should always provide a low but non-zero score
         let score = plugin.score_document("Any document content");
-        assert!(score > 0.0 && score < 0.3, "Generic score {} should be low", score);
+        assert!(
+            score > 0.0 && score < 0.3,
+            "Generic score {} should be low",
+            score
+        );
 
         // Should provide basic classifications
         assert_eq!(
@@ -241,21 +272,27 @@ mod semantic_tests {
         let analyzer = SemanticAnalyzer::new(registry);
 
         // Bridge document
-        let bridge_text = "= ADR 001: Test\n:status: Draft\n\n== Context\nTest.\n\n== Decision\nTest.";
+        let bridge_text =
+            "= ADR 001: Test\n:status: Draft\n\n== Context\nTest.\n\n== Decision\nTest.";
         let bridge_tokens = analyzer.analyze(bridge_text);
 
         // The word "Draft" should be an ENUM_MEMBER in Bridge
-        let bridge_draft_token = bridge_tokens.iter()
+        let bridge_draft_token = bridge_tokens
+            .iter()
             .find(|t| t.text == "Draft")
             .expect("Should find 'Draft' token");
-        assert_eq!(bridge_draft_token.token_type, SemanticTokenType::ENUM_MEMBER);
+        assert_eq!(
+            bridge_draft_token.token_type,
+            SemanticTokenType::ENUM_MEMBER
+        );
 
         // RFC document
         let rfc_text = "= RFC 1234: Test\n:category: standards-track\n\n== Abstract\nTest.";
         let rfc_tokens = analyzer.analyze(rfc_text);
 
         // The phrase "standards-track" should be a KEYWORD in RFC
-        let rfc_std_token = rfc_tokens.iter()
+        let rfc_std_token = rfc_tokens
+            .iter()
             .find(|t| t.text == "standards-track")
             .expect("Should find 'standards-track' token");
         assert_eq!(rfc_std_token.token_type, SemanticTokenType::KEYWORD);
@@ -271,13 +308,19 @@ mod semantic_tests {
         let tokens = analyzer.analyze(text);
 
         // Find the status token
-        let status_token = tokens.iter().find(|t| t.text == "status").expect("Should find status");
+        let status_token = tokens
+            .iter()
+            .find(|t| t.text == "status")
+            .expect("Should find status");
         assert_eq!(status_token.line, 0);
         assert_eq!(status_token.start_char, 1); // After the ':'
         assert_eq!(status_token.length, 6); // "status" is 6 chars
 
         // Find the Draft token
-        let draft_token = tokens.iter().find(|t| t.text == "Draft").expect("Should find Draft");
+        let draft_token = tokens
+            .iter()
+            .find(|t| t.text == "Draft")
+            .expect("Should find Draft");
         assert_eq!(draft_token.line, 0);
         assert_eq!(draft_token.start_char, 9); // After ":status: "
         assert_eq!(draft_token.length, 5); // "Draft" is 5 chars
@@ -383,7 +426,8 @@ mod integration_tests {
         let engine = DomainEngine::new();
 
         // Bridge document
-        let bridge_doc = "= ADR 001: Test\n:status: Draft\n\n== Context\nTest.\n\n== Decision\nTest.";
+        let bridge_doc =
+            "= ADR 001: Test\n:status: Draft\n\n== Context\nTest.\n\n== Decision\nTest.";
         let bridge_domain = engine.detect_domain(bridge_doc);
         assert_eq!(bridge_domain, "bridge");
 

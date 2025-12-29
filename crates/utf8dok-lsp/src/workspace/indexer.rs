@@ -64,7 +64,10 @@ impl WorkspaceIndexer {
         for (line_num, line) in content.lines().enumerate() {
             if let Some(cap) = header_re.captures(line) {
                 let level = cap.get(1).map(|m| m.as_str().len()).unwrap_or(1);
-                let title = cap.get(2).map(|m| m.as_str().to_string()).unwrap_or_default();
+                let title = cap
+                    .get(2)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default();
                 results.push((title, line_num, level));
             }
         }
@@ -76,16 +79,20 @@ impl WorkspaceIndexer {
     /// Returns HashMap<name, value>
     pub fn extract_attributes(content: &str) -> HashMap<String, String> {
         static ATTR_RE: OnceLock<Regex> = OnceLock::new();
-        let attr_re = ATTR_RE.get_or_init(|| {
-            Regex::new(r"^:([\w\-]+):\s*(.*)$").unwrap()
-        });
+        let attr_re = ATTR_RE.get_or_init(|| Regex::new(r"^:([\w\-]+):\s*(.*)$").unwrap());
 
         let mut attrs = HashMap::new();
 
         for line in content.lines() {
             if let Some(cap) = attr_re.captures(line) {
-                let name = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
-                let value = cap.get(2).map(|m| m.as_str().trim().to_string()).unwrap_or_default();
+                let name = cap
+                    .get(1)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default();
+                let value = cap
+                    .get(2)
+                    .map(|m| m.as_str().trim().to_string())
+                    .unwrap_or_default();
                 if !name.is_empty() {
                     attrs.insert(name, value);
                 }

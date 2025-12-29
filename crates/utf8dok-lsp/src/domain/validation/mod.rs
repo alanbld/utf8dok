@@ -12,8 +12,8 @@ use regex::Regex;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use tower_lsp::lsp_types::{
-    CodeAction, CodeActionKind, CodeActionParams, Diagnostic, DiagnosticSeverity,
-    Position, Range, TextEdit, WorkspaceEdit,
+    CodeAction, CodeActionKind, CodeActionParams, Diagnostic, DiagnosticSeverity, Position, Range,
+    TextEdit, WorkspaceEdit,
 };
 
 /// Main domain validator
@@ -84,7 +84,8 @@ impl DomainValidator {
         // Check for ADR-like structure (Context, Decision, Consequences sections)
         let has_context = text.contains("== Context") || text.contains("=== Context");
         let has_decision = text.contains("== Decision") || text.contains("=== Decision");
-        let has_consequences = text.contains("== Consequences") || text.contains("=== Consequences");
+        let has_consequences =
+            text.contains("== Consequences") || text.contains("=== Consequences");
 
         if has_decision && (has_context || has_consequences) {
             return DocumentType::Adr;
@@ -99,16 +100,24 @@ impl DomainValidator {
         let mut diagnostics = Vec::new();
 
         static STATUS_RE: OnceLock<Regex> = OnceLock::new();
-        let status_re = STATUS_RE.get_or_init(|| {
-            Regex::new(r"^:status:\s*(\S+)").unwrap()
-        });
+        let status_re = STATUS_RE.get_or_init(|| Regex::new(r"^:status:\s*(\S+)").unwrap());
 
-        let valid_statuses = ["Draft", "Proposed", "Accepted", "Rejected", "Deprecated", "Superseded"];
+        let valid_statuses = [
+            "Draft",
+            "Proposed",
+            "Accepted",
+            "Rejected",
+            "Deprecated",
+            "Superseded",
+        ];
 
         for (line_num, line) in text.lines().enumerate() {
             if let Some(cap) = status_re.captures(line.trim()) {
                 let status = cap.get(1).unwrap().as_str();
-                if !valid_statuses.iter().any(|s| s.eq_ignore_ascii_case(status)) {
+                if !valid_statuses
+                    .iter()
+                    .any(|s| s.eq_ignore_ascii_case(status))
+                {
                     let start_char = line.find(status).unwrap_or(0);
                     diagnostics.push(Diagnostic {
                         range: Range {
@@ -122,7 +131,9 @@ impl DomainValidator {
                             },
                         },
                         severity: Some(DiagnosticSeverity::WARNING),
-                        code: Some(tower_lsp::lsp_types::NumberOrString::String("DOM001".to_string())),
+                        code: Some(tower_lsp::lsp_types::NumberOrString::String(
+                            "DOM001".to_string(),
+                        )),
                         source: Some("utf8dok-domain".to_string()),
                         message: format!(
                             "Invalid status value '{}'. Expected one of: {}",
@@ -139,7 +150,11 @@ impl DomainValidator {
     }
 
     /// Get code actions for invalid attribute values
-    fn get_attribute_value_actions(&self, text: &str, params: &CodeActionParams) -> Vec<CodeAction> {
+    fn get_attribute_value_actions(
+        &self,
+        text: &str,
+        params: &CodeActionParams,
+    ) -> Vec<CodeAction> {
         let mut actions = Vec::new();
         let line_num = params.range.start.line as usize;
         let lines: Vec<&str> = text.lines().collect();
@@ -152,15 +167,23 @@ impl DomainValidator {
 
         // Check if we're on a status line with invalid value
         static STATUS_RE: OnceLock<Regex> = OnceLock::new();
-        let status_re = STATUS_RE.get_or_init(|| {
-            Regex::new(r"^:status:\s*(\S+)").unwrap()
-        });
+        let status_re = STATUS_RE.get_or_init(|| Regex::new(r"^:status:\s*(\S+)").unwrap());
 
         if let Some(cap) = status_re.captures(line.trim()) {
             let current_status = cap.get(1).unwrap();
-            let valid_statuses = ["Draft", "Proposed", "Accepted", "Rejected", "Deprecated", "Superseded"];
+            let valid_statuses = [
+                "Draft",
+                "Proposed",
+                "Accepted",
+                "Rejected",
+                "Deprecated",
+                "Superseded",
+            ];
 
-            if !valid_statuses.iter().any(|s| s.eq_ignore_ascii_case(current_status.as_str())) {
+            if !valid_statuses
+                .iter()
+                .any(|s| s.eq_ignore_ascii_case(current_status.as_str()))
+            {
                 // Offer to replace with valid values
                 for status in valid_statuses {
                     let line_start = line.len() - line.trim_start().len();

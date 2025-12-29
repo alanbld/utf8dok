@@ -15,44 +15,164 @@ struct AttributeInfo {
 
 /// Standard AsciiDoc attributes
 const STANDARD_ATTRIBUTES: &[AttributeInfo] = &[
-    AttributeInfo { name: "author", description: "Document author name", category: "Document" },
-    AttributeInfo { name: "email", description: "Author email address", category: "Document" },
-    AttributeInfo { name: "version", description: "Document version", category: "Document" },
-    AttributeInfo { name: "date", description: "Document date", category: "Document" },
-    AttributeInfo { name: "revision", description: "Document revision info", category: "Document" },
-    AttributeInfo { name: "title", description: "Document title override", category: "Document" },
-    AttributeInfo { name: "description", description: "Document description", category: "Document" },
-    AttributeInfo { name: "keywords", description: "Document keywords", category: "Document" },
-    AttributeInfo { name: "toc", description: "Table of contents placement", category: "Layout" },
-    AttributeInfo { name: "toclevels", description: "TOC depth (1-5)", category: "Layout" },
-    AttributeInfo { name: "sectnums", description: "Enable section numbering", category: "Layout" },
-    AttributeInfo { name: "sectanchors", description: "Enable section anchors", category: "Layout" },
-    AttributeInfo { name: "icons", description: "Icon mode (font, image)", category: "Rendering" },
-    AttributeInfo { name: "imagesdir", description: "Default images directory", category: "Paths" },
-    AttributeInfo { name: "source-highlighter", description: "Code highlighter", category: "Rendering" },
+    AttributeInfo {
+        name: "author",
+        description: "Document author name",
+        category: "Document",
+    },
+    AttributeInfo {
+        name: "email",
+        description: "Author email address",
+        category: "Document",
+    },
+    AttributeInfo {
+        name: "version",
+        description: "Document version",
+        category: "Document",
+    },
+    AttributeInfo {
+        name: "date",
+        description: "Document date",
+        category: "Document",
+    },
+    AttributeInfo {
+        name: "revision",
+        description: "Document revision info",
+        category: "Document",
+    },
+    AttributeInfo {
+        name: "title",
+        description: "Document title override",
+        category: "Document",
+    },
+    AttributeInfo {
+        name: "description",
+        description: "Document description",
+        category: "Document",
+    },
+    AttributeInfo {
+        name: "keywords",
+        description: "Document keywords",
+        category: "Document",
+    },
+    AttributeInfo {
+        name: "toc",
+        description: "Table of contents placement",
+        category: "Layout",
+    },
+    AttributeInfo {
+        name: "toclevels",
+        description: "TOC depth (1-5)",
+        category: "Layout",
+    },
+    AttributeInfo {
+        name: "sectnums",
+        description: "Enable section numbering",
+        category: "Layout",
+    },
+    AttributeInfo {
+        name: "sectanchors",
+        description: "Enable section anchors",
+        category: "Layout",
+    },
+    AttributeInfo {
+        name: "icons",
+        description: "Icon mode (font, image)",
+        category: "Rendering",
+    },
+    AttributeInfo {
+        name: "imagesdir",
+        description: "Default images directory",
+        category: "Paths",
+    },
+    AttributeInfo {
+        name: "source-highlighter",
+        description: "Code highlighter",
+        category: "Rendering",
+    },
 ];
 
 /// Bridge Framework / ADR attributes
 const ADR_ATTRIBUTES: &[AttributeInfo] = &[
-    AttributeInfo { name: "status", description: "ADR status (Draft, Accepted, etc.)", category: "ADR" },
-    AttributeInfo { name: "context", description: "Decision context summary", category: "ADR" },
-    AttributeInfo { name: "decision", description: "Decision summary", category: "ADR" },
-    AttributeInfo { name: "consequences", description: "Decision consequences summary", category: "ADR" },
-    AttributeInfo { name: "deciders", description: "Decision makers", category: "ADR" },
-    AttributeInfo { name: "consulted", description: "Consulted stakeholders", category: "ADR" },
-    AttributeInfo { name: "informed", description: "Informed stakeholders", category: "ADR" },
-    AttributeInfo { name: "adr-id", description: "ADR identifier (e.g., ADR-001)", category: "ADR" },
-    AttributeInfo { name: "supersedes", description: "ADR this supersedes", category: "ADR" },
-    AttributeInfo { name: "superseded-by", description: "ADR that supersedes this", category: "ADR" },
+    AttributeInfo {
+        name: "status",
+        description: "ADR status (Draft, Accepted, etc.)",
+        category: "ADR",
+    },
+    AttributeInfo {
+        name: "context",
+        description: "Decision context summary",
+        category: "ADR",
+    },
+    AttributeInfo {
+        name: "decision",
+        description: "Decision summary",
+        category: "ADR",
+    },
+    AttributeInfo {
+        name: "consequences",
+        description: "Decision consequences summary",
+        category: "ADR",
+    },
+    AttributeInfo {
+        name: "deciders",
+        description: "Decision makers",
+        category: "ADR",
+    },
+    AttributeInfo {
+        name: "consulted",
+        description: "Consulted stakeholders",
+        category: "ADR",
+    },
+    AttributeInfo {
+        name: "informed",
+        description: "Informed stakeholders",
+        category: "ADR",
+    },
+    AttributeInfo {
+        name: "adr-id",
+        description: "ADR identifier (e.g., ADR-001)",
+        category: "ADR",
+    },
+    AttributeInfo {
+        name: "supersedes",
+        description: "ADR this supersedes",
+        category: "ADR",
+    },
+    AttributeInfo {
+        name: "superseded-by",
+        description: "ADR that supersedes this",
+        category: "ADR",
+    },
 ];
 
 /// Custom/extension attributes
 const EXTENSION_ATTRIBUTES: &[AttributeInfo] = &[
-    AttributeInfo { name: "stage", description: "Document lifecycle stage", category: "Workflow" },
-    AttributeInfo { name: "owner", description: "Document owner", category: "Workflow" },
-    AttributeInfo { name: "reviewers", description: "Document reviewers", category: "Workflow" },
-    AttributeInfo { name: "tags", description: "Document tags/labels", category: "Metadata" },
-    AttributeInfo { name: "category", description: "Document category", category: "Metadata" },
+    AttributeInfo {
+        name: "stage",
+        description: "Document lifecycle stage",
+        category: "Workflow",
+    },
+    AttributeInfo {
+        name: "owner",
+        description: "Document owner",
+        category: "Workflow",
+    },
+    AttributeInfo {
+        name: "reviewers",
+        description: "Document reviewers",
+        category: "Workflow",
+    },
+    AttributeInfo {
+        name: "tags",
+        description: "Document tags/labels",
+        category: "Metadata",
+    },
+    AttributeInfo {
+        name: "category",
+        description: "Document category",
+        category: "Metadata",
+    },
 ];
 
 /// Attribute name completer

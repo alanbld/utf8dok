@@ -115,7 +115,11 @@ impl<'a> SelectionAnalyzer<'a> {
 
         // Level 4: Logical block (paragraph, attribute group, etc.)
         if let Some(logical_range) = self.get_logical_block(cursor) {
-            if hierarchy.last().map(|h| h.range != logical_range).unwrap_or(true) {
+            if hierarchy
+                .last()
+                .map(|h| h.range != logical_range)
+                .unwrap_or(true)
+            {
                 hierarchy.push(SelectionLevel {
                     range: logical_range,
                     kind: SelectionKind::LogicalBlock,
@@ -138,7 +142,11 @@ impl<'a> SelectionAnalyzer<'a> {
 
         // Final level: Entire document
         let doc_range = self.get_document_range();
-        if hierarchy.last().map(|h| h.range != doc_range).unwrap_or(true) {
+        if hierarchy
+            .last()
+            .map(|h| h.range != doc_range)
+            .unwrap_or(true)
+        {
             hierarchy.push(SelectionLevel {
                 range: doc_range,
                 kind: SelectionKind::Document,
@@ -376,7 +384,11 @@ impl<'a> SelectionAnalyzer<'a> {
 
         // Match :name: pattern
         line.starts_with(':')
-            && line.chars().nth(1).map(|c| c.is_alphanumeric()).unwrap_or(false)
+            && line
+                .chars()
+                .nth(1)
+                .map(|c| c.is_alphanumeric())
+                .unwrap_or(false)
             && line[1..].contains(':')
     }
 
@@ -390,7 +402,10 @@ impl<'a> SelectionAnalyzer<'a> {
         let mut start = line_idx;
         while start > 0 {
             let prev_line = self.lines[start - 1].trim();
-            if prev_line.is_empty() || self.is_header_line(start - 1) || self.is_block_delimiter(start - 1) {
+            if prev_line.is_empty()
+                || self.is_header_line(start - 1)
+                || self.is_block_delimiter(start - 1)
+            {
                 break;
             }
             start -= 1;
@@ -400,7 +415,10 @@ impl<'a> SelectionAnalyzer<'a> {
         let mut end = line_idx;
         while end + 1 < self.lines.len() {
             let next_line = self.lines[end + 1].trim();
-            if next_line.is_empty() || self.is_header_line(end + 1) || self.is_block_delimiter(end + 1) {
+            if next_line.is_empty()
+                || self.is_header_line(end + 1)
+                || self.is_block_delimiter(end + 1)
+            {
                 break;
             }
             end += 1;
@@ -432,7 +450,11 @@ impl<'a> SelectionAnalyzer<'a> {
         let line = self.lines[line_idx].trim();
         line.starts_with('=')
             && line.len() > 2
-            && line.chars().find(|c| *c != '=').map(|c| c == ' ').unwrap_or(false)
+            && line
+                .chars()
+                .find(|c| *c != '=')
+                .map(|c| c == ' ')
+                .unwrap_or(false)
     }
 
     /// Check if line is a block delimiter

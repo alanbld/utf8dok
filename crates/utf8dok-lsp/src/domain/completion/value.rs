@@ -14,41 +14,98 @@ struct ValueOption {
 
 /// Status values for ADRs
 const STATUS_VALUES: &[ValueOption] = &[
-    ValueOption { value: "Draft", description: "Initial draft, not yet reviewed" },
-    ValueOption { value: "Proposed", description: "Proposed for review and discussion" },
-    ValueOption { value: "Accepted", description: "Accepted and in effect" },
-    ValueOption { value: "Rejected", description: "Rejected after review" },
-    ValueOption { value: "Deprecated", description: "No longer recommended" },
-    ValueOption { value: "Superseded", description: "Replaced by another decision" },
+    ValueOption {
+        value: "Draft",
+        description: "Initial draft, not yet reviewed",
+    },
+    ValueOption {
+        value: "Proposed",
+        description: "Proposed for review and discussion",
+    },
+    ValueOption {
+        value: "Accepted",
+        description: "Accepted and in effect",
+    },
+    ValueOption {
+        value: "Rejected",
+        description: "Rejected after review",
+    },
+    ValueOption {
+        value: "Deprecated",
+        description: "No longer recommended",
+    },
+    ValueOption {
+        value: "Superseded",
+        description: "Replaced by another decision",
+    },
 ];
 
 /// TOC placement values
 const TOC_VALUES: &[ValueOption] = &[
-    ValueOption { value: "left", description: "Table of contents on the left side" },
-    ValueOption { value: "right", description: "Table of contents on the right side" },
-    ValueOption { value: "preamble", description: "Table of contents after preamble" },
-    ValueOption { value: "auto", description: "Automatic TOC placement" },
-    ValueOption { value: "macro", description: "TOC placed where toc::[] macro appears" },
+    ValueOption {
+        value: "left",
+        description: "Table of contents on the left side",
+    },
+    ValueOption {
+        value: "right",
+        description: "Table of contents on the right side",
+    },
+    ValueOption {
+        value: "preamble",
+        description: "Table of contents after preamble",
+    },
+    ValueOption {
+        value: "auto",
+        description: "Automatic TOC placement",
+    },
+    ValueOption {
+        value: "macro",
+        description: "TOC placed where toc::[] macro appears",
+    },
 ];
 
 /// Icon mode values
 const ICONS_VALUES: &[ValueOption] = &[
-    ValueOption { value: "font", description: "Use Font Awesome icons" },
-    ValueOption { value: "image", description: "Use image files for icons" },
+    ValueOption {
+        value: "font",
+        description: "Use Font Awesome icons",
+    },
+    ValueOption {
+        value: "image",
+        description: "Use image files for icons",
+    },
 ];
 
 /// Source highlighter values
 const HIGHLIGHTER_VALUES: &[ValueOption] = &[
-    ValueOption { value: "highlight.js", description: "Highlight.js syntax highlighter" },
-    ValueOption { value: "rouge", description: "Rouge syntax highlighter" },
-    ValueOption { value: "pygments", description: "Pygments syntax highlighter" },
-    ValueOption { value: "coderay", description: "CodeRay syntax highlighter" },
+    ValueOption {
+        value: "highlight.js",
+        description: "Highlight.js syntax highlighter",
+    },
+    ValueOption {
+        value: "rouge",
+        description: "Rouge syntax highlighter",
+    },
+    ValueOption {
+        value: "pygments",
+        description: "Pygments syntax highlighter",
+    },
+    ValueOption {
+        value: "coderay",
+        description: "CodeRay syntax highlighter",
+    },
 ];
 
 /// Boolean-like values
 const BOOLEAN_VALUES: &[ValueOption] = &[
-    ValueOption { value: "true", description: "Enable the feature" },
-    ValueOption { value: "false", description: "Disable the feature" },
+    ValueOption {
+        value: "true",
+        description: "Enable the feature",
+    },
+    ValueOption {
+        value: "false",
+        description: "Disable the feature",
+    },
 ];
 
 /// Attribute value completer
@@ -65,7 +122,9 @@ impl ValueCompleter {
 
         values
             .iter()
-            .filter(|v| prefix.is_empty() || v.value.to_lowercase().starts_with(&prefix.to_lowercase()))
+            .filter(|v| {
+                prefix.is_empty() || v.value.to_lowercase().starts_with(&prefix.to_lowercase())
+            })
             .map(|v| self.value_to_completion(v, attribute_name))
             .collect()
     }

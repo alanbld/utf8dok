@@ -35,7 +35,8 @@ mod status_tests {
         assert!(
             violations
                 .iter()
-                .any(|v| v.message.contains("must be Deprecated") || v.message.contains("must be Superseded")),
+                .any(|v| v.message.contains("must be Deprecated")
+                    || v.message.contains("must be Superseded")),
             "Message should mention required status change"
         );
     }
@@ -157,7 +158,10 @@ mod orphan_tests {
     #[test]
     fn test_orphaned_adr_detection() {
         let mut graph = WorkspaceGraph::new();
-        graph.add_document("file:///index.adoc", "[[index]]\n= ADR Log\n\nLink to <<adr-001>>");
+        graph.add_document(
+            "file:///index.adoc",
+            "[[index]]\n= ADR Log\n\nLink to <<adr-001>>",
+        );
         graph.add_document("file:///adr-001.adoc", "[[adr-001]]\n= ADR 001");
         graph.add_document("file:///adr-002.adoc", "[[adr-002]]\n= ADR 002"); // Orphan
 
@@ -165,11 +169,15 @@ mod orphan_tests {
         let violations = rules.validate(&graph);
 
         assert!(
-            violations.iter().any(|v| v.message.contains("orphaned") || v.message.contains("Orphan")),
+            violations
+                .iter()
+                .any(|v| v.message.contains("orphaned") || v.message.contains("Orphan")),
             "Should detect orphaned document"
         );
         assert!(
-            violations.iter().any(|v| v.uri.as_str().contains("adr-002")),
+            violations
+                .iter()
+                .any(|v| v.uri.as_str().contains("adr-002")),
             "Should identify adr-002 as orphaned"
         );
     }
@@ -319,10 +327,7 @@ mod integration_tests {
 
         // Create 50 ADRs
         for i in 1..=50 {
-            let content = format!(
-                "[[adr-{:03}]]\n= ADR {:03}\n:status: Accepted",
-                i, i
-            );
+            let content = format!("[[adr-{:03}]]\n= ADR {:03}\n:status: Accepted", i, i);
             graph.add_document(&format!("file:///adr-{:03}.adoc", i), &content);
         }
 
@@ -438,10 +443,7 @@ mod engine_tests {
         let engine = ComplianceEngine::new();
         let mut graph = WorkspaceGraph::new();
 
-        graph.add_document(
-            "file:///index.adoc",
-            "[[index]]\n= Index\n\n<<adr-001>>",
-        );
+        graph.add_document("file:///index.adoc", "[[index]]\n= Index\n\n<<adr-001>>");
         graph.add_document(
             "file:///adr-001.adoc",
             "[[adr-001]]\n= ADR 001\n:status: Accepted",
@@ -495,8 +497,14 @@ mod engine_tests {
             violations: vec![Violation {
                 uri: Url::parse("file:///test.adoc").unwrap(),
                 range: Range {
-                    start: Position { line: 0, character: 0 },
-                    end: Position { line: 0, character: 0 },
+                    start: Position {
+                        line: 0,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 0,
+                    },
                 },
                 message: "Test error".to_string(),
                 severity: ViolationSeverity::Error,

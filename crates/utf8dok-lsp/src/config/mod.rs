@@ -27,10 +27,5 @@ mod settings;
 mod tests;
 
 pub use settings::{
-    BridgeSettings,
-    ComplianceSettings,
-    PluginSettings,
-    RuleSeverity,
-    Settings,
-    WorkspaceSettings,
+    BridgeSettings, ComplianceSettings, PluginSettings, RuleSeverity, Settings, WorkspaceSettings,
 };

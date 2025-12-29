@@ -388,7 +388,11 @@ pub fn render_command(
 }
 
 /// Execute the check command
-pub fn check_command(input: &std::path::Path, format: OutputFormat, plugins: &[PathBuf]) -> Result<()> {
+pub fn check_command(
+    input: &std::path::Path,
+    format: OutputFormat,
+    plugins: &[PathBuf],
+) -> Result<()> {
     // Check input file exists
     if !input.exists() {
         anyhow::bail!("Input file not found: {}", input.display());
@@ -631,9 +635,7 @@ fn load_workspace_graph(dir: &std::path::Path) -> Result<WorkspaceGraph> {
                         // Convert path to file:// URI
                         let uri = format!(
                             "file://{}",
-                            path.canonicalize()
-                                .unwrap_or(path.clone())
-                                .display()
+                            path.canonicalize().unwrap_or(path.clone()).display()
                         );
                         graph.add_document(&uri, &content);
                     }
@@ -888,13 +890,7 @@ mod tests {
 
     #[test]
     fn test_cli_parse_dashboard_with_config() {
-        let args = vec![
-            "utf8dok",
-            "dashboard",
-            ".",
-            "--config",
-            "custom.toml",
-        ];
+        let args = vec!["utf8dok", "dashboard", ".", "--config", "custom.toml"];
         let cli = Cli::try_parse_from(args).unwrap();
 
         match cli.command {
