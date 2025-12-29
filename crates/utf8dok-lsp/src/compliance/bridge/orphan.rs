@@ -5,6 +5,7 @@
 use tower_lsp::lsp_types::{Position, Range, Url};
 
 use crate::compliance::{ComplianceRule, Violation, ViolationSeverity};
+use crate::config::Settings;
 use crate::workspace::graph::WorkspaceGraph;
 
 /// Rule: All documents should be reachable from an entry point (index, README).
@@ -13,6 +14,8 @@ use crate::workspace::graph::WorkspaceGraph;
 pub struct OrphanRule {
     /// Known entry point patterns (case-insensitive matching on filename)
     entry_point_patterns: Vec<&'static str>,
+    /// Severity level for violations (None = disabled)
+    severity: Option<ViolationSeverity>,
 }
 
 #[allow(dead_code)]
@@ -27,6 +30,22 @@ impl OrphanRule {
                 "readme.md",
                 "index.md",
             ],
+            severity: Some(ViolationSeverity::Warning),
+        }
+    }
+
+    /// Create an OrphanRule configured from settings
+    pub fn with_settings(settings: &Settings) -> Self {
+        Self {
+            entry_point_patterns: vec![
+                "index.adoc",
+                "readme.adoc",
+                "index.asciidoc",
+                "readme.asciidoc",
+                "readme.md",
+                "index.md",
+            ],
+            severity: settings.compliance.bridge.orphans.to_violation_severity(),
         }
     }
 
@@ -57,6 +76,12 @@ impl Default for OrphanRule {
 
 impl ComplianceRule for OrphanRule {
     fn check(&self, graph: &WorkspaceGraph) -> Vec<Violation> {
+        // If rule is disabled, return no violations
+        let severity = match self.severity {
+            Some(s) => s,
+            None => return Vec::new(),
+        };
+
         let mut violations = Vec::new();
 
         // Find entry points
@@ -99,7 +124,7 @@ impl ComplianceRule for OrphanRule {
                         "Orphaned document: '{}' is not reachable from any entry point (index.adoc, README.adoc)",
                         filename
                     ),
-                    severity: ViolationSeverity::Warning,
+                    severity,
                     code: "BRIDGE003".to_string(),
                 });
             }

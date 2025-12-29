@@ -20,6 +20,7 @@ mod tests;
 
 use tower_lsp::lsp_types::{DiagnosticSeverity, Range, Url};
 
+use crate::config::Settings;
 use crate::workspace::graph::WorkspaceGraph;
 
 /// A compliance violation found during validation
@@ -90,6 +91,16 @@ impl ComplianceEngine {
             rules: vec![
                 Box::new(bridge::StatusRule::new()),
                 Box::new(bridge::OrphanRule::new()),
+            ],
+        }
+    }
+
+    /// Create a compliance engine configured from settings
+    pub fn with_settings(settings: &Settings) -> Self {
+        Self {
+            rules: vec![
+                Box::new(bridge::StatusRule::with_settings(settings)),
+                Box::new(bridge::OrphanRule::with_settings(settings)),
             ],
         }
     }

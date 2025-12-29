@@ -35,6 +35,7 @@
 //! ```
 
 pub mod compliance;
+pub mod config;
 pub mod domain;
 pub mod intelligence;
 pub mod server;
@@ -46,4 +47,5 @@ pub use server::run_server;
 
 // Re-export commonly used types
 pub use compliance::{ComplianceEngine, ComplianceResult, Violation};
+pub use config::{RuleSeverity, Settings};
 pub use workspace::graph::WorkspaceGraph;

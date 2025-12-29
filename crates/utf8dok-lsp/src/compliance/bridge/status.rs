@@ -5,17 +5,30 @@
 use tower_lsp::lsp_types::{Position, Range, Url};
 
 use crate::compliance::{ComplianceRule, Violation, ViolationSeverity};
+use crate::config::Settings;
 use crate::workspace::graph::WorkspaceGraph;
 
 /// Rule: When an ADR claims to supersede another, the superseded ADR
 /// must have status "Deprecated" or "Superseded".
 #[allow(dead_code)]
-pub struct StatusRule;
+pub struct StatusRule {
+    /// Severity level for violations (None = disabled)
+    severity: Option<ViolationSeverity>,
+}
 
 #[allow(dead_code)]
 impl StatusRule {
     pub fn new() -> Self {
-        Self
+        Self {
+            severity: Some(ViolationSeverity::Error),
+        }
+    }
+
+    /// Create a StatusRule configured from settings
+    pub fn with_settings(settings: &Settings) -> Self {
+        Self {
+            severity: settings.compliance.bridge.superseded_status.to_violation_severity(),
+        }
     }
 
     /// Parse the supersedes attribute value into individual IDs
@@ -42,6 +55,12 @@ impl Default for StatusRule {
 
 impl ComplianceRule for StatusRule {
     fn check(&self, graph: &WorkspaceGraph) -> Vec<Violation> {
+        // If rule is disabled, return no violations
+        let severity = match self.severity {
+            Some(s) => s,
+            None => return Vec::new(),
+        };
+
         let mut violations = Vec::new();
 
         // Iterate all documents looking for :supersedes: attribute
@@ -72,7 +91,7 @@ impl ComplianceRule for StatusRule {
                                         "Superseded document '{}' has status '{}' but must be Deprecated or Superseded",
                                         superseded_id, status
                                     ),
-                                    severity: ViolationSeverity::Error,
+                                    severity,
                                     code: "BRIDGE001".to_string(),
                                 });
                             }
