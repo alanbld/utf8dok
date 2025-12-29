@@ -1,0 +1,30 @@
+# Build outputs
+out/
+*.vsix
+
+# Dependencies
+node_modules/
+
+# Bundled binaries (built during packaging)
+bin/*/utf8dok-lsp
+bin/*/utf8dok-lsp.exe
+
+# TypeScript build info
+*.tsbuildinfo
+
+# IDE
+.vscode/settings.json
+.vscode/launch.json
+.vscode/tasks.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test output
+.vscode-test/
+coverage/

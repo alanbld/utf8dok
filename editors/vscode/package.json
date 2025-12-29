@@ -1,0 +1,224 @@
+{
+  "name": "utf8dok",
+  "displayName": "UTF8DOK Documentation Compliance",
+  "version": "0.1.0",
+  "publisher": "utf8dok",
+  "description": "Enterprise documentation compliance and quality platform for AsciiDoc",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Linters",
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "documentation",
+    "compliance",
+    "adr",
+    "asciidoc",
+    "diagrams",
+    "writing",
+    "quality"
+  ],
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
+  "activationEvents": [
+    "onLanguage:asciidoc",
+    "workspaceContains:**/*.adoc"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "asciidoc",
+        "aliases": [
+          "AsciiDoc",
+          "adoc"
+        ],
+        "extensions": [
+          ".adoc",
+          ".asciidoc",
+          ".asc"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "utf8dok.showDashboard",
+        "title": "Show Compliance Dashboard",
+        "category": "UTF8DOK",
+        "icon": "$(dashboard)"
+      },
+      {
+        "command": "utf8dok.runAudit",
+        "title": "Run Compliance Audit",
+        "category": "UTF8DOK",
+        "icon": "$(checklist)"
+      },
+      {
+        "command": "utf8dok.fixAll",
+        "title": "Fix All Auto-fixable Issues",
+        "category": "UTF8DOK",
+        "icon": "$(tools)"
+      },
+      {
+        "command": "utf8dok.restartServer",
+        "title": "Restart Language Server",
+        "category": "UTF8DOK",
+        "icon": "$(refresh)"
+      }
+    ],
+    "configuration": {
+      "title": "UTF8DOK",
+      "properties": {
+        "utf8dok.serverPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to utf8dok-lsp binary (leave empty to use bundled version)"
+        },
+        "utf8dok.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Trace communication between VS Code and the language server"
+        },
+        "utf8dok.compliance.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Bridge Framework compliance checks"
+        },
+        "utf8dok.compliance.orphans": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "info",
+            "ignore"
+          ],
+          "default": "warning",
+          "description": "Severity for orphan document detection"
+        },
+        "utf8dok.compliance.supersededStatus": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "info",
+            "ignore"
+          ],
+          "default": "error",
+          "description": "Severity for superseded status violations"
+        },
+        "utf8dok.plugins.diagrams": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable diagram syntax validation (Mermaid, PlantUML)"
+        },
+        "utf8dok.plugins.writingQuality": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable writing quality suggestions (passive voice, weasel words)"
+        },
+        "utf8dok.plugins.customWeaselWords": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Additional weasel words to detect (extends default list)"
+        },
+        "utf8dok.workspace.entryPoints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "index.adoc",
+            "README.adoc"
+          ],
+          "description": "Entry point documents for orphan detection"
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "utf8dok",
+          "title": "UTF8DOK",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "utf8dok": [
+        {
+          "id": "utf8dok.complianceStatus",
+          "name": "Compliance Status"
+        },
+        {
+          "id": "utf8dok.documentOutline",
+          "name": "Document Outline"
+        }
+      ]
+    },
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "utf8dok.showDashboard",
+          "when": "workbenchState != empty"
+        },
+        {
+          "command": "utf8dok.runAudit",
+          "when": "workbenchState != empty"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "utf8dok.fixAll",
+          "when": "resourceLangId == asciidoc",
+          "group": "1_modification"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "test": "node ./out/test/runTest.js",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.75.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "@vscode/vsce": "^2.22.0",
+    "eslint": "^8.50.0",
+    "typescript": "^5.2.0"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/utf8dok"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/utf8dok/issues"
+  },
+  "homepage": "https://github.com/yourusername/utf8dok#readme",
+  "license": "MIT OR Apache-2.0"
+}
