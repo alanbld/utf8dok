@@ -1,0 +1,29 @@
+# UTF8DOK Configuration for UTF8DOK Project
+# This is a self-referential configuration - UTF8DOK checks UTF8DOK's documentation
+
+[workspace]
+root = "docs/"
+entry_points = ["index.adoc", "README.adoc"]
+
+[compliance.bridge]
+# Enable all Bridge Framework compliance rules
+orphans = "error"               # BRIDGE003: Orphaned documents are critical
+superseded_status = "error"     # BRIDGE001: Superseded ADRs must be marked
+
+[plugins]
+api_docs = false
+writing_quality = true          # Enable passive voice, weasel words detection
+diagrams = true                 # Enable Mermaid/PlantUML syntax checking
+
+# Custom weasel words for technical documentation
+custom_weasel_words = [
+    "obviously",
+    "clearly",
+    "simply",
+    "just",
+    "basically",
+    "easy",
+    "trivial",
+    "straightforward",
+    "merely"
+]

@@ -53,6 +53,30 @@ impl WorkspaceIndexer {
         results
     }
 
+    /// Extract all file-based cross-references (<<path/to/file.adoc#,...>>) from content
+    /// Returns Vec<(relative_path, line, column)>
+    pub fn extract_file_references(content: &str) -> Vec<(String, usize, usize)> {
+        static FILE_XREF_RE: OnceLock<Regex> = OnceLock::new();
+        // Match <<path/to/file.adoc#anchor,label>> or <<path/to/file.adoc#,label>>
+        let file_xref_re = FILE_XREF_RE.get_or_init(|| {
+            Regex::new(r"<<([^#,>\s]+\.adoc)(?:#[^,>]*)?(?:,[^>]*)?\s*>>").unwrap()
+        });
+
+        let mut results = Vec::new();
+
+        for (line_num, line) in content.lines().enumerate() {
+            for cap in file_xref_re.captures_iter(line) {
+                if let Some(path_match) = cap.get(1) {
+                    let path = path_match.as_str().to_string();
+                    let col = cap.get(0).map(|m| m.start() + 2).unwrap_or(0);
+                    results.push((path, line_num, col));
+                }
+            }
+        }
+
+        results
+    }
+
     /// Extract all headers from content
     /// Returns Vec<(title, line, level)> where level is the number of '=' signs
     pub fn extract_headers(content: &str) -> Vec<(String, usize, usize)> {
@@ -195,5 +219,26 @@ mod tests {
 
         assert_eq!(defs.len(), 1);
         assert_eq!(defs[0].0, "inline");
+    }
+
+    #[test]
+    fn test_extract_file_references() {
+        let content = "* <<adr/0001-architecture.adoc#,ADR 0001: Architecture>>\n* <<adr/0002-lsp-first.adoc#,ADR 0002: LSP-First>>";
+        let refs = WorkspaceIndexer::extract_file_references(content);
+
+        assert_eq!(refs.len(), 2);
+        assert_eq!(refs[0].0, "adr/0001-architecture.adoc");
+        assert_eq!(refs[0].1, 0); // line 0
+        assert_eq!(refs[1].0, "adr/0002-lsp-first.adoc");
+        assert_eq!(refs[1].1, 1); // line 1
+    }
+
+    #[test]
+    fn test_extract_file_references_with_anchor() {
+        let content = "See <<docs/guide.adoc#section-one,Section One>> for details.";
+        let refs = WorkspaceIndexer::extract_file_references(content);
+
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].0, "docs/guide.adoc");
     }
 }

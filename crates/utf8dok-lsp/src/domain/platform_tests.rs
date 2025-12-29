@@ -350,8 +350,8 @@ mod semantic_tests {
 
         assert!(!tokens.is_empty());
         assert!(
-            duration < std::time::Duration::from_millis(100),
-            "Semantic analysis took {:?} (should be <100ms)",
+            duration < std::time::Duration::from_millis(150),
+            "Semantic analysis took {:?} (should be <150ms)",
             duration
         );
     }

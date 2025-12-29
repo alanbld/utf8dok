@@ -1,0 +1,207 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      version: ${{ steps.get_version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version
+        id: get_version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: UTF8DOK ${{ steps.get_version.outputs.version }}
+          draft: true
+          prerelease: false
+          body: |
+            ## UTF8DOK ${{ steps.get_version.outputs.version }}
+
+            ### Installation
+
+            **CLI Binary**
+            - Download the appropriate binary for your platform below
+            - Or install via cargo: `cargo install utf8dok-cli`
+
+            **VS Code Extension**
+            - Download `utf8dok-vscode.vsix` and install via:
+              `code --install-extension utf8dok-vscode.vsix`
+
+            ### Changelog
+
+            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
+
+  build-binaries:
+    name: Build Binaries
+    needs: create-release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: utf8dok-linux-x64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact: utf8dok-macos-x64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: utf8dok-macos-arm64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: utf8dok-windows-x64.exe
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build CLI
+        run: cargo build --release --target ${{ matrix.target }} -p utf8dok-cli
+
+      - name: Prepare artifact (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cp target/${{ matrix.target }}/release/utf8dok ${{ matrix.artifact }}
+          chmod +x ${{ matrix.artifact }}
+
+      - name: Prepare artifact (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          copy target\${{ matrix.target }}\release\utf8dok.exe ${{ matrix.artifact }}
+
+      - name: Upload artifact
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./${{ matrix.artifact }}
+          asset_name: ${{ matrix.artifact }}
+          asset_content_type: application/octet-stream
+
+  build-extension:
+    name: Build VS Code Extension
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build LSP server
+        run: cargo build --release -p utf8dok-lsp
+
+      - name: Install extension dependencies
+        working-directory: editors/vscode
+        run: npm install
+
+      - name: Install vsce
+        run: npm install -g @vscode/vsce
+
+      - name: Build extension
+        working-directory: editors/vscode
+        run: |
+          npm run compile
+          mkdir -p bin
+          cp ../../target/release/utf8dok-lsp bin/
+          vsce package -o utf8dok-vscode.vsix
+
+      - name: Upload extension
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: editors/vscode/utf8dok-vscode.vsix
+          asset_name: utf8dok-vscode.vsix
+          asset_content_type: application/octet-stream
+
+  publish-crates:
+    name: Publish to crates.io
+    needs: [build-binaries, build-extension]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish crates
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          # Publish in dependency order
+          cargo publish -p utf8dok-ast --allow-dirty || true
+          sleep 30
+          cargo publish -p utf8dok-core --allow-dirty || true
+          sleep 30
+          cargo publish -p utf8dok-diagrams --allow-dirty || true
+          sleep 30
+          cargo publish -p utf8dok-validate --allow-dirty || true
+          sleep 30
+          cargo publish -p utf8dok-plugins --allow-dirty || true
+          sleep 30
+          cargo publish -p utf8dok-lsp --allow-dirty || true
+          sleep 30
+          cargo publish -p utf8dok-cli --allow-dirty || true
+
+  finalize-release:
+    name: Finalize Release
+    needs: [build-binaries, build-extension, publish-crates]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: releases } = await github.rest.repos.listReleases({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+            const draftRelease = releases.find(r => r.draft && r.tag_name === context.ref.replace('refs/tags/', ''));
+            if (draftRelease) {
+              await github.rest.repos.updateRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: draftRelease.id,
+                draft: false,
+              });
+            }

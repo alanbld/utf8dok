@@ -1,0 +1,42 @@
+= UTF8DOK Documentation Hub
+:toc: left
+:toclevels: 3
+
+== Overview
+
+UTF8DOK is a universal documentation platform that combines:
+
+* *Compliance Engine*: Bridge Framework ADR validation with one-click fixes
+* *Content Intelligence*: Diagram syntax highlighting and writing quality suggestions
+* *Developer Experience*: VS Code extension with real-time feedback
+* *Team Visibility*: Compliance dashboards and metrics
+
+== Quick Start
+
+. Install the VS Code extension from the Marketplace
+. Open any AsciiDoc document
+. See real-time compliance suggestions
+. Use Quick Fixes (lightbulb) to fix violations
+
+== Project Structure
+
+----
+.
+├── crates/           # Rust crates (core, lsp, cli, diagrams, etc.)
+├── docs/             # Project documentation (this folder)
+├── editors/vscode/   # VS Code extension
+├── scripts/          # Build and release scripts
+└── .github/          # CI/CD workflows
+----
+
+== Documentation Index
+
+=== Architecture Decision Records
+
+* <<adr/0001-architecture.adoc#,ADR 0001: Architecture Decision Records>>
+* <<adr/0002-lsp-first.adoc#,ADR 0002: LSP-First Architecture>>
+* <<adr/0003-plugin-system.adoc#,ADR 0003: Plugin System Design>>
+
+== Compliance Status
+
+NOTE: This documentation is validated by UTF8DOK itself. Any compliance violations will fail the CI/CD pipeline.

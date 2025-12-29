@@ -1,0 +1,45 @@
+[[adr-0001]]
+= ADR 0001: Architecture Decision Records
+:status: Accepted
+:date: 2025-01-15
+
+== Context
+
+We need a way to record significant architectural decisions for the UTF8DOK project.
+These decisions should be:
+
+* Discoverable in the codebase
+* Linked to relevant code and documentation
+* Maintained in a standard format
+* Validated for consistency and completeness
+
+== Decision
+
+We will use the *Bridge Framework* (Lightweight Architecture Decision Records) with AsciiDoc format.
+
+Each ADR will include:
+
+. A unique identifier (ADR-XXXX)
+. A descriptive title
+. Status (:status: attribute)
+. Context, Decision, and Consequences sections
+. Links to other ADRs (:supersedes:, :relates-to:)
+
+== Consequences
+
+*Positive*:
+
+* Standardized decision tracking
+* Machine-readable format for compliance checking
+* Integration with UTF8DOK's own compliance engine
+* Clear evolution of architectural decisions
+
+*Negative*:
+
+* Additional documentation overhead
+* Requires team discipline to maintain
+* Need to keep ADRs updated as context changes
+
+== Compliance Notes
+
+This ADR follows the Bridge Framework format and will be validated by UTF8DOK's compliance engine.

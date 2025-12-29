@@ -61,6 +61,9 @@ pub struct WorkspaceGraph {
     /// Map from document URI to all references in it (for cleanup on update)
     document_refs: HashMap<String, Vec<String>>,
 
+    /// Map from document URI to file-based references (relative paths to .adoc files)
+    document_file_refs: HashMap<String, Vec<String>>,
+
     /// All symbols (headers, anchors) for workspace symbol search
     symbols: Vec<WorkspaceSymbol>,
 
@@ -82,6 +85,7 @@ impl WorkspaceGraph {
             references: HashMap::new(),
             document_ids: HashMap::new(),
             document_refs: HashMap::new(),
+            document_file_refs: HashMap::new(),
             symbols: Vec::new(),
             document_symbols: HashMap::new(),
             document_attributes: HashMap::new(),
@@ -147,6 +151,14 @@ impl WorkspaceGraph {
             doc_refs.push(id);
         }
         self.document_refs.insert(uri.to_string(), doc_refs);
+
+        // Extract file-based references (<<path/to/file.adoc#,...>>)
+        let file_refs = WorkspaceIndexer::extract_file_references(content);
+        let file_ref_paths: Vec<String> = file_refs.into_iter().map(|(path, _, _)| path).collect();
+        if !file_ref_paths.is_empty() {
+            self.document_file_refs
+                .insert(uri.to_string(), file_ref_paths);
+        }
 
         // Extract headers as symbols
         let headers = WorkspaceIndexer::extract_headers(content);
@@ -224,6 +236,9 @@ impl WorkspaceGraph {
                 }
             }
         }
+
+        // Remove file references
+        self.document_file_refs.remove(uri);
 
         // Remove attributes
         self.document_attributes.remove(uri);
@@ -407,7 +422,7 @@ impl WorkspaceGraph {
 
         // BFS traversal
         while let Some(current_uri) = queue.pop() {
-            // Get all references from this document
+            // Get all ID-based references from this document
             if let Some(refs) = self.document_refs.get(&current_uri) {
                 for ref_id in refs {
                     // Find which document defines this ID
@@ -420,9 +435,75 @@ impl WorkspaceGraph {
                     }
                 }
             }
+
+            // Get all file-based references from this document
+            if let Some(file_refs) = self.document_file_refs.get(&current_uri) {
+                // Resolve relative paths against current document's URI
+                if let Ok(current_url) = Url::parse(&current_uri) {
+                    for file_ref in file_refs {
+                        // Resolve relative path against parent directory of current doc
+                        if let Some(resolved_uri) = self.resolve_file_reference(&current_url, file_ref) {
+                            if !reachable.contains(&resolved_uri) {
+                                reachable.insert(resolved_uri.clone());
+                                queue.push(resolved_uri);
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         reachable
+    }
+
+    /// Resolve a relative file reference against a base URI
+    fn resolve_file_reference(&self, base_uri: &Url, relative_path: &str) -> Option<String> {
+        // Get the base directory (parent of the current file)
+        let base_path = base_uri.path();
+        let base_dir = base_path.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("");
+
+        // Construct the resolved path
+        let resolved_path = if relative_path.starts_with('/') {
+            relative_path.to_string()
+        } else {
+            format!("{}/{}", base_dir, relative_path)
+        };
+
+        // Normalize the path (handle ../ and ./)
+        let normalized = Self::normalize_path(&resolved_path);
+
+        // Create the full URI
+        let resolved_uri = format!("{}://{}{}", base_uri.scheme(), base_uri.host_str().unwrap_or(""), normalized);
+
+        // Check if this document exists in our graph
+        if self.document_ids.contains_key(&resolved_uri) {
+            Some(resolved_uri)
+        } else {
+            None
+        }
+    }
+
+    /// Normalize a path by resolving . and .. components
+    fn normalize_path(path: &str) -> String {
+        let mut parts: Vec<&str> = Vec::new();
+
+        for part in path.split('/') {
+            match part {
+                "" | "." => {}
+                ".." => {
+                    parts.pop();
+                }
+                _ => parts.push(part),
+            }
+        }
+
+        format!("/{}", parts.join("/"))
+    }
+
+    /// Get file references for a document
+    #[allow(dead_code)]
+    pub fn get_document_file_refs(&self, uri: &str) -> Option<&Vec<String>> {
+        self.document_file_refs.get(uri)
     }
 }
 
@@ -459,5 +540,55 @@ mod tests {
         assert_eq!(SymbolKind::from_level(2), SymbolKind::Header1);
         assert_eq!(SymbolKind::from_level(3), SymbolKind::Header2);
         assert_eq!(SymbolKind::from_level(4), SymbolKind::Header3Plus);
+    }
+
+    #[test]
+    fn test_file_reference_tracking() {
+        let mut graph = WorkspaceGraph::new();
+
+        // Add index with file references
+        graph.add_document(
+            "file:///docs/index.adoc",
+            "= Index\n\n* <<adr/0001-arch.adoc#,ADR 0001>>\n* <<adr/0002-lsp.adoc#,ADR 0002>>",
+        );
+
+        // Check file references were extracted
+        let file_refs = graph.get_document_file_refs("file:///docs/index.adoc");
+        assert!(file_refs.is_some());
+        let refs = file_refs.unwrap();
+        assert_eq!(refs.len(), 2);
+        assert!(refs.contains(&"adr/0001-arch.adoc".to_string()));
+        assert!(refs.contains(&"adr/0002-lsp.adoc".to_string()));
+    }
+
+    #[test]
+    fn test_reachable_via_file_refs() {
+        let mut graph = WorkspaceGraph::new();
+
+        // Add index with file references
+        graph.add_document(
+            "file:///docs/index.adoc",
+            "[[index]]\n= Index\n\n* <<adr/0001-arch.adoc#,ADR 0001>>",
+        );
+
+        // Add the referenced ADR
+        graph.add_document(
+            "file:///docs/adr/0001-arch.adoc",
+            "[[adr-0001]]\n= ADR 0001: Architecture",
+        );
+
+        // Find reachable from index
+        let reachable = graph.find_reachable_documents(&["file:///docs/index.adoc"]);
+
+        assert!(reachable.contains("file:///docs/index.adoc"));
+        assert!(reachable.contains("file:///docs/adr/0001-arch.adoc"));
+    }
+
+    #[test]
+    fn test_normalize_path() {
+        assert_eq!(WorkspaceGraph::normalize_path("/a/b/c"), "/a/b/c");
+        assert_eq!(WorkspaceGraph::normalize_path("/a/b/../c"), "/a/c");
+        assert_eq!(WorkspaceGraph::normalize_path("/a/./b/c"), "/a/b/c");
+        assert_eq!(WorkspaceGraph::normalize_path("/a/b/c/../.."), "/a");
     }
 }

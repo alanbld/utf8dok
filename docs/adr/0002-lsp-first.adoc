@@ -1,0 +1,49 @@
+[[adr-0002]]
+= ADR 0002: LSP-First Architecture
+:status: Accepted
+:date: 2025-01-20
+:relates-to: adr-0001
+
+== Context
+
+UTF8DOK needs to provide real-time feedback to developers during documentation writing.
+We considered multiple approaches:
+
+. *CLI-only*: Run validation on save or commit
+. *Web service*: API-based validation
+. *Editor plugin*: Direct editor integration
+. *Language Server Protocol*: Standardized editor-agnostic protocol
+
+== Decision
+
+We will adopt an *LSP-first architecture* where:
+
+* The core validation logic is in a Language Server
+* Editors integrate via the standard LSP protocol
+* CLI is a thin wrapper around the same core logic
+* All intelligence (compliance, diagrams, quality) flows through LSP
+
+== Consequences
+
+*Positive*:
+
+* Works with any LSP-compatible editor (VS Code, Neovim, IntelliJ, etc.)
+* Real-time feedback as developers type
+* Standardized protocol with rich features (completions, refactoring, etc.)
+* Separation of concerns: server handles logic, clients handle UI
+
+*Negative*:
+
+* More complex than a CLI tool
+* Requires LSP server implementation
+* Debugging distributed system (client-server)
+
+== Implementation
+
+The architecture consists of:
+
+----
+crates/utf8dok-lsp/           # LSP server implementation
+crates/utf8dok-cli/           # CLI wrapper
+editors/vscode/               # VS Code LSP client
+----

@@ -1,0 +1,60 @@
+[[adr-0003]]
+= ADR 0003: Plugin System Design
+:status: Accepted
+:date: 2025-01-25
+:relates-to: adr-0001, adr-0002
+
+== Context
+
+UTF8DOK needs to support multiple types of documentation:
+
+* Bridge Framework ADRs
+* RFC documents
+* API documentation
+* General AsciiDoc
+* Diagrams (Mermaid, PlantUML, D2)
+* Writing quality checks
+
+Each type has different validation rules and features.
+
+== Decision
+
+We will implement a *plugin-based architecture* with:
+
+* `DocumentDomain` trait for document type plugins
+* Content plugins for cross-cutting features (diagrams, quality)
+* `DomainRegistry` for automatic plugin detection
+* Configuration-driven plugin enabling/disabling
+
+== Consequences
+
+*Positive*:
+
+* New document types can be added without modifying core code
+* Plugins can be developed independently
+* Users can enable only needed features
+* Clear separation of concerns
+
+*Negative*:
+
+* Plugin interface design is critical
+* Need to manage plugin dependencies
+* Performance considerations with many plugins
+
+== Plugin Architecture
+
+----
+src/domain/plugins/
+├── bridge.rs     # Bridge Framework compliance
+├── rfc.rs        # RFC document validation
+├── diagrams.rs   # Diagram syntax validation
+├── quality.rs    # Writing quality suggestions
+└── generic.rs    # Fallback for unknown types
+----
+
+Each plugin implements the `DocumentDomain` trait:
+
+* `detect()` - Determine if document matches this domain
+* `validate()` - Run domain-specific validation
+* `completions()` - Provide context-aware completions
+* `semantic_tokens()` - Provide syntax highlighting hints
