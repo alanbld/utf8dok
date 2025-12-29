@@ -10,6 +10,10 @@ use clap::{Parser, Subcommand, ValueEnum};
 use glob::glob;
 
 use utf8dok_core::diagnostics::Diagnostic;
+use utf8dok_core::dual_nature::{
+    parse_dual_nature, transform_for_format, validate_dual_nature, ContentSelector,
+    OutputFormat as DualNatureFormat,
+};
 use utf8dok_core::parse;
 use utf8dok_lsp::compliance::dashboard::ComplianceDashboard;
 use utf8dok_lsp::compliance::ComplianceEngine;
@@ -41,6 +45,18 @@ pub enum AuditFormat {
     Json,
     /// Markdown output for PR comments
     Markdown,
+}
+
+/// Target format for dual-nature analysis
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+pub enum DualNatureTargetFormat {
+    /// Show content for slide/presentation view
+    #[default]
+    Slide,
+    /// Show content for document view
+    Document,
+    /// Show both views side by side
+    Both,
 }
 
 #[derive(Parser)]
@@ -148,6 +164,24 @@ enum Commands {
         #[arg(short, long)]
         config: Option<PathBuf>,
     },
+
+    /// Analyze dual-nature document (slide + document from single source)
+    DualNature {
+        /// Input AsciiDoc file with dual-nature annotations
+        input: PathBuf,
+
+        /// Target format to analyze (slide, document, or both)
+        #[arg(short, long, value_enum, default_value = "both")]
+        target: DualNatureTargetFormat,
+
+        /// Output format (text or json)
+        #[arg(short, long, value_enum, default_value = "text")]
+        format: OutputFormat,
+
+        /// Only validate without showing content
+        #[arg(long)]
+        validate_only: bool,
+    },
 }
 
 /// Run the CLI application
@@ -196,6 +230,14 @@ pub fn run_cli() -> Result<()> {
             config,
         } => {
             dashboard_command(&input, &output, config.as_deref())?;
+        }
+        Commands::DualNature {
+            input,
+            target,
+            format,
+            validate_only,
+        } => {
+            dual_nature_command(&input, target, format, validate_only)?;
         }
     }
 
@@ -875,6 +917,306 @@ pub fn dashboard_command(
     Ok(())
 }
 
+/// Execute the dual-nature command (analyze slide/document dual-nature documents)
+pub fn dual_nature_command(
+    input: &std::path::Path,
+    target: DualNatureTargetFormat,
+    format: OutputFormat,
+    validate_only: bool,
+) -> Result<()> {
+    println!("utf8dok v{}", utf8dok_core::VERSION);
+    println!("Analyzing dual-nature document: {}", input.display());
+
+    // Check input file exists
+    if !input.exists() {
+        anyhow::bail!("Input file not found: {}", input.display());
+    }
+
+    // Read the input file
+    let content = fs::read_to_string(input)
+        .with_context(|| format!("Failed to read input file: {}", input.display()))?;
+
+    // Parse as dual-nature document
+    let doc = parse_dual_nature(&content);
+
+    // Validate the document
+    let validation = validate_dual_nature(&doc);
+
+    // Output validation results
+    if validate_only || !validation.is_valid || validation.has_issues() {
+        match format {
+            OutputFormat::Json => {
+                let json_output = serde_json::json!({
+                    "file": input.display().to_string(),
+                    "title": doc.title,
+                    "is_valid": validation.is_valid,
+                    "errors": validation.errors.iter().map(|e| {
+                        serde_json::json!({
+                            "code": e.code,
+                            "message": e.message,
+                            "line": e.line,
+                            "suggestion": e.suggestion
+                        })
+                    }).collect::<Vec<_>>(),
+                    "warnings": validation.warnings.iter().map(|w| {
+                        serde_json::json!({
+                            "code": w.code,
+                            "message": w.message,
+                            "line": w.line,
+                            "suggestion": w.suggestion
+                        })
+                    }).collect::<Vec<_>>(),
+                    "info": validation.info.iter().map(|i| {
+                        serde_json::json!({
+                            "code": i.code,
+                            "message": i.message,
+                            "line": i.line,
+                            "suggestion": i.suggestion
+                        })
+                    }).collect::<Vec<_>>(),
+                });
+                println!("{}", serde_json::to_string_pretty(&json_output)?);
+                if validate_only {
+                    return Ok(());
+                }
+            }
+            OutputFormat::Text => {
+                println!();
+                println!("=== Validation Results ===");
+                println!();
+
+                if validation.errors.is_empty() && validation.warnings.is_empty() {
+                    println!("✓ Document is valid");
+                } else {
+                    for err in &validation.errors {
+                        print!("[ERROR] {}: {}", err.code, err.message);
+                        if let Some(line) = err.line {
+                            print!(" (line {})", line);
+                        }
+                        println!();
+                        if let Some(ref suggestion) = err.suggestion {
+                            println!("  └─ {}", suggestion);
+                        }
+                    }
+                    for warn in &validation.warnings {
+                        print!("[WARN] {}: {}", warn.code, warn.message);
+                        if let Some(line) = warn.line {
+                            print!(" (line {})", line);
+                        }
+                        println!();
+                        if let Some(ref suggestion) = warn.suggestion {
+                            println!("  └─ {}", suggestion);
+                        }
+                    }
+                    for info in &validation.info {
+                        print!("[INFO] {}: {}", info.code, info.message);
+                        if let Some(line) = info.line {
+                            print!(" (line {})", line);
+                        }
+                        println!();
+                        if let Some(ref suggestion) = info.suggestion {
+                            println!("  └─ {}", suggestion);
+                        }
+                    }
+                }
+
+                if validate_only {
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    // Transform and display content based on target format
+    match format {
+        OutputFormat::Json => {
+            output_dual_nature_json(&doc, target)?;
+        }
+        OutputFormat::Text => {
+            output_dual_nature_text(&doc, target);
+        }
+    }
+
+    Ok(())
+}
+
+/// Output dual-nature analysis as JSON
+fn output_dual_nature_json(
+    doc: &utf8dok_core::dual_nature::DualNatureDocument,
+    target: DualNatureTargetFormat,
+) -> Result<()> {
+    let slide_blocks = transform_for_format(doc, DualNatureFormat::Slide);
+    let doc_blocks = transform_for_format(doc, DualNatureFormat::Document);
+
+    let json_output = match target {
+        DualNatureTargetFormat::Slide => {
+            serde_json::json!({
+                "format": "slide",
+                "title": doc.title,
+                "block_count": slide_blocks.len(),
+                "blocks": format_blocks_json(&slide_blocks),
+            })
+        }
+        DualNatureTargetFormat::Document => {
+            serde_json::json!({
+                "format": "document",
+                "title": doc.title,
+                "block_count": doc_blocks.len(),
+                "blocks": format_blocks_json(&doc_blocks),
+            })
+        }
+        DualNatureTargetFormat::Both => {
+            serde_json::json!({
+                "title": doc.title,
+                "slide": {
+                    "block_count": slide_blocks.len(),
+                    "blocks": format_blocks_json(&slide_blocks),
+                },
+                "document": {
+                    "block_count": doc_blocks.len(),
+                    "blocks": format_blocks_json(&doc_blocks),
+                },
+            })
+        }
+    };
+
+    println!("{}", serde_json::to_string_pretty(&json_output)?);
+    Ok(())
+}
+
+/// Format blocks as JSON value
+fn format_blocks_json(blocks: &[utf8dok_core::dual_nature::DualNatureBlock]) -> Vec<serde_json::Value> {
+    blocks
+        .iter()
+        .map(|b| {
+            serde_json::json!({
+                "selector": format!("{:?}", b.selector),
+                "content_type": get_content_type(&b.content),
+                "line": b.source_line,
+            })
+        })
+        .collect()
+}
+
+/// Get content type string for JSON output
+fn get_content_type(content: &utf8dok_core::dual_nature::BlockContent) -> &'static str {
+    use utf8dok_core::dual_nature::BlockContent;
+    match content {
+        BlockContent::Section(_) => "section",
+        BlockContent::Paragraph(_) => "paragraph",
+        BlockContent::BulletList(_) => "bullet_list",
+        BlockContent::NumberedList(_) => "numbered_list",
+        BlockContent::Code(_) => "code",
+        BlockContent::Image(_) => "image",
+        BlockContent::Table(_) => "table",
+        BlockContent::Include(_) => "include",
+        BlockContent::Raw(_) => "raw",
+    }
+}
+
+/// Output dual-nature analysis as text
+fn output_dual_nature_text(
+    doc: &utf8dok_core::dual_nature::DualNatureDocument,
+    target: DualNatureTargetFormat,
+) {
+    println!();
+    if let Some(ref title) = doc.title {
+        println!("Title: {}", title);
+    }
+    println!();
+
+    match target {
+        DualNatureTargetFormat::Slide => {
+            let blocks = transform_for_format(doc, DualNatureFormat::Slide);
+            println!("=== Slide View ({} blocks) ===", blocks.len());
+            println!();
+            print_blocks_text(&blocks);
+        }
+        DualNatureTargetFormat::Document => {
+            let blocks = transform_for_format(doc, DualNatureFormat::Document);
+            println!("=== Document View ({} blocks) ===", blocks.len());
+            println!();
+            print_blocks_text(&blocks);
+        }
+        DualNatureTargetFormat::Both => {
+            let slide_blocks = transform_for_format(doc, DualNatureFormat::Slide);
+            let doc_blocks = transform_for_format(doc, DualNatureFormat::Document);
+
+            println!("=== Slide View ({} blocks) ===", slide_blocks.len());
+            println!();
+            print_blocks_text(&slide_blocks);
+
+            println!();
+            println!("=== Document View ({} blocks) ===", doc_blocks.len());
+            println!();
+            print_blocks_text(&doc_blocks);
+        }
+    }
+}
+
+/// Print blocks in text format
+fn print_blocks_text(blocks: &[utf8dok_core::dual_nature::DualNatureBlock]) {
+    use utf8dok_core::dual_nature::BlockContent;
+
+    for block in blocks {
+        let selector_str = match block.selector {
+            ContentSelector::Both => "[both]",
+            ContentSelector::Slide => "[slide]",
+            ContentSelector::SlideOnly => "[slide-only]",
+            ContentSelector::Document => "[document]",
+            ContentSelector::DocumentOnly => "[document-only]",
+            ContentSelector::Conditional(_) => "[conditional]",
+        };
+
+        match &block.content {
+            BlockContent::Section(s) => {
+                let prefix = "=".repeat(s.level + 1);
+                println!("{} {} {}", selector_str, prefix, s.title);
+            }
+            BlockContent::Paragraph(text) => {
+                let preview = if text.len() > 60 {
+                    format!("{}...", &text[..60])
+                } else {
+                    text.clone()
+                };
+                println!("{} [para] {}", selector_str, preview);
+            }
+            BlockContent::BulletList(items) => {
+                println!("{} [list] {} items", selector_str, items.len());
+                for (i, item) in items.iter().take(3).enumerate() {
+                    let preview = if item.len() > 40 {
+                        format!("{}...", &item[..40])
+                    } else {
+                        item.clone()
+                    };
+                    println!("         {}. {}", i + 1, preview);
+                }
+                if items.len() > 3 {
+                    println!("         ... and {} more", items.len() - 3);
+                }
+            }
+            BlockContent::NumberedList(items) => {
+                println!("{} [numbered] {} items", selector_str, items.len());
+            }
+            BlockContent::Code(c) => {
+                println!("{} [code] {} ({} lines)", selector_str, c.language.as_deref().unwrap_or("text"), c.code.lines().count());
+            }
+            BlockContent::Image(img) => {
+                println!("{} [image] {}", selector_str, img.path);
+            }
+            BlockContent::Table(_) => {
+                println!("{} [table]", selector_str);
+            }
+            BlockContent::Include(inc) => {
+                println!("{} [include] {}", selector_str, inc.path);
+            }
+            BlockContent::Raw(text) => {
+                println!("{} [raw] {} chars", selector_str, text.len());
+            }
+        }
+    }
+}
+
 /// Load settings from a config file or use defaults
 fn load_settings(config_path: Option<&std::path::Path>) -> Result<Settings> {
     match config_path {
@@ -1349,5 +1691,152 @@ mod tests {
         // Year should be reasonable (2020-2100)
         let year: u32 = date[0..4].parse().unwrap();
         assert!(year >= 2020 && year <= 2100);
+    }
+
+    // ==================== DUAL-NATURE COMMAND TESTS ====================
+
+    #[test]
+    fn test_cli_parse_dual_nature() {
+        let args = vec!["utf8dok", "dual-nature", "doc.adoc"];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Commands::DualNature {
+                input,
+                target,
+                format,
+                validate_only,
+            } => {
+                assert_eq!(input, PathBuf::from("doc.adoc"));
+                assert!(matches!(target, DualNatureTargetFormat::Both)); // default
+                assert!(matches!(format, OutputFormat::Text)); // default
+                assert!(!validate_only);
+            }
+            _ => panic!("Expected DualNature command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_dual_nature_slide_target() {
+        let args = vec!["utf8dok", "dual-nature", "doc.adoc", "--target", "slide"];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Commands::DualNature {
+                input,
+                target,
+                format: _,
+                validate_only: _,
+            } => {
+                assert_eq!(input, PathBuf::from("doc.adoc"));
+                assert!(matches!(target, DualNatureTargetFormat::Slide));
+            }
+            _ => panic!("Expected DualNature command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_dual_nature_document_target() {
+        let args = vec!["utf8dok", "dual-nature", "doc.adoc", "--target", "document"];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Commands::DualNature {
+                input,
+                target,
+                format: _,
+                validate_only: _,
+            } => {
+                assert_eq!(input, PathBuf::from("doc.adoc"));
+                assert!(matches!(target, DualNatureTargetFormat::Document));
+            }
+            _ => panic!("Expected DualNature command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_dual_nature_json_format() {
+        let args = vec!["utf8dok", "dual-nature", "doc.adoc", "--format", "json"];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Commands::DualNature {
+                input,
+                target: _,
+                format,
+                validate_only: _,
+            } => {
+                assert_eq!(input, PathBuf::from("doc.adoc"));
+                assert!(matches!(format, OutputFormat::Json));
+            }
+            _ => panic!("Expected DualNature command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_dual_nature_validate_only() {
+        let args = vec!["utf8dok", "dual-nature", "doc.adoc", "--validate-only"];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Commands::DualNature {
+                input,
+                target: _,
+                format: _,
+                validate_only,
+            } => {
+                assert_eq!(input, PathBuf::from("doc.adoc"));
+                assert!(validate_only);
+            }
+            _ => panic!("Expected DualNature command"),
+        }
+    }
+
+    #[test]
+    fn test_dual_nature_command_with_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let adoc_path = temp.path().join("dual.adoc");
+
+        let content = r#"= Dual Nature Test
+:slide-bullets: 3
+
+[.slide]
+== Executive Summary
+
+* Point 1
+* Point 2
+* Point 3
+
+[.document-only]
+== Detailed Analysis
+
+This section appears only in the document.
+"#;
+
+        fs::write(&adoc_path, content).unwrap();
+
+        // Run dual-nature command
+        let result = dual_nature_command(&adoc_path, DualNatureTargetFormat::Both, OutputFormat::Text, false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_dual_nature_command_validate_only() {
+        let temp = tempfile::tempdir().unwrap();
+        let adoc_path = temp.path().join("validate.adoc");
+
+        let content = r#"= Validation Test
+
+[.slide-only]
+== Slides Only Section
+
+* Point 1
+"#;
+
+        fs::write(&adoc_path, content).unwrap();
+
+        // Run with validate-only
+        let result = dual_nature_command(&adoc_path, DualNatureTargetFormat::Slide, OutputFormat::Text, true);
+        assert!(result.is_ok());
     }
 }

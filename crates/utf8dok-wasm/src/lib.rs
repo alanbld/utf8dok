@@ -23,6 +23,6 @@ mod tests {
 
     #[test]
     fn test_version() {
-        assert_eq!(version(), "0.1.0");
+        assert_eq!(version(), "1.0.0");
     }
 }

@@ -34,11 +34,16 @@
 //! ```
 
 pub mod diagnostics;
+pub mod dual_nature;
 pub mod generator;
 pub mod parser;
 
 // Re-export main types and functions
 pub use diagnostics::{Diagnostic, Diagnostics, Severity, Span};
+pub use dual_nature::{
+    parse_dual_nature, transform_for_format, validate_dual_nature,
+    ContentSelector, DualNatureBlock, DualNatureDocument, OutputFormat,
+};
 pub use generator::{generate, generate_with_config, AsciiDocGenerator, GeneratorConfig};
 pub use parser::parse;
 
