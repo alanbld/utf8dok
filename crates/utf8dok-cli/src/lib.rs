@@ -34,5 +34,5 @@
 pub mod app;
 
 // Re-export main entry point and types
-pub use app::{run_cli, OutputFormat};
-pub use app::{extract_command, render_command, check_command};
+pub use app::{run_cli, OutputFormat, AuditFormat};
+pub use app::{extract_command, render_command, check_command, audit_command, dashboard_command};

@@ -7,9 +7,14 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
+use glob::glob;
 
 use utf8dok_core::diagnostics::Diagnostic;
 use utf8dok_core::parse;
+use utf8dok_lsp::compliance::dashboard::ComplianceDashboard;
+use utf8dok_lsp::compliance::ComplianceEngine;
+use utf8dok_lsp::config::Settings;
+use utf8dok_lsp::workspace::graph::WorkspaceGraph;
 use utf8dok_ooxml::{
     AsciiDocExtractor, DocxWriter, OoxmlArchive, SourceOrigin, StyleSheet, Template,
 };
@@ -24,6 +29,18 @@ pub enum OutputFormat {
     Text,
     /// JSON output for LLM/tool consumption
     Json,
+}
+
+/// Output format for audit reports
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+pub enum AuditFormat {
+    /// Human-readable text output
+    #[default]
+    Text,
+    /// JSON output for CI/CD integration
+    Json,
+    /// Markdown output for PR comments
+    Markdown,
 }
 
 #[derive(Parser)]
@@ -77,6 +94,40 @@ enum Commands {
         #[arg(short, long)]
         plugin: Vec<PathBuf>,
     },
+
+    /// Audit a documentation workspace for compliance (CI/CD)
+    Audit {
+        /// Input directory containing AsciiDoc files
+        #[arg(default_value = ".")]
+        input: PathBuf,
+
+        /// Output format (text, json, or markdown)
+        #[arg(short, long, value_enum, default_value = "text")]
+        format: AuditFormat,
+
+        /// Strict mode: exit with error code if any violations found
+        #[arg(long)]
+        strict: bool,
+
+        /// Configuration file path
+        #[arg(short, long)]
+        config: Option<PathBuf>,
+    },
+
+    /// Generate a compliance dashboard HTML report
+    Dashboard {
+        /// Input directory containing AsciiDoc files
+        #[arg(default_value = ".")]
+        input: PathBuf,
+
+        /// Output file path
+        #[arg(short, long, default_value = "compliance-dashboard.html")]
+        output: PathBuf,
+
+        /// Configuration file path
+        #[arg(short, long)]
+        config: Option<PathBuf>,
+    },
 }
 
 /// Run the CLI application
@@ -107,6 +158,21 @@ pub fn run_cli() -> Result<()> {
             plugin,
         } => {
             check_command(&input, format, &plugin)?;
+        }
+        Commands::Audit {
+            input,
+            format,
+            strict,
+            config,
+        } => {
+            audit_command(&input, format, strict, config.as_deref())?;
+        }
+        Commands::Dashboard {
+            input,
+            output,
+            config,
+        } => {
+            dashboard_command(&input, &output, config.as_deref())?;
         }
     }
 
@@ -405,6 +471,183 @@ pub fn check_command(input: &std::path::Path, format: OutputFormat, plugins: &[P
     Ok(())
 }
 
+/// Execute the audit command (CI/CD compliance check)
+pub fn audit_command(
+    input: &std::path::Path,
+    format: AuditFormat,
+    strict: bool,
+    config_path: Option<&std::path::Path>,
+) -> Result<()> {
+    println!("utf8dok v{}", utf8dok_core::VERSION);
+    println!("Auditing: {}", input.display());
+
+    // Load settings from config file if provided
+    let settings = load_settings(config_path)?;
+
+    // Load workspace graph from directory
+    let graph = load_workspace_graph(input)?;
+
+    println!("  Found {} documents", graph.document_count());
+
+    // Create compliance engine with settings
+    let engine = ComplianceEngine::with_settings(&settings);
+
+    // Run compliance checks
+    let result = engine.run_with_stats(&graph);
+
+    // Output based on format
+    match format {
+        AuditFormat::Text => {
+            println!();
+            println!("=== Compliance Report ===");
+            println!();
+            println!("Score: {}%", result.compliance_score);
+            println!("Documents: {}", result.total_documents);
+            println!("Errors: {}", result.errors);
+            println!("Warnings: {}", result.warnings);
+            println!("Info: {}", result.info);
+            println!();
+
+            if result.violations.is_empty() {
+                println!("✓ No compliance violations found");
+            } else {
+                println!("Violations:");
+                for v in &result.violations {
+                    let severity = match v.severity {
+                        utf8dok_lsp::compliance::ViolationSeverity::Error => "ERROR",
+                        utf8dok_lsp::compliance::ViolationSeverity::Warning => "WARN",
+                        utf8dok_lsp::compliance::ViolationSeverity::Info => "INFO",
+                    };
+                    println!("  [{}] {}: {}", severity, v.code, v.message);
+                    println!("         at {}", v.uri);
+                }
+            }
+        }
+        AuditFormat::Json => {
+            let dashboard = ComplianceDashboard::new(&engine, &graph);
+            let json = dashboard.generate_json();
+            println!("{}", json);
+        }
+        AuditFormat::Markdown => {
+            let dashboard = ComplianceDashboard::new(&engine, &graph);
+            let markdown = dashboard.generate_markdown();
+            println!("{}", markdown);
+        }
+    }
+
+    // Exit with error code in strict mode if there are violations
+    if strict && !result.is_clean() {
+        std::process::exit(1);
+    }
+
+    Ok(())
+}
+
+/// Execute the dashboard command (HTML report generation)
+pub fn dashboard_command(
+    input: &std::path::Path,
+    output: &std::path::Path,
+    config_path: Option<&std::path::Path>,
+) -> Result<()> {
+    println!("utf8dok v{}", utf8dok_core::VERSION);
+    println!("Generating dashboard for: {}", input.display());
+
+    // Load settings from config file if provided
+    let settings = load_settings(config_path)?;
+
+    // Load workspace graph from directory
+    let graph = load_workspace_graph(input)?;
+
+    println!("  Found {} documents", graph.document_count());
+
+    // Create compliance engine with settings
+    let engine = ComplianceEngine::with_settings(&settings);
+
+    // Generate HTML dashboard
+    let dashboard = ComplianceDashboard::new(&engine, &graph);
+    let html = dashboard.generate_html();
+
+    // Write output
+    fs::write(output, &html)
+        .with_context(|| format!("Failed to write dashboard: {}", output.display()))?;
+
+    // Run checks for summary
+    let result = engine.run_with_stats(&graph);
+
+    println!();
+    println!("Dashboard generated!");
+    println!("  Output: {}", output.display());
+    println!("  Score: {}%", result.compliance_score);
+    println!("  Documents: {}", result.total_documents);
+    println!("  Violations: {}", result.violations.len());
+
+    Ok(())
+}
+
+/// Load settings from a config file or use defaults
+fn load_settings(config_path: Option<&std::path::Path>) -> Result<Settings> {
+    match config_path {
+        Some(path) => {
+            if !path.exists() {
+                anyhow::bail!("Config file not found: {}", path.display());
+            }
+            let content = fs::read_to_string(path)
+                .with_context(|| format!("Failed to read config: {}", path.display()))?;
+            Settings::from_toml_str(&content)
+                .with_context(|| format!("Failed to parse config: {}", path.display()))
+        }
+        None => {
+            // Try to find utf8dok.toml in common locations
+            let candidates = ["utf8dok.toml", ".utf8dok.toml"];
+            for candidate in candidates {
+                if std::path::Path::new(candidate).exists() {
+                    let content = fs::read_to_string(candidate)?;
+                    if let Ok(settings) = Settings::from_toml_str(&content) {
+                        return Ok(settings);
+                    }
+                }
+            }
+            Ok(Settings::default())
+        }
+    }
+}
+
+/// Load all AsciiDoc files from a directory into a WorkspaceGraph
+fn load_workspace_graph(dir: &std::path::Path) -> Result<WorkspaceGraph> {
+    let mut graph = WorkspaceGraph::new();
+
+    // Find all .adoc and .asciidoc files
+    let patterns = [
+        dir.join("**/*.adoc").display().to_string(),
+        dir.join("**/*.asciidoc").display().to_string(),
+    ];
+
+    for pattern in &patterns {
+        for entry in glob(pattern).with_context(|| format!("Invalid glob pattern: {}", pattern))? {
+            match entry {
+                Ok(path) => {
+                    // Read file content
+                    if let Ok(content) = fs::read_to_string(&path) {
+                        // Convert path to file:// URI
+                        let uri = format!(
+                            "file://{}",
+                            path.canonicalize()
+                                .unwrap_or(path.clone())
+                                .display()
+                        );
+                        graph.add_document(&uri, &content);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Warning: Could not read {}", e);
+                }
+            }
+        }
+    }
+
+    Ok(graph)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -581,5 +824,106 @@ mod tests {
             }
             _ => panic!("Expected Check command"),
         }
+    }
+
+    #[test]
+    fn test_cli_parse_audit() {
+        let args = vec!["utf8dok", "audit", "docs/"];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Commands::Audit {
+                input,
+                format,
+                strict,
+                config,
+            } => {
+                assert_eq!(input, PathBuf::from("docs/"));
+                assert!(matches!(format, AuditFormat::Text));
+                assert!(!strict);
+                assert!(config.is_none());
+            }
+            _ => panic!("Expected Audit command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_audit_strict() {
+        let args = vec!["utf8dok", "audit", "--strict", "--format", "json"];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Commands::Audit {
+                input,
+                format,
+                strict,
+                config: _,
+            } => {
+                assert_eq!(input, PathBuf::from(".")); // default
+                assert!(matches!(format, AuditFormat::Json));
+                assert!(strict);
+            }
+            _ => panic!("Expected Audit command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_dashboard() {
+        let args = vec!["utf8dok", "dashboard", "docs/", "--output", "report.html"];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Commands::Dashboard {
+                input,
+                output,
+                config,
+            } => {
+                assert_eq!(input, PathBuf::from("docs/"));
+                assert_eq!(output, PathBuf::from("report.html"));
+                assert!(config.is_none());
+            }
+            _ => panic!("Expected Dashboard command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_dashboard_with_config() {
+        let args = vec![
+            "utf8dok",
+            "dashboard",
+            ".",
+            "--config",
+            "custom.toml",
+        ];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Commands::Dashboard {
+                input,
+                output,
+                config,
+            } => {
+                assert_eq!(input, PathBuf::from("."));
+                assert_eq!(output, PathBuf::from("compliance-dashboard.html")); // default
+                assert_eq!(config, Some(PathBuf::from("custom.toml")));
+            }
+            _ => panic!("Expected Dashboard command"),
+        }
+    }
+
+    #[test]
+    fn test_load_workspace_graph_empty() {
+        // Create a temp directory with no files
+        let temp_dir = tempfile::tempdir().unwrap();
+        let graph = load_workspace_graph(temp_dir.path()).unwrap();
+        assert_eq!(graph.document_count(), 0);
+    }
+
+    #[test]
+    fn test_load_settings_default() {
+        // Should return default settings when no config exists
+        let settings = load_settings(None).unwrap();
+        // Just verify it doesn't panic and returns something
+        assert_eq!(settings.workspace.entry_points.len(), 2);
     }
 }
