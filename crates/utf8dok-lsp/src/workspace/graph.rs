@@ -315,6 +315,12 @@ impl WorkspaceGraph {
         }
     }
 
+    /// Get the number of documents in the graph
+    #[allow(dead_code)]
+    pub fn document_count(&self) -> usize {
+        self.document_ids.len()
+    }
+
     // ==================== COMPLIANCE ENGINE ACCESSORS ====================
 
     /// Get all document URIs in the graph

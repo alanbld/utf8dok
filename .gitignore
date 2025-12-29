@@ -21,6 +21,9 @@ Thumbs.db
 *.profraw
 *.profdata
 
+# Coverage reports
+/coverage/
+
 # Documentation build
 /docs/_site/
 /docs/.sass-cache/

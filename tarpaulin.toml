@@ -1,0 +1,45 @@
+# Tarpaulin Code Coverage Configuration
+# Run with: cargo tarpaulin --config tarpaulin.toml
+
+[default]
+# Output formats
+out = ["Html", "Xml"]
+
+# Output directory
+output-dir = "coverage"
+
+# Workspace settings
+workspace = true
+all-features = true
+
+# Exclude test code from coverage
+exclude-files = ["**/tests/*", "**/test_*.rs", "**/*_test.rs"]
+
+# Timeout per test (seconds)
+timeout = "120s"
+
+# Skip files that can't be instrumented
+skip-clean = false
+
+# Engine (default ptrace works on Linux)
+engine = "Ptrace"
+
+# Verbose output
+verbose = false
+
+# Follow exec'd child processes
+follow-exec = true
+
+# Count hits vs just covered
+count = true
+
+# Fail if coverage below threshold (optional)
+# fail-under = 60.0
+
+[report]
+# Generate cobertura.xml for CI integration
+cobertura = "cobertura.xml"
+
+[lsp]
+# LSP-specific coverage profile
+packages = ["utf8dok-lsp"]

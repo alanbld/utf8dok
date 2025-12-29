@@ -402,3 +402,138 @@ mod attribute_tests {
         assert!(attrs.is_empty() || !attrs.contains_key("status"));
     }
 }
+
+// ==================== COMPLIANCE ENGINE TESTS ====================
+
+mod engine_tests {
+    use super::*;
+    use crate::compliance::{ComplianceEngine, ViolationSeverity};
+
+    /// Test 17: ComplianceEngine creation
+    #[test]
+    fn test_engine_creation() {
+        let engine = ComplianceEngine::new();
+        let descriptions = engine.rule_descriptions();
+
+        // Should have at least StatusRule and OrphanRule
+        assert!(descriptions.len() >= 2);
+        assert!(descriptions.iter().any(|(code, _)| *code == "BRIDGE001"));
+        assert!(descriptions.iter().any(|(code, _)| *code == "BRIDGE003"));
+    }
+
+    /// Test 18: Empty engine creation
+    #[test]
+    fn test_empty_engine() {
+        let engine = ComplianceEngine::empty();
+        assert!(engine.rule_descriptions().is_empty());
+
+        let graph = WorkspaceGraph::new();
+        let result = engine.run_with_stats(&graph);
+        assert!(result.is_clean());
+    }
+
+    /// Test 19: Run with stats - clean workspace
+    #[test]
+    fn test_run_with_stats_clean() {
+        let engine = ComplianceEngine::new();
+        let mut graph = WorkspaceGraph::new();
+
+        graph.add_document(
+            "file:///index.adoc",
+            "[[index]]\n= Index\n\n<<adr-001>>",
+        );
+        graph.add_document(
+            "file:///adr-001.adoc",
+            "[[adr-001]]\n= ADR 001\n:status: Accepted",
+        );
+
+        let result = engine.run_with_stats(&graph);
+
+        assert_eq!(result.total_documents, 2);
+        assert_eq!(result.errors, 0);
+        assert_eq!(result.warnings, 0);
+        assert!(!result.has_critical());
+        assert!(result.is_clean());
+        assert_eq!(result.compliance_score, 100);
+    }
+
+    /// Test 20: Run with stats - with violations
+    #[test]
+    fn test_run_with_stats_violations() {
+        let engine = ComplianceEngine::new();
+        let mut graph = WorkspaceGraph::new();
+
+        // ADR 001 is Accepted but being superseded
+        graph.add_document(
+            "file:///index.adoc",
+            "[[index]]\n= Index\n\n<<adr-001>>\n<<adr-002>>",
+        );
+        graph.add_document(
+            "file:///adr-001.adoc",
+            "[[adr-001]]\n= ADR 001\n:status: Accepted",
+        );
+        graph.add_document(
+            "file:///adr-002.adoc",
+            "[[adr-002]]\n= ADR 002\n:supersedes: adr-001",
+        );
+
+        let result = engine.run_with_stats(&graph);
+
+        assert_eq!(result.total_documents, 3);
+        assert!(result.errors > 0 || result.warnings > 0);
+        assert!(!result.is_clean());
+        assert!(result.compliance_score < 100);
+    }
+
+    /// Test 21: ComplianceResult helpers
+    #[test]
+    fn test_compliance_result_helpers() {
+        use crate::compliance::{ComplianceResult, Violation};
+        use tower_lsp::lsp_types::{Position, Range, Url};
+
+        let result_with_error = ComplianceResult {
+            violations: vec![Violation {
+                uri: Url::parse("file:///test.adoc").unwrap(),
+                range: Range {
+                    start: Position { line: 0, character: 0 },
+                    end: Position { line: 0, character: 0 },
+                },
+                message: "Test error".to_string(),
+                severity: ViolationSeverity::Error,
+                code: "TEST001".to_string(),
+            }],
+            errors: 1,
+            warnings: 0,
+            info: 0,
+            total_documents: 5,
+            compliance_score: 80,
+        };
+
+        assert!(result_with_error.has_critical());
+        assert!(!result_with_error.is_clean());
+
+        let clean_result = ComplianceResult {
+            violations: vec![],
+            errors: 0,
+            warnings: 0,
+            info: 0,
+            total_documents: 5,
+            compliance_score: 100,
+        };
+
+        assert!(!clean_result.has_critical());
+        assert!(clean_result.is_clean());
+    }
+
+    /// Test 22: Default trait implementation
+    #[test]
+    fn test_engine_default() {
+        let engine1 = ComplianceEngine::new();
+        let engine2 = ComplianceEngine::default();
+
+        assert_eq!(
+            engine1.rule_descriptions().len(),
+            engine2.rule_descriptions().len()
+        );
+    }
+}

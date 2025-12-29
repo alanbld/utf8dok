@@ -169,6 +169,44 @@ The project aims to pass the Eclipse AsciiDoc TCK. Development follows a TCK-fir
 - OOXML template injection
 - Round-trip editing support
 
+## Code Coverage Convention ("rosebud")
+
+The keyword **"rosebud"** triggers a code coverage workflow:
+
+1. **Run tarpaulin**: `cargo tarpaulin --config tarpaulin.toml`
+2. **Report coverage**: Provide full coverage statistics per crate
+3. **Bold action**: Suggest specific, high-impact tests to extend coverage
+
+### Tarpaulin Configuration
+
+Coverage is configured via `tarpaulin.toml`:
+- Output: HTML + XML reports in `coverage/`
+- Excludes: Test files (`**/tests/*`, `**/test_*.rs`)
+- Timeout: 120s per test
+- Engine: Ptrace
+
+### Coverage Targets
+
+| Crate | Target | Priority |
+|-------|--------|----------|
+| `utf8dok-core` | 80%+ | High |
+| `utf8dok-validate` | 80%+ | High |
+| `utf8dok-lsp` | 70%+ | Medium |
+| `utf8dok-cli` | 60%+ | Low (integration) |
+
+### Running Coverage
+
+```bash
+# Full workspace coverage
+cargo tarpaulin --config tarpaulin.toml
+
+# HTML report
+open coverage/tarpaulin-report.html
+
+# Specific crate
+cargo tarpaulin -p utf8dok-core --config tarpaulin.toml
+```
+
 ## Session Handoff
 
 For cross-session continuity:
