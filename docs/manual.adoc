@@ -1,0 +1,466 @@
+[[manual]]
+= UTF8DOK User Guide
+:toc: left
+:toclevels: 3
+:sectnums:
+
+== Introduction
+
+UTF8DOK is a universal documentation platform that provides:
+
+* *Compliance Engine*: Validates Architecture Decision Records (ADRs) against the Bridge Framework
+* *Content Intelligence*: Diagram syntax highlighting and writing quality suggestions
+* *Developer Experience*: VS Code extension with real-time feedback
+* *CI/CD Integration*: Automated compliance checks for pull requests
+
+=== Who Is This For?
+
+UTF8DOK is designed for:
+
+* Software architects documenting decisions
+* Technical writers maintaining large documentation sets
+* Teams adopting the Bridge Framework for ADRs
+* Organizations requiring documentation governance
+
+== Installation
+
+=== CLI Installation
+
+==== From GitHub Releases
+
+Download the latest release for your platform:
+
+[source,bash]
+----
+# Linux (x64)
+curl -LO https://github.com/utf8dok/utf8dok/releases/latest/download/utf8dok-linux-x64
+chmod +x utf8dok-linux-x64
+sudo mv utf8dok-linux-x64 /usr/local/bin/utf8dok
+
+# macOS (Apple Silicon)
+curl -LO https://github.com/utf8dok/utf8dok/releases/latest/download/utf8dok-macos-arm64
+chmod +x utf8dok-macos-arm64
+sudo mv utf8dok-macos-arm64 /usr/local/bin/utf8dok
+
+# macOS (Intel)
+curl -LO https://github.com/utf8dok/utf8dok/releases/latest/download/utf8dok-macos-x64
+chmod +x utf8dok-macos-x64
+sudo mv utf8dok-macos-x64 /usr/local/bin/utf8dok
+----
+
+==== From Cargo
+
+If you have Rust installed:
+
+[source,bash]
+----
+cargo install utf8dok-cli
+----
+
+=== VS Code Extension
+
+. Open VS Code
+. Go to Extensions (Ctrl+Shift+X)
+. Search for "UTF8DOK"
+. Click Install
+
+Or install from command line:
+
+[source,bash]
+----
+code --install-extension utf8dok-vscode.vsix
+----
+
+== Quick Start
+
+=== Creating a New Project
+
+Use `utf8dok init` to scaffold a new documentation workspace:
+
+[source,bash]
+----
+# Create a Bridge Framework project (ADR-focused)
+utf8dok init my-docs
+
+# Or create a basic AsciiDoc project
+utf8dok init my-docs --template basic
+----
+
+This creates:
+
+----
+my-docs/
+├── utf8dok.toml                              # Configuration
+├── index.adoc                                # Documentation hub
+└── adr/                                      # ADR directory (Bridge only)
+    └── 0001-record-architecture-decisions.adoc
+----
+
+=== Running Your First Audit
+
+[source,bash]
+----
+cd my-docs
+utf8dok audit
+----
+
+Expected output:
+
+----
+utf8dok v0.1.0
+Auditing: .
+  Found 2 documents
+
+=== Compliance Report ===
+
+Score: 100%
+Documents: 2
+Errors: 0
+Warnings: 0
+Info: 0
+
+✓ No compliance violations found
+----
+
+=== Generating a Dashboard
+
+Create an HTML compliance report:
+
+[source,bash]
+----
+utf8dok dashboard --output report.html
+open report.html  # macOS
+xdg-open report.html  # Linux
+----
+
+== Commands Reference
+
+=== utf8dok init
+
+Scaffold a new documentation workspace.
+
+[source,bash]
+----
+utf8dok init <path> [OPTIONS]
+
+Arguments:
+  <path>  Path for the new workspace
+
+Options:
+  -t, --template <TEMPLATE>  Template to use [default: bridge]
+                             Possible values: bridge, basic
+----
+
+==== Bridge Template
+
+Creates an ADR-focused workspace with:
+
+* `utf8dok.toml` with Bridge compliance rules
+* `index.adoc` linking to ADRs
+* Sample ADR with all required sections
+
+==== Basic Template
+
+Creates a simple AsciiDoc project with:
+
+* `utf8dok.toml` with basic settings
+* `index.adoc` with starter content
+
+=== utf8dok audit
+
+Check documentation compliance for CI/CD pipelines.
+
+[source,bash]
+----
+utf8dok audit [OPTIONS] [INPUT]
+
+Arguments:
+  [INPUT]  Input directory [default: .]
+
+Options:
+  -f, --format <FORMAT>  Output format [default: text]
+                         Possible values: text, json, markdown
+      --strict           Exit with error if violations found
+  -c, --config <CONFIG>  Configuration file path
+----
+
+==== CI/CD Usage
+
+For GitHub Actions:
+
+[source,yaml]
+----
+- name: Documentation Audit
+  run: utf8dok audit docs/ --strict --format markdown >> $GITHUB_STEP_SUMMARY
+----
+
+=== utf8dok dashboard
+
+Generate an HTML compliance dashboard.
+
+[source,bash]
+----
+utf8dok dashboard [OPTIONS] [INPUT]
+
+Arguments:
+  [INPUT]  Input directory [default: .]
+
+Options:
+  -o, --output <OUTPUT>  Output file [default: compliance-dashboard.html]
+  -c, --config <CONFIG>  Configuration file path
+----
+
+=== utf8dok check
+
+Validate a single AsciiDoc file.
+
+[source,bash]
+----
+utf8dok check <input> [OPTIONS]
+
+Arguments:
+  <input>  Input AsciiDoc file
+
+Options:
+  -f, --format <FORMAT>  Output format [default: text]
+                         Possible values: text, json
+  -p, --plugin <PLUGIN>  Rhai plugin script for custom rules
+----
+
+=== utf8dok extract
+
+Extract AsciiDoc from a DOCX file.
+
+[source,bash]
+----
+utf8dok extract <input> [OPTIONS]
+
+Arguments:
+  <input>  Input DOCX file
+
+Options:
+  -o, --output <OUTPUT>  Output directory [default: output]
+      --force-parse      Force parsing even if embedded source exists
+----
+
+=== utf8dok render
+
+Render AsciiDoc to DOCX using a template.
+
+[source,bash]
+----
+utf8dok render <input> [OPTIONS]
+
+Arguments:
+  <input>  Input AsciiDoc file
+
+Options:
+  -o, --output <OUTPUT>    Output DOCX file
+  -t, --template <TEMPLATE>  Template DOTX file
+----
+
+== Configuration Reference
+
+UTF8DOK is configured via `utf8dok.toml`.
+
+=== Workspace Settings
+
+[source,toml]
+----
+[workspace]
+root = "."                           # Documentation root directory
+entry_points = ["index.adoc", "README.adoc"]  # Entry point documents
+----
+
+=== Bridge Compliance
+
+[source,toml]
+----
+[compliance.bridge]
+orphans = "error"           # Documents must be reachable
+superseded_status = "error" # Superseded ADRs need correct status
+missing_status = "warning"  # Warn if :status: is missing
+missing_date = "warning"    # Warn if :date: is missing
+----
+
+Severity levels:
+
+* `error` - Fails CI/CD in strict mode
+* `warning` - Reported but doesn't fail
+* `info` - Informational only
+* `off` - Disabled
+
+=== Plugins
+
+[source,toml]
+----
+[plugins]
+writing_quality = true   # Enable weasel word detection
+diagrams = true          # Enable diagram validation
+
+# Optional: Custom words to flag
+custom_weasel_words = ["obviously", "clearly", "simply"]
+----
+
+== Bridge Framework ADRs
+
+=== What is an ADR?
+
+An Architecture Decision Record (ADR) documents a significant architectural decision.
+Each ADR includes:
+
+* Unique identifier (e.g., `adr-0001`)
+* Status (Proposed, Accepted, Deprecated, Superseded)
+* Context explaining why the decision is needed
+* The decision itself
+* Consequences (positive and negative)
+
+=== Required Attributes
+
+....
+[[adr-0001]]
+= ADR 0001: Use PostgreSQL for Persistence
+:status: Accepted
+:date: 2025-01-15
+....
+
+Optional attributes:
+
+* `:relates-to:` - Links to related ADRs (e.g., `adr-0002, adr-0003`)
+* `:supersedes:` - The ADR this one replaces (e.g., `adr-0000`)
+
+=== ADR Lifecycle
+
+. *Proposed*: Under discussion
+. *Accepted*: Decision made and implemented
+. *Deprecated*: No longer relevant
+. *Superseded*: Replaced by another ADR (use `:supersedes:`)
+
+=== Compliance Rules
+
+UTF8DOK validates:
+
+|===
+| Rule | Description
+
+| BRIDGE001 | Superseded ADRs must have status Deprecated or Superseded
+| BRIDGE002 | ADRs should have required sections (Context, Decision, Consequences)
+| BRIDGE003 | Documents must be reachable from entry points
+|===
+
+== VS Code Extension
+
+=== Features
+
+* *Real-time validation*: See compliance issues as you type
+* *Quick fixes*: One-click fixes for common problems
+* *Diagram preview*: Syntax highlighting for Mermaid, PlantUML
+* *Compliance dashboard*: View workspace-wide status
+
+=== Status Bar
+
+The status bar shows:
+
+* ✓ Ready - All documents compliant
+* ⚠ 3 issues - Warnings/errors found
+* ⏳ Loading - Analyzing workspace
+
+Click the status bar to open the compliance dashboard.
+
+=== Commands
+
+* `UTF8DOK: Show Dashboard` - Open compliance panel
+* `UTF8DOK: Run Audit` - Run full workspace audit
+* `UTF8DOK: Fix All` - Apply all available quick fixes
+* `UTF8DOK: Restart Server` - Restart the language server
+
+== Troubleshooting
+
+=== "Command not found: utf8dok"
+
+Ensure the binary is in your PATH:
+
+[source,bash]
+----
+which utf8dok
+# Should output: /usr/local/bin/utf8dok (or similar)
+----
+
+=== "Failed to parse config"
+
+Check your `utf8dok.toml` syntax:
+
+[source,bash]
+----
+cat utf8dok.toml | head -20
+# Look for missing quotes or brackets
+----
+
+=== VS Code extension not working
+
+. Check the Output panel (View → Output)
+. Select "UTF8DOK" from the dropdown
+. Look for error messages
+
+=== Audit shows orphaned documents
+
+Documents must be linked from an entry point. Add a cross-reference:
+
+[source,asciidoc]
+----
+// In index.adoc
+* <<path/to/document.adoc#,Document Title>>
+----
+
+== Appendix: AsciiDoc Primer
+
+=== Document Structure
+
+[source,asciidoc]
+----
+= Document Title
+:toc: left
+:author: Your Name
+
+== Section
+
+Paragraph text.
+
+=== Subsection
+
+More text.
+----
+
+=== Cross-References
+
+[source,asciidoc]
+----
+// Define an anchor
+[[my-section]]
+== My Section
+
+// Reference it
+See <<my-section>> for details.
+
+// Reference another file
+See <<other-file.adoc#,Other Document>>.
+----
+
+=== Attributes
+
+[source,asciidoc]
+----
+:status: Accepted    // Document attribute
+:date: 2025-01-15    // Another attribute
+----
+
+=== Diagrams
+
+[source,asciidoc]
+----
+[mermaid]
+----
+graph TD
+    A[Start] --> B[End]
+----
+----

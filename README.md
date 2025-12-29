@@ -1,88 +1,148 @@
-# utf8dok
+# UTF8DOK
 
-Template-aware document generation from AsciiDoc to corporate-compliant DOCX.
+[![CI](https://github.com/utf8dok/utf8dok/actions/workflows/ci.yml/badge.svg)](https://github.com/utf8dok/utf8dok/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
 
-## Problem
+**Plain text, powerful docs.** A universal documentation platform with compliance validation, diagram support, and seamless editor integration.
 
-Existing AsciiDoc → DOCX tools generate generic, unstyled documents. Organizations need output that matches approved corporate templates with:
-
-- Custom heading styles, colors, and numbering
-- Logo placements and branding
-- Proper TOC, headers, footers
-- Metadata tables and revision history
-
-## Solution
-
-utf8dok injects content into Word templates (.dotx) instead of generating OOXML from scratch.
-
-## Workflows
-
-### Extract (Bootstrap)
-
-Convert existing Word documents to AsciiDoc for editing:
+## Quick Start
 
 ```bash
-utf8dok extract existing.docx --output project/
-# Creates:
-#   project/document.adoc    (editable content)
-#   project/template.dotx    (preserved styling)
-#   project/utf8dok.toml     (style mappings)
+# Install (or download from Releases)
+cargo install utf8dok-cli
+
+# Create a new documentation workspace
+utf8dok init my-docs
+
+# Check compliance
+cd my-docs
+utf8dok audit
 ```
 
-### Render (Generate)
+**5 seconds to a compliant workspace.**
 
-Generate corporate-compliant DOCX from AsciiDoc:
+## What It Does
 
-```bash
-utf8dok render project/document.adoc --output final.docx
+UTF8DOK combines **three superpowers**:
+
+### 1. Compliance Engine
+Validate Architecture Decision Records (ADRs) against the Bridge Framework:
+- Orphan detection (documents must be linked)
+- Status validation (superseded ADRs need correct status)
+- Required sections (Context, Decision, Consequences)
+
+### 2. Content Intelligence
+Real-time feedback as you write:
+- Diagram syntax highlighting (Mermaid, PlantUML, D2)
+- Writing quality suggestions (weasel words, passive voice)
+- Cross-reference validation
+
+### 3. CI/CD Integration
+Automated documentation governance:
+```yaml
+# .github/workflows/ci.yml
+- name: Documentation Audit
+  run: utf8dok audit docs/ --strict --format markdown >> $GITHUB_STEP_SUMMARY
 ```
 
-## Building
+## Installation
+
+### CLI
 
 ```bash
-cargo build --workspace
-cargo test --workspace
+# From cargo
+cargo install utf8dok-cli
+
+# From source
+git clone https://github.com/utf8dok/utf8dok
+cd utf8dok
+cargo build --release
+```
+
+### VS Code Extension
+
+1. Download `utf8dok-vscode.vsix` from [Releases](https://github.com/utf8dok/utf8dok/releases)
+2. Install: `code --install-extension utf8dok-vscode.vsix`
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `utf8dok init <path>` | Scaffold a new documentation workspace |
+| `utf8dok audit [dir]` | Check compliance (CI/CD) |
+| `utf8dok dashboard [dir]` | Generate HTML compliance report |
+| `utf8dok check <file>` | Validate a single file |
+| `utf8dok extract <docx>` | Extract AsciiDoc from DOCX |
+| `utf8dok render <adoc>` | Render AsciiDoc to DOCX |
+
+## Configuration
+
+```toml
+# utf8dok.toml
+[workspace]
+root = "."
+entry_points = ["index.adoc", "README.adoc"]
+
+[compliance.bridge]
+orphans = "error"           # Documents must be reachable
+superseded_status = "error" # Superseded ADRs need correct status
+missing_status = "warning"  # Warn if :status: missing
+
+[plugins]
+writing_quality = true
+diagrams = true
 ```
 
 ## Project Structure
 
 ```
 crates/
-├── utf8dok-ooxml/    # OOXML parsing and generation
-├── utf8dok-ast/      # AST type definitions (planned)
-├── utf8dok-core/     # AsciiDoc parser (planned)
-└── utf8dok-cli/      # CLI commands (planned)
+├── utf8dok-core/      # Parser, diagnostics, traits
+├── utf8dok-ast/       # AST type definitions
+├── utf8dok-lsp/       # Language Server Protocol
+├── utf8dok-cli/       # Command-line interface
+├── utf8dok-ooxml/     # DOCX reading/writing
+├── utf8dok-diagrams/  # Diagram rendering
+├── utf8dok-validate/  # Validation engine
+├── utf8dok-plugins/   # Rhai plugin system
+└── utf8dok-wasm/      # WebAssembly bindings
+editors/
+└── vscode/            # VS Code extension
 ```
 
-## Configuration
+## Documentation
 
-```toml
-# utf8dok.toml
+- **[User Guide](docs/manual.adoc)** - Installation, commands, configuration
+- **[Architecture Decisions](docs/adr/)** - Design rationale
 
-[template]
-path = "templates/design-document.dotx"
+## Development
 
-[styles]
-heading1 = "Heading 1"
-heading2 = "Heading 2"
-paragraph = "Normal"
-table = "Table Grid"
+```bash
+# Build all crates
+cargo build --workspace
 
-[placeholders]
-title = "{{TITLE}}"
-version = "{{VERSION}}"
+# Run all tests
+cargo test --workspace
+
+# Run clippy
+cargo clippy --workspace -- -D warnings
+
+# Run audit on our own docs (dogfooding)
+cargo run -p utf8dok-cli -- audit docs/
 ```
 
 ## Status
 
-- [x] OOXML archive handling (ZIP read/write)
-- [x] Document parsing (paragraphs, tables, runs)
-- [x] Style parsing (heading detection, inheritance)
-- [x] Basic extraction (DOCX → AsciiDoc)
-- [ ] AsciiDoc parser
-- [ ] Template injection
-- [ ] TOC update
-- [ ] CLI
+- [x] AsciiDoc parser (pest-based)
+- [x] LSP server with real-time validation
+- [x] Bridge Framework compliance engine
+- [x] Diagram syntax highlighting
+- [x] Writing quality suggestions
+- [x] VS Code extension
+- [x] CI/CD audit command
+- [x] HTML compliance dashboard
+- [x] Project scaffolding (`init` command)
+- [x] DOCX round-trip (extract/render)
 
 ## License
 
