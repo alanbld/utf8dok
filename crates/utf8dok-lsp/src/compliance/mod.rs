@@ -11,7 +11,9 @@
 //! - `ComplianceEngine`: Main engine that runs all registered rules
 //! - `bridge/`: Bridge Framework specific rules (ADRs, RFCs)
 //! - `dashboard/`: Report generation (HTML, Markdown, JSON)
+//! - `actions/`: Quick fixes for compliance violations
 
+pub mod actions;
 pub mod bridge;
 pub mod dashboard;
 
@@ -74,6 +76,15 @@ pub trait ComplianceRule: Send + Sync {
 
     /// Get a human-readable description of the rule
     fn description(&self) -> &'static str;
+
+    /// Generate a fix for a specific violation (optional)
+    fn fix(
+        &self,
+        _violation: &Violation,
+        _graph: &crate::workspace::graph::WorkspaceGraph,
+    ) -> Option<actions::ComplianceFix> {
+        None // Default: no fix available
+    }
 }
 
 /// The main compliance engine that orchestrates all rule checks
@@ -170,6 +181,37 @@ impl ComplianceEngine {
         self.rules
             .iter()
             .map(|r| (r.code(), r.description()))
+            .collect()
+    }
+
+    /// Get a fix for a specific violation
+    pub fn get_fix(
+        &self,
+        violation: &Violation,
+        graph: &WorkspaceGraph,
+    ) -> Option<actions::ComplianceFix> {
+        // Find the rule that handles this violation code
+        for rule in &self.rules {
+            if rule.code() == violation.code
+                || (violation.code == "BRIDGE002" && rule.code() == "BRIDGE001")
+            {
+                if let Some(fix) = rule.fix(violation, graph) {
+                    return Some(fix);
+                }
+            }
+        }
+        None
+    }
+
+    /// Get fixes for all violations
+    pub fn get_fixes(
+        &self,
+        violations: &[Violation],
+        graph: &WorkspaceGraph,
+    ) -> Vec<actions::ComplianceFix> {
+        violations
+            .iter()
+            .filter_map(|v| self.get_fix(v, graph))
             .collect()
     }
 }

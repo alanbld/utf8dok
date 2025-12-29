@@ -2,8 +2,9 @@
 //!
 //! Validates that superseded ADRs have the correct status (Deprecated or Superseded).
 
-use tower_lsp::lsp_types::{Position, Range, Url};
+use tower_lsp::lsp_types::{CodeActionKind, Position, Range, TextEdit, Url};
 
+use crate::compliance::actions::{find_status_range, ComplianceFix};
 use crate::compliance::{ComplianceRule, Violation, ViolationSeverity};
 use crate::config::Settings;
 use crate::workspace::graph::WorkspaceGraph;
@@ -148,6 +149,41 @@ impl ComplianceRule for StatusRule {
 
     fn description(&self) -> &'static str {
         "Superseded ADRs must have status Deprecated or Superseded"
+    }
+
+    fn fix(&self, violation: &Violation, graph: &WorkspaceGraph) -> Option<ComplianceFix> {
+        // Only fix BRIDGE001 violations (not BRIDGE002 - missing definition)
+        if violation.code != "BRIDGE001" {
+            return None;
+        }
+
+        // Extract the superseded_id from the message
+        // Message format: "Superseded document 'xxx' has status..."
+        let superseded_id = violation
+            .message
+            .strip_prefix("Superseded document '")?
+            .split('\'')
+            .next()?;
+
+        // Find the document that defines this ID
+        let def_uri = graph.get_definition_uri(superseded_id)?;
+
+        // Get the document text
+        let text = graph.get_document_text(def_uri.as_str())?;
+
+        // Find the status attribute range
+        let (range, _current_value) = find_status_range(text)?;
+
+        // Create the fix
+        Some(ComplianceFix {
+            title: format!("Mark '{}' as Deprecated", superseded_id),
+            uri: Url::parse(def_uri.as_str()).ok()?,
+            edits: vec![TextEdit {
+                range,
+                new_text: "Deprecated".to_string(),
+            }],
+            kind: CodeActionKind::QUICKFIX,
+        })
     }
 }
 

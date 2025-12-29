@@ -69,6 +69,9 @@ pub struct WorkspaceGraph {
 
     /// Map from document URI to its attributes (:name: value)
     document_attributes: HashMap<String, HashMap<String, String>>,
+
+    /// Map from document URI to its full text content (for code actions)
+    document_texts: HashMap<String, String>,
 }
 
 impl WorkspaceGraph {
@@ -82,6 +85,7 @@ impl WorkspaceGraph {
             symbols: Vec::new(),
             document_symbols: HashMap::new(),
             document_attributes: HashMap::new(),
+            document_texts: HashMap::new(),
         }
     }
 
@@ -180,6 +184,9 @@ impl WorkspaceGraph {
         if !attrs.is_empty() {
             self.document_attributes.insert(uri.to_string(), attrs);
         }
+
+        // Store document text for code actions
+        self.document_texts.insert(uri.to_string(), content.to_string());
     }
 
     /// Remove a document from the graph
@@ -219,6 +226,9 @@ impl WorkspaceGraph {
 
         // Remove attributes
         self.document_attributes.remove(uri);
+
+        // Remove text
+        self.document_texts.remove(uri);
     }
 
     /// Resolve an ID to its definition location
@@ -374,6 +384,12 @@ impl WorkspaceGraph {
             .get(id)
             .map(|locs| locs.iter().map(|loc| &loc.uri).collect())
             .unwrap_or_default()
+    }
+
+    /// Get the full text content of a document
+    #[allow(dead_code)]
+    pub fn get_document_text(&self, uri: &str) -> Option<&String> {
+        self.document_texts.get(uri)
     }
 
     /// Find all documents reachable from entry points via references

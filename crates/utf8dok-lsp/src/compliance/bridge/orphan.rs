@@ -2,8 +2,9 @@
 //!
 //! Detects documents that are not reachable from any entry point (index, README).
 
-use tower_lsp::lsp_types::{Position, Range, Url};
+use tower_lsp::lsp_types::{CodeActionKind, Position, Range, TextEdit, Url};
 
+use crate::compliance::actions::{find_index_insert_position, generate_orphan_link, ComplianceFix};
 use crate::compliance::{ComplianceRule, Violation, ViolationSeverity};
 use crate::config::Settings;
 use crate::workspace::graph::WorkspaceGraph;
@@ -139,6 +140,43 @@ impl ComplianceRule for OrphanRule {
 
     fn description(&self) -> &'static str {
         "All documents should be reachable from an entry point"
+    }
+
+    fn fix(&self, violation: &Violation, graph: &WorkspaceGraph) -> Option<ComplianceFix> {
+        // Only fix BRIDGE003 violations
+        if violation.code != "BRIDGE003" {
+            return None;
+        }
+
+        // Get the orphan document URI from the violation
+        let orphan_uri = violation.uri.as_str();
+
+        // Find entry points
+        let entry_points = self.find_entry_points(graph);
+        let index_uri = entry_points.first()?;
+
+        // Get the index document text
+        let index_text = graph.get_document_text(index_uri)?;
+
+        // Find where to insert the link
+        let insert_pos = find_index_insert_position(index_text);
+
+        // Generate the link text
+        let link_text = generate_orphan_link(orphan_uri);
+
+        // Extract filename for the title
+        let filename = orphan_uri.rsplit('/').next().unwrap_or("document.adoc");
+
+        // Create the fix
+        Some(ComplianceFix {
+            title: format!("Add link to '{}' in index", filename),
+            uri: Url::parse(index_uri).ok()?,
+            edits: vec![TextEdit {
+                range: insert_pos,
+                new_text: link_text,
+            }],
+            kind: CodeActionKind::QUICKFIX,
+        })
     }
 }
 

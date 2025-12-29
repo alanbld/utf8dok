@@ -5,6 +5,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::compliance::ComplianceEngine;
+use crate::config::Settings;
 use crate::domain::DomainEngine;
 use crate::intelligence::{RenameAnalyzer, SelectionAnalyzer};
 use crate::structural::{FoldingAnalyzer, SymbolAnalyzer};
@@ -17,16 +19,16 @@ use tower_lsp::lsp_types::{
     CodeActionOrCommand, CodeActionParams, CodeActionProviderCapability,
     CompletionOptions, CompletionParams, CompletionResponse, DiagnosticOptions,
     DiagnosticRelatedInformation, DiagnosticServerCapabilities, DiagnosticSeverity,
-    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, DocumentSymbolParams, DocumentSymbolResponse, FoldingRange,
-    FoldingRangeParams, FoldingRangeProviderCapability, InitializeParams, InitializeResult,
-    InitializedParams, Location, MessageType, NumberOrString, OneOf, Position,
-    PrepareRenameResponse, Range, RenameParams, SelectionRange, SelectionRangeParams,
-    SelectionRangeProviderCapability, SemanticToken, SemanticTokens, SemanticTokensFullOptions,
-    SemanticTokensLegend, SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult,
-    SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo, SymbolInformation,
-    TextDocumentSyncCapability, TextDocumentSyncKind, Url, WorkDoneProgressOptions,
-    WorkspaceEdit, WorkspaceSymbolParams,
+    DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentSymbolParams,
+    DocumentSymbolResponse, FoldingRange, FoldingRangeParams, FoldingRangeProviderCapability,
+    InitializeParams, InitializeResult, InitializedParams, Location, MessageType,
+    NumberOrString, OneOf, Position, PrepareRenameResponse, Range, RenameParams,
+    SelectionRange, SelectionRangeParams, SelectionRangeProviderCapability, SemanticToken,
+    SemanticTokens, SemanticTokensFullOptions, SemanticTokensLegend, SemanticTokensOptions,
+    SemanticTokensParams, SemanticTokensResult, SemanticTokensServerCapabilities,
+    ServerCapabilities, ServerInfo, SymbolInformation, TextDocumentSyncCapability,
+    TextDocumentSyncKind, Url, WorkDoneProgressOptions, WorkspaceEdit, WorkspaceSymbolParams,
 };
 use tower_lsp::lsp_types::Diagnostic;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
@@ -46,17 +48,35 @@ pub struct Backend {
     documents: Arc<RwLock<HashMap<Url, String>>>,
     /// Workspace graph for cross-file intelligence
     workspace_graph: Arc<RwLock<WorkspaceGraph>>,
+    /// Configuration settings
+    settings: Arc<RwLock<Settings>>,
+    /// Compliance engine for cross-file validation
+    compliance_engine: Arc<RwLock<ComplianceEngine>>,
 }
 
 impl Backend {
     /// Create a new backend instance
     pub fn new(client: Client) -> Self {
+        let settings = Settings::default();
+        let compliance_engine = ComplianceEngine::with_settings(&settings);
+
         Self {
             client,
             validation_engine: Arc::new(RwLock::new(ValidationEngine::with_defaults())),
             documents: Arc::new(RwLock::new(HashMap::new())),
             workspace_graph: Arc::new(RwLock::new(WorkspaceGraph::new())),
+            settings: Arc::new(RwLock::new(settings)),
+            compliance_engine: Arc::new(RwLock::new(compliance_engine)),
         }
+    }
+
+    /// Update settings and recreate compliance engine
+    async fn update_settings(&self, new_settings: Settings) {
+        let mut settings = self.settings.write().await;
+        *settings = new_settings.clone();
+
+        let mut engine = self.compliance_engine.write().await;
+        *engine = ComplianceEngine::with_settings(&new_settings);
     }
 
     /// Get document text by URI
@@ -421,6 +441,40 @@ impl LanguageServer for Backend {
             .await;
     }
 
+    async fn did_change_configuration(&self, params: DidChangeConfigurationParams) {
+        debug!("Configuration changed: {:?}", params.settings);
+
+        // Try to parse settings from the notification
+        // The settings can come in different formats depending on the client
+        let new_settings: Settings = if let Some(obj) = params.settings.as_object() {
+            // Try to find utf8dok-specific settings
+            if let Some(utf8dok_settings) = obj.get("utf8dok") {
+                serde_json::from_value(utf8dok_settings.clone()).unwrap_or_default()
+            } else {
+                // Try parsing the whole object as Settings
+                serde_json::from_value(params.settings.clone()).unwrap_or_default()
+            }
+        } else {
+            Settings::default()
+        };
+
+        // Update settings and compliance engine
+        self.update_settings(new_settings).await;
+
+        info!("Configuration updated, re-validating all documents");
+
+        // Re-validate all open documents with new settings
+        let docs = self.documents.read().await;
+        let uris: Vec<Url> = docs.keys().cloned().collect();
+        drop(docs);
+
+        for uri in uris {
+            if let Some(text) = self.get_document(&uri).await {
+                self.validate(uri, text).await;
+            }
+        }
+    }
+
     async fn folding_range(
         &self,
         params: FoldingRangeParams,
@@ -613,16 +667,44 @@ impl LanguageServer for Backend {
             }
         };
 
-        // Get code actions from domain engine
-        let engine = DomainEngine::new();
-        let actions = engine.get_code_actions(&text, &params);
+        let mut all_actions = Vec::new();
 
-        if actions.is_empty() {
+        // Get code actions from domain engine (domain-specific fixes)
+        let domain_engine = DomainEngine::new();
+        let domain_actions = domain_engine.get_code_actions(&text, &params);
+        all_actions.extend(domain_actions);
+
+        // Get compliance fixes for diagnostics with BRIDGE codes
+        let compliance_engine = self.compliance_engine.read().await;
+        let graph = self.workspace_graph.read().await;
+
+        for diagnostic in &params.context.diagnostics {
+            // Check if this is a compliance diagnostic
+            if let Some(NumberOrString::String(code)) = &diagnostic.code {
+                if code.starts_with("BRIDGE") {
+                    // Create a violation from the diagnostic
+                    let violation = crate::compliance::Violation {
+                        uri: uri.clone(),
+                        range: diagnostic.range,
+                        message: diagnostic.message.clone(),
+                        severity: crate::compliance::ViolationSeverity::Warning,
+                        code: code.clone(),
+                    };
+
+                    // Get fix from compliance engine
+                    if let Some(fix) = compliance_engine.get_fix(&violation, &graph) {
+                        all_actions.push(fix.to_code_action());
+                    }
+                }
+            }
+        }
+
+        if all_actions.is_empty() {
             Ok(None)
         } else {
-            debug!("Generated {} code actions for {}", actions.len(), uri);
+            debug!("Generated {} code actions for {}", all_actions.len(), uri);
             // Wrap CodeAction in CodeActionOrCommand
-            let wrapped: Vec<CodeActionOrCommand> = actions
+            let wrapped: Vec<CodeActionOrCommand> = all_actions
                 .into_iter()
                 .map(CodeActionOrCommand::CodeAction)
                 .collect();
