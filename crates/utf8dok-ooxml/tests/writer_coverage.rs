@@ -811,7 +811,7 @@ fn test_write_inline_span() {
 }
 
 #[test]
-fn test_write_inline_image_placeholder() {
+fn test_write_inline_image() {
     let template = create_minimal_template();
 
     let doc = Document {
@@ -819,7 +819,7 @@ fn test_write_inline_image_placeholder() {
         intent: None,
         blocks: vec![Block::Paragraph(Paragraph {
             inlines: vec![Inline::Image(utf8dok_ast::Image {
-                src: "image.png".to_string(),
+                src: "media/image.png".to_string(),
                 alt: Some("Alt text".to_string()),
             })],
             style_id: None,
@@ -830,10 +830,30 @@ fn test_write_inline_image_placeholder() {
     let result = DocxWriter::generate(&doc, &template).unwrap();
     let xml = extract_document_xml(&result);
 
-    // Images are placeholder for now
+    // Images should now generate actual drawing XML
     assert!(
-        xml.contains("[Image]"),
-        "Should have image placeholder: {}",
+        xml.contains("<w:drawing>"),
+        "Should have drawing element: {}",
+        xml
+    );
+    assert!(
+        xml.contains("<wp:inline"),
+        "Should have inline positioning: {}",
+        xml
+    );
+    assert!(
+        xml.contains(r#"descr="Alt text""#),
+        "Should have alt text: {}",
+        xml
+    );
+    assert!(
+        xml.contains("<a:blip"),
+        "Should have blip reference: {}",
+        xml
+    );
+    assert!(
+        xml.contains("<pic:pic"),
+        "Should have picture element: {}",
         xml
     );
 }

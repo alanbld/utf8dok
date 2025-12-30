@@ -500,11 +500,18 @@ impl DocxWriter {
         let title = doc.metadata.title.as_deref();
 
         // Check both authors Vec and attributes for author
-        let author = doc.metadata.authors.first().map(|s| s.as_str())
+        let author = doc
+            .metadata
+            .authors
+            .first()
+            .map(|s| s.as_str())
             .or_else(|| doc.metadata.attributes.get("author").map(|s| s.as_str()));
 
         // Check for revdate attribute
-        let revdate = doc.metadata.revision.as_deref()
+        let revdate = doc
+            .metadata
+            .revision
+            .as_deref()
             .or_else(|| doc.metadata.attributes.get("revdate").map(|s| s.as_str()));
 
         // Only update if we have metadata to write
@@ -538,7 +545,10 @@ impl DocxWriter {
                     // Insert title after opening tag
                     updated = updated.replace(
                         "</cp:coreProperties>",
-                        &format!("<dc:title>{}</dc:title></cp:coreProperties>", escape_xml(new_title)),
+                        &format!(
+                            "<dc:title>{}</dc:title></cp:coreProperties>",
+                            escape_xml(new_title)
+                        ),
                     );
                 }
             }
@@ -553,7 +563,11 @@ impl DocxWriter {
                             if i == 0 {
                                 part.to_string()
                             } else if let Some((_, rest)) = part.split_once("</dc:creator>") {
-                                format!("<dc:creator>{}</dc:creator>{}", escape_xml(new_author), rest)
+                                format!(
+                                    "<dc:creator>{}</dc:creator>{}",
+                                    escape_xml(new_author),
+                                    rest
+                                )
                             } else {
                                 part.to_string()
                             }
@@ -564,7 +578,10 @@ impl DocxWriter {
                     // Insert creator after opening tag
                     updated = updated.replace(
                         "</cp:coreProperties>",
-                        &format!("<dc:creator>{}</dc:creator></cp:coreProperties>", escape_xml(new_author)),
+                        &format!(
+                            "<dc:creator>{}</dc:creator></cp:coreProperties>",
+                            escape_xml(new_author)
+                        ),
                     );
                 }
             }
@@ -587,7 +604,12 @@ impl DocxWriter {
                                 "<dcterms:modified xsi:type=\"dcterms:W3CDTF\">{}</dcterms:modified>",
                                 iso_date
                             );
-                            updated = format!("{}{}{}", &updated[..start], replacement, &updated[end_pos..]);
+                            updated = format!(
+                                "{}{}{}",
+                                &updated[..start],
+                                replacement,
+                                &updated[end_pos..]
+                            );
                         }
                     }
                 } else if updated.contains("<cp:coreProperties") {
@@ -1247,11 +1269,8 @@ impl DocxWriter {
                     self.output.push_str("</w:hyperlink>\n");
                 }
             }
-            Inline::Image(_image) => {
-                // Images require relationship and drawing handling; placeholder for now
-                self.output.push_str("<w:r>\n");
-                self.output.push_str("<w:t>[Image]</w:t>\n");
-                self.output.push_str("</w:r>\n");
+            Inline::Image(image) => {
+                self.generate_image(image);
             }
             Inline::Break => {
                 self.output.push_str("<w:r>\n");
@@ -1298,6 +1317,141 @@ impl DocxWriter {
             .push_str(&format!("<w:t>{}</w:t>\n", escape_xml(&text)));
 
         self.output.push_str("</w:r>\n");
+    }
+
+    /// Generate XML for an inline image
+    fn generate_image(&mut self, image: &utf8dok_ast::Image) {
+        use crate::image::pixels_to_emu;
+
+        // Generate unique ID for this image
+        let image_id = self.next_drawing_id;
+        self.next_drawing_id += 1;
+
+        // Get the image path (relative to project root or absolute)
+        let src = &image.src;
+
+        // Generate relationship ID for the image
+        // The target should be relative from word/ to word/media/
+        let media_target = if src.starts_with("media/") {
+            src.clone()
+        } else {
+            format!("media/{}", src.rsplit('/').next().unwrap_or(src))
+        };
+
+        let rel_id = self.relationships.add_image(&media_target);
+
+        // Get or estimate image dimensions
+        // Default to 2 inches (192 pixels at 96 DPI) if not specified
+        let default_width_px = 200i64;
+        let default_height_px = 150i64;
+        let width_emu = pixels_to_emu(default_width_px);
+        let height_emu = pixels_to_emu(default_height_px);
+
+        // Alt text (description)
+        let alt_text = image.alt.clone().unwrap_or_default();
+        let name = format!("Image {}", image_id);
+
+        // Generate the drawing XML
+        self.output.push_str("<w:r>\n");
+        self.output.push_str("<w:drawing>\n");
+
+        // Inline image (flows with text)
+        self.output.push_str(
+            r#"<wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">"#,
+        );
+        self.output.push('\n');
+
+        // Extent (dimensions in EMUs)
+        self.output.push_str(&format!(
+            r#"<wp:extent cx="{}" cy="{}"/>"#,
+            width_emu, height_emu
+        ));
+        self.output.push('\n');
+
+        // Effect extent (padding)
+        self.output
+            .push_str(r#"<wp:effectExtent l="0" t="0" r="0" b="0"/>"#);
+        self.output.push('\n');
+
+        // Document properties (id, name, description/alt text)
+        self.output.push_str(&format!(
+            r#"<wp:docPr id="{}" name="{}" descr="{}"/>"#,
+            image_id,
+            escape_xml(&name),
+            escape_xml(&alt_text)
+        ));
+        self.output.push('\n');
+
+        // Non-visual properties
+        self.output.push_str(r#"<wp:cNvGraphicFramePr>"#);
+        self.output.push_str(r#"<a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/>"#);
+        self.output.push_str(r#"</wp:cNvGraphicFramePr>"#);
+        self.output.push('\n');
+
+        // Graphic container
+        self.output.push_str(
+            r#"<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">"#,
+        );
+        self.output.push('\n');
+        self.output.push_str(
+            r#"<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">"#,
+        );
+        self.output.push('\n');
+
+        // Picture element
+        self.output.push_str(
+            r#"<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">"#,
+        );
+        self.output.push('\n');
+
+        // Non-visual picture properties
+        self.output.push_str(r#"<pic:nvPicPr>"#);
+        self.output.push_str(&format!(
+            r#"<pic:cNvPr id="{}" name="{}"/>"#,
+            image_id,
+            escape_xml(&name)
+        ));
+        self.output.push_str(r#"<pic:cNvPicPr/>"#);
+        self.output.push_str(r#"</pic:nvPicPr>"#);
+        self.output.push('\n');
+
+        // Blip fill (reference to actual image)
+        self.output.push_str(r#"<pic:blipFill>"#);
+        self.output.push_str(&format!(
+            r#"<a:blip r:embed="{}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>"#,
+            rel_id
+        ));
+        self.output
+            .push_str(r#"<a:stretch><a:fillRect/></a:stretch>"#);
+        self.output.push_str(r#"</pic:blipFill>"#);
+        self.output.push('\n');
+
+        // Shape properties (dimensions)
+        self.output.push_str(r#"<pic:spPr>"#);
+        self.output.push_str(&format!(
+            r#"<a:xfrm><a:off x="0" y="0"/><a:ext cx="{}" cy="{}"/></a:xfrm>"#,
+            width_emu, height_emu
+        ));
+        self.output
+            .push_str(r#"<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>"#);
+        self.output.push_str(r#"</pic:spPr>"#);
+        self.output.push('\n');
+
+        // Close all elements
+        self.output.push_str(r#"</pic:pic>"#);
+        self.output.push('\n');
+        self.output.push_str(r#"</a:graphicData>"#);
+        self.output.push('\n');
+        self.output.push_str(r#"</a:graphic>"#);
+        self.output.push('\n');
+        self.output.push_str(r#"</wp:inline>"#);
+        self.output.push('\n');
+
+        self.output.push_str("</w:drawing>\n");
+        self.output.push_str("</w:r>\n");
+
+        // Note: The image files need to be copied separately by the caller
+        // using the source path from image.src
     }
 }
 

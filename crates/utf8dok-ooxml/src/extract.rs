@@ -523,7 +523,11 @@ impl AsciiDocExtractor {
                                 last_num_id = None;
                             }
                             // Check for language from comment
-                            let lang = self.get_language_from_comment(block_index, comments, comment_ranges);
+                            let lang = self.get_language_from_comment(
+                                block_index,
+                                comments,
+                                comment_ranges,
+                            );
                             if let Some(ref lang) = lang {
                                 writeln!(output, "[source,{}]", lang).unwrap();
                             } else {
@@ -549,7 +553,8 @@ impl AsciiDocExtractor {
                         // Get raw text without formatting marks for code blocks
                         let raw_text = self.get_raw_paragraph_text(para);
                         // Check for language from comment
-                        let lang = self.get_language_from_comment(block_index, comments, comment_ranges);
+                        let lang =
+                            self.get_language_from_comment(block_index, comments, comment_ranges);
                         if let Some(ref lang) = lang {
                             writeln!(output, "[source,{}]", lang).unwrap();
                         } else {
@@ -683,6 +688,12 @@ impl AsciiDocExtractor {
                         result.push_str(&run.text);
                     }
                 }
+                ParagraphChild::Image(img) => {
+                    // Include alt text for images
+                    if let Some(alt) = &img.alt {
+                        result.push_str(alt);
+                    }
+                }
             }
         }
 
@@ -741,10 +752,53 @@ impl AsciiDocExtractor {
                 ParagraphChild::Hyperlink(hyperlink) => {
                     result.push_str(&self.convert_hyperlink(hyperlink, rels));
                 }
+                ParagraphChild::Image(img) => {
+                    result.push_str(&self.convert_image(img, rels));
+                }
             }
         }
 
         result
+    }
+
+    /// Convert an image to AsciiDoc image macro
+    fn convert_image(&self, img: &crate::image::Image, rels: Option<&Relationships>) -> String {
+        // Resolve target path from relationship ID
+        let target = if let Some(rels) = rels {
+            rels.get(&img.rel_id)
+                .map(|t| format!("media/{}", t.rsplit('/').next().unwrap_or(t)))
+                .unwrap_or_else(|| img.target.clone())
+        } else if !img.target.is_empty() {
+            img.target.clone()
+        } else {
+            format!("media/image{}.png", img.id)
+        };
+
+        // Build attributes
+        let mut attrs = Vec::new();
+
+        // Alt text first
+        if let Some(alt) = &img.alt {
+            attrs.push(alt.clone());
+        }
+
+        // Dimensions
+        if let Some(width_emu) = img.width_emu {
+            let width_px = crate::image::emu_to_pixels(width_emu);
+            attrs.push(format!("width={}", width_px));
+        }
+        if let Some(height_emu) = img.height_emu {
+            let height_px = crate::image::emu_to_pixels(height_emu);
+            attrs.push(format!("height={}", height_px));
+        }
+
+        let attrs_str = if attrs.is_empty() {
+            String::new()
+        } else {
+            format!("[{}]", attrs.join(","))
+        };
+
+        format!("image::{}{}\n", target, attrs_str)
     }
 
     /// Convert a run to AsciiDoc text
@@ -891,7 +945,14 @@ mod tests {
         let comment_ranges = CommentRanges::default();
 
         let extractor = AsciiDocExtractor::new();
-        let asciidoc = extractor.convert_to_asciidoc(&doc, &styles, None, &metadata, &comments, &comment_ranges);
+        let asciidoc = extractor.convert_to_asciidoc(
+            &doc,
+            &styles,
+            None,
+            &metadata,
+            &comments,
+            &comment_ranges,
+        );
 
         assert!(asciidoc.contains("Hello, world!"));
     }
@@ -930,7 +991,14 @@ mod tests {
         let comment_ranges = CommentRanges::default();
 
         let extractor = AsciiDocExtractor::new();
-        let asciidoc = extractor.convert_to_asciidoc(&doc, &styles, None, &metadata, &comments, &comment_ranges);
+        let asciidoc = extractor.convert_to_asciidoc(
+            &doc,
+            &styles,
+            None,
+            &metadata,
+            &comments,
+            &comment_ranges,
+        );
 
         println!("Generated AsciiDoc:\n{}", asciidoc);
         // Should generate: <<_Toc123,Click me>>

@@ -38,15 +38,9 @@ impl ContentTransformer {
             BlockContent::BulletList(items) => {
                 Self::transform_bullet_list(items, format, block, doc)
             }
-            BlockContent::Section(section) => {
-                Self::transform_section(section, format, block, doc)
-            }
-            BlockContent::Paragraph(text) => {
-                Self::transform_paragraph(text, format)
-            }
-            BlockContent::Image(img) => {
-                Self::transform_image(img, format)
-            }
+            BlockContent::Section(section) => Self::transform_section(section, format, block, doc),
+            BlockContent::Paragraph(text) => Self::transform_paragraph(text, format),
+            BlockContent::Image(img) => Self::transform_image(img, format),
             // Pass through other content types
             other => other.clone(),
         };
@@ -69,17 +63,17 @@ impl ContentTransformer {
         match format {
             OutputFormat::Slide | OutputFormat::Pptx => {
                 // Apply bullet limit for slides
-                let limit = block.overrides.slide_bullets
+                let limit = block
+                    .overrides
+                    .slide_bullets
                     .or(doc.attributes.slide.default_bullets)
                     .unwrap_or(5);
 
-                let truncated: Vec<String> = items.iter()
-                    .take(limit)
-                    .cloned()
-                    .collect();
+                let truncated: Vec<String> = items.iter().take(limit).cloned().collect();
 
                 // Simplify bullet text for slides (remove excess detail)
-                let simplified: Vec<String> = truncated.iter()
+                let simplified: Vec<String> = truncated
+                    .iter()
                     .map(|item| Self::simplify_for_slide(item))
                     .collect();
 
@@ -97,7 +91,9 @@ impl ContentTransformer {
         doc: &DualNatureDocument,
     ) -> BlockContent {
         // Transform children recursively
-        let transformed_children: Vec<DualNatureBlock> = section.children.iter()
+        let transformed_children: Vec<DualNatureBlock> = section
+            .children
+            .iter()
             .filter_map(|child| Self::transform_block(child, format, doc))
             .collect();
 
@@ -184,11 +180,11 @@ impl ContentTransformer {
     }
 
     /// Get the slide layout for a block
-    pub fn get_slide_layout(
-        block: &DualNatureBlock,
-        doc: &DualNatureDocument,
-    ) -> Option<String> {
-        block.overrides.slide_layout.clone()
+    pub fn get_slide_layout(block: &DualNatureBlock, doc: &DualNatureDocument) -> Option<String> {
+        block
+            .overrides
+            .slide_layout
+            .clone()
             .or_else(|| doc.attributes.slide.default_layout.clone())
     }
 
@@ -211,7 +207,10 @@ impl ContentTransformer {
             BlockContent::BulletList(items) if items.len() > 3 => {
                 let additional: Vec<_> = items.iter().skip(3).cloned().collect();
                 if !additional.is_empty() {
-                    Some(format!("Additional points not shown:\n{}", additional.join("\n")))
+                    Some(format!(
+                        "Additional points not shown:\n{}",
+                        additional.join("\n")
+                    ))
                 } else {
                     None
                 }
@@ -290,12 +289,20 @@ mod tests {
         let doc_blocks = ContentTransformer::transform(&doc, OutputFormat::Document);
 
         // Slide format should have slide-only but not document-only
-        assert!(slide_blocks.iter().any(|b| matches!(b.selector, ContentSelector::SlideOnly)));
-        assert!(!slide_blocks.iter().any(|b| matches!(b.selector, ContentSelector::DocumentOnly)));
+        assert!(slide_blocks
+            .iter()
+            .any(|b| matches!(b.selector, ContentSelector::SlideOnly)));
+        assert!(!slide_blocks
+            .iter()
+            .any(|b| matches!(b.selector, ContentSelector::DocumentOnly)));
 
         // Document format should have document-only but not slide-only
-        assert!(doc_blocks.iter().any(|b| matches!(b.selector, ContentSelector::DocumentOnly)));
-        assert!(!doc_blocks.iter().any(|b| matches!(b.selector, ContentSelector::SlideOnly)));
+        assert!(doc_blocks
+            .iter()
+            .any(|b| matches!(b.selector, ContentSelector::DocumentOnly)));
+        assert!(!doc_blocks
+            .iter()
+            .any(|b| matches!(b.selector, ContentSelector::SlideOnly)));
     }
 
     #[test]
@@ -315,9 +322,9 @@ mod tests {
         let doc = DualNatureParser::parse(content);
         let slide_blocks = ContentTransformer::transform(&doc, OutputFormat::Slide);
 
-        let list_block = slide_blocks.iter().find(|b| {
-            matches!(b.content, BlockContent::BulletList(_))
-        });
+        let list_block = slide_blocks
+            .iter()
+            .find(|b| matches!(b.content, BlockContent::BulletList(_)));
 
         assert!(list_block.is_some());
         if let BlockContent::BulletList(items) = &list_block.unwrap().content {

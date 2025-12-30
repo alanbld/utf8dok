@@ -63,8 +63,12 @@ impl DualNatureParser {
 
         re.captures(line).map(|cap| {
             (
-                cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default(),
-                cap.get(2).map(|m| m.as_str().trim().to_string()).unwrap_or_default(),
+                cap.get(1)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default(),
+                cap.get(2)
+                    .map(|m| m.as_str().trim().to_string())
+                    .unwrap_or_default(),
             )
         })
     }
@@ -117,7 +121,13 @@ impl DualNatureParser {
         }
 
         // Numbered list
-        if line.starts_with(". ") || line.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+        if line.starts_with(". ")
+            || line
+                .chars()
+                .next()
+                .map(|c| c.is_ascii_digit())
+                .unwrap_or(false)
+        {
             return Self::parse_numbered_list(lines, start, ContentSelector::Both);
         }
 
@@ -357,13 +367,14 @@ impl DualNatureParser {
         selector: ContentSelector,
     ) -> (Option<DualNatureBlock>, usize) {
         static IMG_RE: OnceLock<Regex> = OnceLock::new();
-        let re = IMG_RE.get_or_init(|| {
-            Regex::new(r"image::([^\[]+)\[([^\]]*)\]").unwrap()
-        });
+        let re = IMG_RE.get_or_init(|| Regex::new(r"image::([^\[]+)\[([^\]]*)\]").unwrap());
 
         let line = lines[start].trim();
         if let Some(cap) = re.captures(line) {
-            let path = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let path = cap
+                .get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
             let attrs = cap.get(2).map(|m| m.as_str()).unwrap_or("");
 
             // Parse attributes like width=70%, alt="description"
@@ -408,13 +419,14 @@ impl DualNatureParser {
         selector: ContentSelector,
     ) -> (Option<DualNatureBlock>, usize) {
         static INC_RE: OnceLock<Regex> = OnceLock::new();
-        let re = INC_RE.get_or_init(|| {
-            Regex::new(r"include::([^\[]+)\[([^\]]*)\]").unwrap()
-        });
+        let re = INC_RE.get_or_init(|| Regex::new(r"include::([^\[]+)\[([^\]]*)\]").unwrap());
 
         let line = lines[start].trim();
         if let Some(cap) = re.captures(line) {
-            let path = cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let path = cap
+                .get(1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
 
             let block = DualNatureBlock {
                 selector,
@@ -499,8 +511,14 @@ mod tests {
 :slide-bullets: 3
 "#;
         let doc = DualNatureParser::parse(content);
-        assert_eq!(doc.attributes.slide.slide_master, Some("Executive-Deck".to_string()));
-        assert_eq!(doc.attributes.slide.default_layout, Some("Title-And-Content".to_string()));
+        assert_eq!(
+            doc.attributes.slide.slide_master,
+            Some("Executive-Deck".to_string())
+        );
+        assert_eq!(
+            doc.attributes.slide.default_layout,
+            Some("Title-And-Content".to_string())
+        );
         assert_eq!(doc.attributes.slide.default_bullets, Some(3));
     }
 
@@ -516,7 +534,9 @@ Some content here.
 "#;
         let doc = DualNatureParser::parse(content);
 
-        let slide_blocks: Vec<_> = doc.blocks.iter()
+        let slide_blocks: Vec<_> = doc
+            .blocks
+            .iter()
             .filter(|b| matches!(b.selector, ContentSelector::Slide))
             .collect();
 
@@ -524,7 +544,10 @@ Some content here.
         if let BlockContent::Section(section) = &slide_blocks[0].content {
             assert_eq!(section.title, "Slide Section");
         }
-        assert_eq!(slide_blocks[0].overrides.slide_layout, Some("Two-Column".to_string()));
+        assert_eq!(
+            slide_blocks[0].overrides.slide_layout,
+            Some("Two-Column".to_string())
+        );
     }
 
     #[test]
@@ -537,9 +560,10 @@ Some content here.
 "#;
         let doc = DualNatureParser::parse(content);
 
-        let list_block = doc.blocks.iter().find(|b| {
-            matches!(b.content, BlockContent::BulletList(_))
-        });
+        let list_block = doc
+            .blocks
+            .iter()
+            .find(|b| matches!(b.content, BlockContent::BulletList(_)));
 
         assert!(list_block.is_some());
         if let BlockContent::BulletList(items) = &list_block.unwrap().content {
@@ -559,7 +583,9 @@ This is detailed content.
 "#;
         let doc = DualNatureParser::parse(content);
 
-        let doc_only: Vec<_> = doc.blocks.iter()
+        let doc_only: Vec<_> = doc
+            .blocks
+            .iter()
             .filter(|b| matches!(b.selector, ContentSelector::DocumentOnly))
             .collect();
 
@@ -578,9 +604,10 @@ fn main() {
 "#;
         let doc = DualNatureParser::parse(content);
 
-        let code_block = doc.blocks.iter().find(|b| {
-            matches!(b.content, BlockContent::Code(_))
-        });
+        let code_block = doc
+            .blocks
+            .iter()
+            .find(|b| matches!(b.content, BlockContent::Code(_)));
 
         assert!(code_block.is_some());
         if let BlockContent::Code(code) = &code_block.unwrap().content {
@@ -597,9 +624,10 @@ image::diagram.png[Architecture Overview, width=70%]
 "#;
         let doc = DualNatureParser::parse(content);
 
-        let img_block = doc.blocks.iter().find(|b| {
-            matches!(b.content, BlockContent::Image(_))
-        });
+        let img_block = doc
+            .blocks
+            .iter()
+            .find(|b| matches!(b.content, BlockContent::Image(_)));
 
         assert!(img_block.is_some());
         if let BlockContent::Image(img) = &img_block.unwrap().content {

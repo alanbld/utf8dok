@@ -469,7 +469,12 @@ impl StyleMap {
         }
 
         // 3. Map list styles by name (handles localization)
-        let list_bullet_names = ["list bullet", "list paragraph", "listbullet", "listparagraph"];
+        let list_bullet_names = [
+            "list bullet",
+            "list paragraph",
+            "listbullet",
+            "listparagraph",
+        ];
         for name in list_bullet_names {
             if let Some(id) = name_to_id.get(name) {
                 map.set(ElementType::ListBullet, id);
@@ -486,7 +491,14 @@ impl StyleMap {
         }
 
         // 4. Map code block style
-        let code_names = ["code", "codeblock", "source code", "verbatim", "html preformatted", "no spacing"];
+        let code_names = [
+            "code",
+            "codeblock",
+            "source code",
+            "verbatim",
+            "html preformatted",
+            "no spacing",
+        ];
         for name in code_names {
             if let Some(id) = name_to_id.get(name) {
                 map.set(ElementType::CodeBlock, id);
@@ -495,7 +507,12 @@ impl StyleMap {
         }
 
         // 5. Map table style
-        let table_names = ["table grid", "tablegrid", "grid table 1 light", "plain table 1"];
+        let table_names = [
+            "table grid",
+            "tablegrid",
+            "grid table 1 light",
+            "plain table 1",
+        ];
         for name in table_names {
             if let Some(id) = name_to_id.get(name) {
                 map.set(ElementType::Table, id);

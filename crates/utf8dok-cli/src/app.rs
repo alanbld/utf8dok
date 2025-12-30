@@ -566,6 +566,38 @@ pub fn extract_command(input: &PathBuf, output_dir: &PathBuf, force_parse: bool)
         .with_context(|| format!("Failed to copy template: {}", template_path.display()))?;
     println!("  Created: {}", template_path.display());
 
+    // Extract media files (images)
+    let media_files: Vec<String> = archive
+        .file_list()
+        .filter(|f| f.starts_with("word/media/"))
+        .map(|s| s.to_string())
+        .collect();
+
+    if !media_files.is_empty() {
+        let media_dir = output_dir.join("media");
+        fs::create_dir_all(&media_dir).with_context(|| {
+            format!("Failed to create media directory: {}", media_dir.display())
+        })?;
+
+        let mut copied = 0;
+        for media_file in &media_files {
+            if let Some(data) = archive.get(media_file) {
+                let filename = media_file.strip_prefix("word/media/").unwrap_or(media_file);
+                let dest_path = media_dir.join(filename);
+                if fs::write(&dest_path, data).is_ok() {
+                    copied += 1;
+                }
+            }
+        }
+        if copied > 0 {
+            println!(
+                "  Copied: {} media files to {}",
+                copied,
+                media_dir.display()
+            );
+        }
+    }
+
     // Generate style mappings TOML
     let toml_path = output_dir.join("utf8dok.toml");
     let toml_content = generate_config_toml(&styles, input);
@@ -1085,7 +1117,9 @@ fn output_dual_nature_json(
 }
 
 /// Format blocks as JSON value
-fn format_blocks_json(blocks: &[utf8dok_core::dual_nature::DualNatureBlock]) -> Vec<serde_json::Value> {
+fn format_blocks_json(
+    blocks: &[utf8dok_core::dual_nature::DualNatureBlock],
+) -> Vec<serde_json::Value> {
     blocks
         .iter()
         .map(|b| {
@@ -1199,7 +1233,12 @@ fn print_blocks_text(blocks: &[utf8dok_core::dual_nature::DualNatureBlock]) {
                 println!("{} [numbered] {} items", selector_str, items.len());
             }
             BlockContent::Code(c) => {
-                println!("{} [code] {} ({} lines)", selector_str, c.language.as_deref().unwrap_or("text"), c.code.lines().count());
+                println!(
+                    "{} [code] {} ({} lines)",
+                    selector_str,
+                    c.language.as_deref().unwrap_or("text"),
+                    c.code.lines().count()
+                );
             }
             BlockContent::Image(img) => {
                 println!("{} [image] {}", selector_str, img.path);
@@ -1564,7 +1603,9 @@ mod tests {
         // Check all expected files exist
         assert!(project_path.join("utf8dok.toml").exists());
         assert!(project_path.join("index.adoc").exists());
-        assert!(project_path.join("adr/0001-record-architecture-decisions.adoc").exists());
+        assert!(project_path
+            .join("adr/0001-record-architecture-decisions.adoc")
+            .exists());
     }
 
     #[test]
@@ -1613,9 +1654,9 @@ mod tests {
 
         init_command(&project_path, InitTemplate::Bridge).unwrap();
 
-        let adr = fs::read_to_string(
-            project_path.join("adr/0001-record-architecture-decisions.adoc")
-        ).unwrap();
+        let adr =
+            fs::read_to_string(project_path.join("adr/0001-record-architecture-decisions.adoc"))
+                .unwrap();
 
         assert!(adr.contains(":status: Accepted"));
         assert!(adr.contains(":date:"));
@@ -1816,7 +1857,12 @@ This section appears only in the document.
         fs::write(&adoc_path, content).unwrap();
 
         // Run dual-nature command
-        let result = dual_nature_command(&adoc_path, DualNatureTargetFormat::Both, OutputFormat::Text, false);
+        let result = dual_nature_command(
+            &adoc_path,
+            DualNatureTargetFormat::Both,
+            OutputFormat::Text,
+            false,
+        );
         assert!(result.is_ok());
     }
 
@@ -1836,7 +1882,12 @@ This section appears only in the document.
         fs::write(&adoc_path, content).unwrap();
 
         // Run with validate-only
-        let result = dual_nature_command(&adoc_path, DualNatureTargetFormat::Slide, OutputFormat::Text, true);
+        let result = dual_nature_command(
+            &adoc_path,
+            DualNatureTargetFormat::Slide,
+            OutputFormat::Text,
+            true,
+        );
         assert!(result.is_ok());
     }
 }

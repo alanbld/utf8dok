@@ -309,6 +309,27 @@ impl Relationships {
     pub fn peek_next_id(&self) -> String {
         format!("rId{}", self.next_id_counter)
     }
+
+    /// Add an image relationship (convenience method)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let id = rels.add_image("media/image1.png");
+    /// assert!(id.starts_with("rId"));
+    /// ```
+    pub fn add_image(&mut self, target: &str) -> String {
+        self.add(target.to_string(), Self::TYPE_IMAGE.to_string())
+    }
+
+    /// Add a hyperlink relationship (convenience method)
+    pub fn add_hyperlink(&mut self, url: &str) -> String {
+        self.add_with_mode(
+            url.to_string(),
+            Self::TYPE_HYPERLINK.to_string(),
+            Some("External".to_string()),
+        )
+    }
 }
 
 /// Extract the numeric portion from a relationship ID (e.g., "rId5" -> 5)

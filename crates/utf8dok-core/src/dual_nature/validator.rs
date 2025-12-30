@@ -32,8 +32,10 @@ impl DualNatureValidator {
 
     /// Check that slide and document content are balanced
     fn check_slide_document_balance(doc: &DualNatureDocument, result: &mut ValidationResult) {
-        let slide_only_sections = Self::count_sections_with_selector(doc, ContentSelector::SlideOnly);
-        let doc_only_sections = Self::count_sections_with_selector(doc, ContentSelector::DocumentOnly);
+        let slide_only_sections =
+            Self::count_sections_with_selector(doc, ContentSelector::SlideOnly);
+        let doc_only_sections =
+            Self::count_sections_with_selector(doc, ContentSelector::DocumentOnly);
 
         // Warn if there's a large imbalance
         if slide_only_sections > 0 && doc_only_sections == 0 {
@@ -59,7 +61,8 @@ impl DualNatureValidator {
 
     /// Count sections with a specific selector
     fn count_sections_with_selector(doc: &DualNatureDocument, selector: ContentSelector) -> usize {
-        doc.blocks.iter()
+        doc.blocks
+            .iter()
             .filter(|b| b.selector == selector)
             .filter(|b| matches!(b.content, BlockContent::Section(_)))
             .count()
@@ -83,8 +86,10 @@ impl DualNatureValidator {
                 }
 
                 // Images in slide-only blocks should be optimized for presentations
-                if matches!(block.selector, ContentSelector::SlideOnly | ContentSelector::Slide)
-                    && img.width.is_none()
+                if matches!(
+                    block.selector,
+                    ContentSelector::SlideOnly | ContentSelector::Slide
+                ) && img.width.is_none()
                 {
                     result.add_warning(
                         ValidationWarning::new(
@@ -102,7 +107,9 @@ impl DualNatureValidator {
     /// Check cross-references resolve in both formats
     fn check_cross_references(doc: &DualNatureDocument, result: &mut ValidationResult) {
         // Collect all defined IDs
-        let defined_ids: Vec<String> = doc.blocks.iter()
+        let defined_ids: Vec<String> = doc
+            .blocks
+            .iter()
             .filter_map(|b| {
                 if let BlockContent::Section(section) = &b.content {
                     section.id.clone()
@@ -175,25 +182,23 @@ impl DualNatureValidator {
         // Check for title
         if doc.title.is_none() {
             result.add_warning(
-                ValidationWarning::new(
-                    "DUAL007",
-                    "Document has no title",
-                )
-                .with_suggestion("Add a title with '= Document Title'"),
+                ValidationWarning::new("DUAL007", "Document has no title")
+                    .with_suggestion("Add a title with '= Document Title'"),
             );
         }
 
         // Check for slide template if there are slide blocks
-        let has_slide_content = doc.blocks.iter()
-            .any(|b| matches!(b.selector, ContentSelector::Slide | ContentSelector::SlideOnly));
+        let has_slide_content = doc.blocks.iter().any(|b| {
+            matches!(
+                b.selector,
+                ContentSelector::Slide | ContentSelector::SlideOnly
+            )
+        });
 
         if has_slide_content && doc.attributes.slide.template.is_none() {
             result.add_info(
-                ValidationInfo::new(
-                    "DUAL008",
-                    "Slide content exists but no template specified",
-                )
-                .with_suggestion("Add :template: attribute for consistent branding"),
+                ValidationInfo::new("DUAL008", "Slide content exists but no template specified")
+                    .with_suggestion("Add :template: attribute for consistent branding"),
             );
         }
     }

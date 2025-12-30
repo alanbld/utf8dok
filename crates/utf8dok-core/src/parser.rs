@@ -33,8 +33,8 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashMap;
 use utf8dok_ast::{
-    Block, Document, DocumentMeta, FormatType, Heading, Inline, Link, List, ListItem, ListType,
-    LiteralBlock, Paragraph, Table, TableCell, TableRow,
+    Block, Document, DocumentMeta, FormatType, Heading, Image, Inline, Link, List, ListItem,
+    ListType, LiteralBlock, Paragraph, Table, TableCell, TableRow,
 };
 
 /// Parser state for tracking what kind of block we're currently building
@@ -138,7 +138,12 @@ impl Parser {
         // Empty line handling
         if line.trim().is_empty() {
             // If we're inside a table, empty lines are row separators
-            if let ParserState::Table { rows, current_row, col_count: _ } = &mut self.state {
+            if let ParserState::Table {
+                rows,
+                current_row,
+                col_count: _,
+            } = &mut self.state
+            {
                 if !current_row.is_empty() {
                     // Push current row to rows and start a new row
                     rows.push(std::mem::take(current_row));
@@ -174,7 +179,12 @@ impl Parser {
         }
 
         // If we're in a table, handle table cell lines
-        if let ParserState::Table { rows, current_row, col_count } = &mut self.state {
+        if let ParserState::Table {
+            rows,
+            current_row,
+            col_count,
+        } = &mut self.state
+        {
             if let Some(cell_content) = line.strip_prefix('|') {
                 // Split by | to handle multiple cells on one line: | A | B | C
                 let cell_parts: Vec<&str> = cell_content.split('|').collect();
@@ -281,6 +291,13 @@ impl Parser {
         // Check for ordered list item (. item or .. item)
         if let Some((level, content)) = self.try_parse_ordered_item(line) {
             self.handle_list_item(ListType::Ordered, level, content);
+            return;
+        }
+
+        // Check for image macro (image::path[alt, attrs])
+        if let Some(para) = self.try_parse_image(line) {
+            self.flush_state();
+            self.blocks.push(Block::Paragraph(para));
             return;
         }
 
@@ -401,6 +418,44 @@ impl Parser {
         }
 
         None
+    }
+
+    /// Try to parse an image macro line: image::path[alt, attrs]
+    fn try_parse_image(&self, line: &str) -> Option<Paragraph> {
+        // Match image::path[attributes] pattern
+        if !line.starts_with("image::") {
+            return None;
+        }
+
+        // Find the bracket containing attributes
+        let rest = &line[7..]; // Skip "image::"
+        let bracket_start = rest.find('[')?;
+        let bracket_end = rest.rfind(']')?;
+
+        if bracket_start >= bracket_end {
+            return None;
+        }
+
+        let path = rest[..bracket_start].to_string();
+        let attrs_str = &rest[bracket_start + 1..bracket_end];
+
+        // Parse attributes: first attribute is alt text, then key=value pairs
+        let mut alt = None;
+        for (i, attr) in attrs_str.split(',').enumerate() {
+            let attr = attr.trim();
+            if i == 0 && !attr.contains('=') && !attr.is_empty() {
+                // First non-key=value is alt text
+                alt = Some(attr.to_string());
+            }
+            // We could parse width/height here if needed, but DOCX writer uses defaults
+        }
+
+        // Create paragraph with inline image
+        Some(Paragraph {
+            inlines: vec![Inline::Image(Image { src: path, alt })],
+            style_id: None,
+            attributes: HashMap::new(),
+        })
     }
 
     /// Handle a list item

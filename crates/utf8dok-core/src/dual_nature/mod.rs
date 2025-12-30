@@ -57,7 +57,10 @@ pub fn parse_dual_nature(content: &str) -> DualNatureDocument {
 }
 
 /// Transform a DualNatureDocument for a specific output format
-pub fn transform_for_format(doc: &DualNatureDocument, format: OutputFormat) -> Vec<DualNatureBlock> {
+pub fn transform_for_format(
+    doc: &DualNatureDocument,
+    format: OutputFormat,
+) -> Vec<DualNatureBlock> {
     ContentTransformer::transform(doc, format)
 }
 
@@ -99,8 +102,12 @@ mod tests {
 
         // Slide format should exclude document-only
         // Document format should exclude slide-only
-        assert!(slide_blocks.iter().any(|b| matches!(b.selector, ContentSelector::Slide)));
-        assert!(doc_blocks.iter().any(|b| matches!(b.selector, ContentSelector::DocumentOnly)));
+        assert!(slide_blocks
+            .iter()
+            .any(|b| matches!(b.selector, ContentSelector::Slide)));
+        assert!(doc_blocks
+            .iter()
+            .any(|b| matches!(b.selector, ContentSelector::DocumentOnly)));
     }
 
     #[test]

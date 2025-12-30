@@ -442,7 +442,9 @@ impl WorkspaceGraph {
                 if let Ok(current_url) = Url::parse(&current_uri) {
                     for file_ref in file_refs {
                         // Resolve relative path against parent directory of current doc
-                        if let Some(resolved_uri) = self.resolve_file_reference(&current_url, file_ref) {
+                        if let Some(resolved_uri) =
+                            self.resolve_file_reference(&current_url, file_ref)
+                        {
                             if !reachable.contains(&resolved_uri) {
                                 reachable.insert(resolved_uri.clone());
                                 queue.push(resolved_uri);
@@ -473,7 +475,12 @@ impl WorkspaceGraph {
         let normalized = Self::normalize_path(&resolved_path);
 
         // Create the full URI
-        let resolved_uri = format!("{}://{}{}", base_uri.scheme(), base_uri.host_str().unwrap_or(""), normalized);
+        let resolved_uri = format!(
+            "{}://{}{}",
+            base_uri.scheme(),
+            base_uri.host_str().unwrap_or(""),
+            normalized
+        );
 
         // Check if this document exists in our graph
         if self.document_ids.contains_key(&resolved_uri) {

@@ -187,7 +187,6 @@ impl ContentSelector {
     }
 }
 
-
 /// Format condition for conditional blocks
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FormatCondition {
@@ -374,15 +373,15 @@ mod tests {
 
     #[test]
     fn test_dual_nature_block_builders() {
-        let block = DualNatureBlock::slide_only(
-            BlockContent::Paragraph("Test".to_string()),
-            1,
-        )
-        .with_slide_layout("Title-And-Content")
-        .with_bullet_limit(3);
+        let block = DualNatureBlock::slide_only(BlockContent::Paragraph("Test".to_string()), 1)
+            .with_slide_layout("Title-And-Content")
+            .with_bullet_limit(3);
 
         assert_eq!(block.selector, ContentSelector::SlideOnly);
-        assert_eq!(block.overrides.slide_layout, Some("Title-And-Content".to_string()));
+        assert_eq!(
+            block.overrides.slide_layout,
+            Some("Title-And-Content".to_string())
+        );
         assert_eq!(block.overrides.slide_bullets, Some(3));
     }
 }

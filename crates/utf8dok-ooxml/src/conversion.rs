@@ -155,6 +155,11 @@ impl ToAst for ParagraphChild {
         match self {
             ParagraphChild::Run(run) => vec![run.to_ast(ctx)],
             ParagraphChild::Hyperlink(hyperlink) => vec![hyperlink.to_ast(ctx)],
+            ParagraphChild::Image(img) => {
+                // Convert image to inline - placeholder text with alt if available
+                let text = img.alt.clone().unwrap_or_else(|| "[image]".to_string());
+                vec![Inline::Text(text)]
+            }
         }
     }
 }

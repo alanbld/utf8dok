@@ -27,6 +27,7 @@ pub mod conversion;
 pub mod document;
 pub mod error;
 pub mod extract;
+pub mod image;
 pub mod manifest;
 pub mod relationships;
 pub mod styles;

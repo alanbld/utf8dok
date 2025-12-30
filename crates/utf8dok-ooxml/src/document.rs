@@ -7,6 +7,7 @@ use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
 
 use crate::error::{OoxmlError, Result};
+use crate::image::{Image, ImagePosition, WrapType};
 
 /// A parsed Word document
 #[derive(Debug, Clone)]
@@ -44,6 +45,8 @@ pub enum ParagraphChild {
     Run(Run),
     /// A hyperlink
     Hyperlink(Hyperlink),
+    /// An embedded image
+    Image(Image),
 }
 
 /// A hyperlink with its target and content
@@ -122,6 +125,9 @@ impl Document {
         let mut current_hyperlink: Option<HyperlinkBuilder> = None;
         // Track if we're inside a <w:t> element (actual text vs instrText)
         let mut in_text_element = false;
+        // Image parsing state
+        let mut current_image: Option<ImageBuilder> = None;
+        let mut image_id_counter: u32 = 1;
 
         loop {
             match reader.read_event_into(&mut buf) {
@@ -197,6 +203,79 @@ impl Document {
                         b"t" if current_run.is_some() => {
                             // Start of actual text element - capture text from here
                             in_text_element = true;
+                        }
+                        b"drawing" if current_para.is_some() => {
+                            // Start of drawing element - begin image parsing
+                            current_image = Some(ImageBuilder::new(image_id_counter));
+                            image_id_counter += 1;
+                        }
+                        b"inline" if current_image.is_some() => {
+                            // Inline image positioning
+                            current_image.as_mut().unwrap().position = ImagePosition::Inline;
+                        }
+                        b"anchor" if current_image.is_some() => {
+                            // Anchored image positioning
+                            let horizontal = get_attr(e, b"distL")
+                                .and_then(|s| s.parse::<i64>().ok())
+                                .unwrap_or(0);
+                            let vertical = get_attr(e, b"distT")
+                                .and_then(|s| s.parse::<i64>().ok())
+                                .unwrap_or(0);
+                            current_image.as_mut().unwrap().position = ImagePosition::Anchor {
+                                horizontal,
+                                vertical,
+                                wrap: WrapType::None,
+                            };
+                        }
+                        b"extent" if current_image.is_some() => {
+                            // Image dimensions in EMUs
+                            if let Some(cx) = get_attr(e, b"cx") {
+                                if let Ok(width) = cx.parse::<i64>() {
+                                    current_image.as_mut().unwrap().width_emu = Some(width);
+                                }
+                            }
+                            if let Some(cy) = get_attr(e, b"cy") {
+                                if let Ok(height) = cy.parse::<i64>() {
+                                    current_image.as_mut().unwrap().height_emu = Some(height);
+                                }
+                            }
+                        }
+                        b"docPr" if current_image.is_some() => {
+                            // Document properties (alt text, name, id)
+                            if let Some(descr) = get_attr(e, b"descr") {
+                                current_image.as_mut().unwrap().alt = Some(descr);
+                            }
+                            if let Some(name) = get_attr(e, b"name") {
+                                current_image.as_mut().unwrap().name = Some(name);
+                            }
+                            if let Some(id) = get_attr(e, b"id") {
+                                if let Ok(id_num) = id.parse::<u32>() {
+                                    current_image.as_mut().unwrap().doc_id = Some(id_num);
+                                }
+                            }
+                        }
+                        b"blip" if current_image.is_some() => {
+                            // Image reference via relationship ID
+                            if let Some(rel_id) = get_attr_with_ns(e, b"r:embed") {
+                                current_image.as_mut().unwrap().rel_id = Some(rel_id);
+                            }
+                        }
+                        b"wrapSquare" | b"wrapTight" | b"wrapThrough" | b"wrapTopAndBottom"
+                        | b"wrapNone"
+                            if current_image.is_some() =>
+                        {
+                            // Update wrap type for anchored images
+                            let wrap_type = WrapType::from_element_name(
+                                std::str::from_utf8(name.as_ref()).unwrap_or("wrapNone"),
+                            );
+                            if let Some(ref mut img) = current_image {
+                                if let ImagePosition::Anchor { ref mut wrap, .. } = img.position {
+                                    *wrap = wrap_type;
+                                }
+                            }
+                        }
+                        b"posOffset" if current_image.is_some() => {
+                            // Position offset will be captured as text
                         }
                         b"hyperlink" if current_para.is_some() => {
                             // Start of hyperlink
@@ -274,6 +353,16 @@ impl Document {
                                 para.children.push(ParagraphChild::Hyperlink(hyperlink));
                             }
                         }
+                        b"drawing" if current_image.is_some() => {
+                            // End of drawing - add image to paragraph
+                            if let Some(image_builder) = current_image.take() {
+                                if let Some(image) = image_builder.build() {
+                                    if let Some(ref mut para) = current_para {
+                                        para.children.push(ParagraphChild::Image(image));
+                                    }
+                                }
+                            }
+                        }
                         b"tc" if current_table.is_some() => {
                             if let Some(ref mut table) = current_table {
                                 if let Some(ref mut row) = table.current_row {
@@ -344,6 +433,53 @@ impl Document {
                                 }
                             }
                         }
+                        b"extent" if current_image.is_some() => {
+                            // Image dimensions in EMUs (self-closing)
+                            if let Some(cx) = get_attr(e, b"cx") {
+                                if let Ok(width) = cx.parse::<i64>() {
+                                    current_image.as_mut().unwrap().width_emu = Some(width);
+                                }
+                            }
+                            if let Some(cy) = get_attr(e, b"cy") {
+                                if let Ok(height) = cy.parse::<i64>() {
+                                    current_image.as_mut().unwrap().height_emu = Some(height);
+                                }
+                            }
+                        }
+                        b"docPr" if current_image.is_some() => {
+                            // Document properties (self-closing)
+                            if let Some(descr) = get_attr(e, b"descr") {
+                                current_image.as_mut().unwrap().alt = Some(descr);
+                            }
+                            if let Some(name) = get_attr(e, b"name") {
+                                current_image.as_mut().unwrap().name = Some(name);
+                            }
+                            if let Some(id) = get_attr(e, b"id") {
+                                if let Ok(id_num) = id.parse::<u32>() {
+                                    current_image.as_mut().unwrap().doc_id = Some(id_num);
+                                }
+                            }
+                        }
+                        b"blip" if current_image.is_some() => {
+                            // Image reference via relationship ID (self-closing)
+                            if let Some(rel_id) = get_attr_with_ns(e, b"r:embed") {
+                                current_image.as_mut().unwrap().rel_id = Some(rel_id);
+                            }
+                        }
+                        b"wrapSquare" | b"wrapTight" | b"wrapThrough" | b"wrapTopAndBottom"
+                        | b"wrapNone"
+                            if current_image.is_some() =>
+                        {
+                            // Wrap type for anchored images (self-closing)
+                            let wrap_type = WrapType::from_element_name(
+                                std::str::from_utf8(name.as_ref()).unwrap_or("wrapNone"),
+                            );
+                            if let Some(ref mut img) = current_image {
+                                if let ImagePosition::Anchor { ref mut wrap, .. } = img.position {
+                                    *wrap = wrap_type;
+                                }
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -405,6 +541,10 @@ impl Paragraph {
                         .map(|r| r.text.as_str())
                         .collect::<String>()
                 }
+                ParagraphChild::Image(img) => {
+                    // Use alt text as placeholder if available
+                    img.alt.clone().unwrap_or_default()
+                }
             })
             .collect::<Vec<_>>()
             .join("")
@@ -418,6 +558,7 @@ impl Paragraph {
                 ParagraphChild::Hyperlink(hyperlink) => {
                     hyperlink.runs.iter().all(|r| r.text.trim().is_empty())
                 }
+                ParagraphChild::Image(_) => false, // Images are never "empty"
             })
     }
 
@@ -428,6 +569,15 @@ impl Paragraph {
             ParagraphChild::Hyperlink(hyperlink) => {
                 hyperlink.runs.iter().collect::<Vec<_>>().into_iter()
             }
+            ParagraphChild::Image(_) => vec![].into_iter(),
+        })
+    }
+
+    /// Get all images in this paragraph
+    pub fn images(&self) -> impl Iterator<Item = &Image> {
+        self.children.iter().filter_map(|child| match child {
+            ParagraphChild::Image(img) => Some(img),
+            _ => None,
         })
     }
 }
@@ -553,6 +703,51 @@ impl TableCellBuilder {
         TableCell {
             paragraphs: self.paragraphs,
         }
+    }
+}
+
+/// Builder for Image elements during parsing
+struct ImageBuilder {
+    id: u32,
+    rel_id: Option<String>,
+    alt: Option<String>,
+    name: Option<String>,
+    doc_id: Option<u32>,
+    width_emu: Option<i64>,
+    height_emu: Option<i64>,
+    position: ImagePosition,
+}
+
+impl ImageBuilder {
+    fn new(id: u32) -> Self {
+        Self {
+            id,
+            rel_id: None,
+            alt: None,
+            name: None,
+            doc_id: None,
+            width_emu: None,
+            height_emu: None,
+            position: ImagePosition::Inline,
+        }
+    }
+
+    /// Build the Image if we have the required relationship ID
+    fn build(self) -> Option<Image> {
+        // rel_id is required to reference the actual image file
+        let rel_id = self.rel_id?;
+
+        Some(Image {
+            id: self.doc_id.unwrap_or(self.id),
+            rel_id,
+            // Target will be resolved later from relationships
+            target: String::new(),
+            alt: self.alt,
+            name: self.name,
+            width_emu: self.width_emu,
+            height_emu: self.height_emu,
+            position: self.position,
+        })
     }
 }
 
