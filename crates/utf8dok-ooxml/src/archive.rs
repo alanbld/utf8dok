@@ -97,6 +97,16 @@ impl OoxmlArchive {
         self.get(&format!("word/footer{}.xml", index))
     }
 
+    /// Get the core document properties (docProps/core.xml)
+    pub fn core_properties_xml(&self) -> Option<&[u8]> {
+        self.get("docProps/core.xml")
+    }
+
+    /// Get the comments (word/comments.xml)
+    pub fn comments_xml(&self) -> Option<&[u8]> {
+        self.get("word/comments.xml")
+    }
+
     /// Check if a file exists in the archive
     pub fn contains(&self, path: &str) -> bool {
         self.files.contains_key(path)

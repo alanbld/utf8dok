@@ -7,6 +7,7 @@
 //! prioritizes the embedded `utf8dok/source.adoc` over parsing the
 //! document content (unless `force_parse` is set).
 
+use std::collections::HashMap;
 use std::fmt::Write;
 use std::path::Path;
 
@@ -15,6 +16,188 @@ use crate::document::{Block, Document, Hyperlink, Paragraph, ParagraphChild, Run
 use crate::error::Result;
 use crate::relationships::Relationships;
 use crate::styles::StyleSheet;
+
+/// Parsed comments from word/comments.xml
+#[derive(Debug, Default)]
+pub struct Comments {
+    /// Map of comment ID to comment text
+    comments: HashMap<u32, String>,
+}
+
+impl Comments {
+    /// Parse comments from XML
+    pub fn parse(xml: &[u8]) -> Self {
+        use quick_xml::events::Event;
+        use quick_xml::Reader;
+
+        let mut comments = HashMap::new();
+        let mut reader = Reader::from_reader(xml);
+        reader.config_mut().trim_text(true);
+
+        let mut buf = Vec::new();
+        let mut current_id: Option<u32> = None;
+        let mut current_text = String::new();
+        let mut in_comment = false;
+
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Start(ref e)) | Ok(Event::Empty(ref e)) => {
+                    let name = e.local_name();
+                    if name.as_ref() == b"comment" {
+                        // Get comment ID
+                        for attr in e.attributes().filter_map(|a| a.ok()) {
+                            if attr.key.as_ref() == b"w:id" || attr.key.as_ref() == b"id" {
+                                if let Ok(val) = String::from_utf8(attr.value.to_vec()) {
+                                    current_id = val.parse().ok();
+                                    in_comment = true;
+                                    current_text.clear();
+                                }
+                            }
+                        }
+                    }
+                }
+                Ok(Event::Text(ref e)) => {
+                    if in_comment {
+                        if let Ok(text) = e.unescape() {
+                            current_text.push_str(&text);
+                        }
+                    }
+                }
+                Ok(Event::End(ref e)) => {
+                    let name = e.local_name();
+                    if name.as_ref() == b"comment" {
+                        if let Some(id) = current_id.take() {
+                            comments.insert(id, current_text.clone());
+                        }
+                        in_comment = false;
+                        current_text.clear();
+                    }
+                }
+                Ok(Event::Eof) => break,
+                Err(_) => break,
+                _ => {}
+            }
+            buf.clear();
+        }
+
+        Comments { comments }
+    }
+
+    /// Get comment text by ID
+    pub fn get(&self, id: u32) -> Option<&str> {
+        self.comments.get(&id).map(|s| s.as_str())
+    }
+
+    /// Extract language from a comment if it matches "Language: XXX"
+    pub fn get_language(&self, id: u32) -> Option<String> {
+        self.get(id).and_then(|text| {
+            let text = text.trim();
+            if text.starts_with("Language:") {
+                Some(text.trim_start_matches("Language:").trim().to_string())
+            } else {
+                None
+            }
+        })
+    }
+}
+
+/// Parsed comment ranges from document.xml
+///
+/// Maps paragraph indices to comment IDs that wrap them
+#[derive(Debug, Default)]
+pub struct CommentRanges {
+    /// Map of block index to comment IDs that contain it
+    ranges: HashMap<usize, Vec<u32>>,
+}
+
+impl CommentRanges {
+    /// Parse comment ranges from document XML
+    ///
+    /// This scans for commentRangeStart/End elements and tracks which
+    /// blocks contain them. Note: commentRangeStart often appears INSIDE
+    /// a paragraph element, not before it.
+    pub fn parse(xml: &[u8]) -> Self {
+        use quick_xml::events::Event;
+        use quick_xml::Reader;
+
+        let mut ranges = HashMap::new();
+        let mut reader = Reader::from_reader(xml);
+        reader.config_mut().trim_text(false);
+
+        let mut buf = Vec::new();
+        let mut in_body = false;
+        let mut in_paragraph = false;
+        let mut block_index: usize = 0;
+        let mut current_para_comments: Vec<u32> = Vec::new();
+
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Start(ref e)) => {
+                    let name = e.local_name();
+                    match name.as_ref() {
+                        b"body" => in_body = true,
+                        b"p" if in_body => {
+                            in_paragraph = true;
+                            current_para_comments.clear();
+                        }
+                        b"tbl" if in_body => {
+                            // Tables are handled separately
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(Event::End(ref e)) => {
+                    let name = e.local_name();
+                    match name.as_ref() {
+                        b"body" => in_body = false,
+                        b"p" if in_body => {
+                            // Record any comments found within this paragraph
+                            if !current_para_comments.is_empty() {
+                                ranges.insert(block_index, current_para_comments.clone());
+                            }
+                            in_paragraph = false;
+                            current_para_comments.clear();
+                            block_index += 1;
+                        }
+                        b"tbl" if in_body => {
+                            block_index += 1;
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(Event::Empty(ref e)) => {
+                    let name = e.local_name();
+                    match name.as_ref() {
+                        b"commentRangeStart" if in_paragraph => {
+                            // Get comment ID - this comment applies to current paragraph
+                            for attr in e.attributes().filter_map(|a| a.ok()) {
+                                if attr.key.as_ref() == b"w:id" || attr.key.as_ref() == b"id" {
+                                    if let Ok(val) = String::from_utf8(attr.value.to_vec()) {
+                                        if let Ok(id) = val.parse::<u32>() {
+                                            current_para_comments.push(id);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(Event::Eof) => break,
+                Err(_) => break,
+                _ => {}
+            }
+            buf.clear();
+        }
+
+        CommentRanges { ranges }
+    }
+
+    /// Get comment IDs for a block index
+    pub fn get_comment_ids(&self, block_index: usize) -> Option<&Vec<u32>> {
+        self.ranges.get(&block_index)
+    }
+}
 
 /// Indicates the origin of the extracted AsciiDoc content
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,12 +237,83 @@ pub struct StyleMappings {
 }
 
 /// Document metadata
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct DocumentMetadata {
     pub title: Option<String>,
     pub author: Option<String>,
     pub subject: Option<String>,
     pub keywords: Option<String>,
+    pub revision: Option<String>,
+    pub created: Option<String>,
+    pub modified: Option<String>,
+}
+
+impl DocumentMetadata {
+    /// Parse core properties from docProps/core.xml
+    pub fn parse(xml: &[u8]) -> Self {
+        use quick_xml::events::Event;
+        use quick_xml::Reader;
+
+        let mut metadata = DocumentMetadata::default();
+        let mut reader = Reader::from_reader(xml);
+        reader.config_mut().trim_text(true);
+
+        let mut buf = Vec::new();
+        let mut current_element = String::new();
+
+        loop {
+            match reader.read_event_into(&mut buf) {
+                Ok(Event::Start(e)) => {
+                    let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                    current_element = name;
+                }
+                Ok(Event::Text(e)) => {
+                    let text = e.unescape().unwrap_or_default().to_string();
+                    if !text.is_empty() {
+                        match current_element.as_str() {
+                            "dc:title" => metadata.title = Some(text),
+                            "dc:creator" => metadata.author = Some(text),
+                            "dc:subject" => metadata.subject = Some(text),
+                            "cp:keywords" => metadata.keywords = Some(text),
+                            "cp:revision" => metadata.revision = Some(text),
+                            "dcterms:created" => metadata.created = Some(text),
+                            "dcterms:modified" => metadata.modified = Some(text),
+                            _ => {}
+                        }
+                    }
+                }
+                Ok(Event::End(_)) => {
+                    current_element.clear();
+                }
+                Ok(Event::Eof) => break,
+                Err(_) => break,
+                _ => {}
+            }
+            buf.clear();
+        }
+
+        metadata
+    }
+
+    /// Generate AsciiDoc document header attributes
+    pub fn to_asciidoc_header(&self) -> String {
+        let mut header = String::new();
+
+        if let Some(ref author) = self.author {
+            if !author.is_empty() {
+                writeln!(header, ":author: {}", author).unwrap();
+            }
+        }
+
+        // Use modified date as revdate if available
+        if let Some(ref modified) = self.modified {
+            // Extract just the date part (YYYY-MM-DD from ISO format)
+            let date_part = modified.split('T').next().unwrap_or(modified);
+            writeln!(header, ":revdate: {}", date_part).unwrap();
+        }
+
+        header
+    }
 }
 
 /// Extracts OOXML documents to AsciiDoc
@@ -126,7 +380,8 @@ impl AsciiDocExtractor {
         }
 
         // Parse document.xml and generate AsciiDoc
-        let document = Document::parse(archive.document_xml()?)?;
+        let doc_xml = archive.document_xml()?;
+        let document = Document::parse(doc_xml)?;
         let styles = StyleSheet::parse(archive.styles_xml()?)?;
 
         // Load relationships for hyperlink resolution
@@ -135,9 +390,30 @@ impl AsciiDocExtractor {
             .and_then(|xml| Relationships::parse(xml).ok());
 
         let style_mappings = self.detect_style_mappings(&styles);
-        let metadata = DocumentMetadata::default(); // TODO: parse docProps/core.xml
 
-        let asciidoc = self.convert_to_asciidoc(&document, &styles, relationships.as_ref());
+        // Parse document metadata from docProps/core.xml
+        let metadata = archive
+            .core_properties_xml()
+            .map(DocumentMetadata::parse)
+            .unwrap_or_default();
+
+        // Parse comments for code block language preservation
+        let comments = archive
+            .comments_xml()
+            .map(Comments::parse)
+            .unwrap_or_default();
+
+        // Parse comment ranges from document.xml
+        let comment_ranges = CommentRanges::parse(doc_xml);
+
+        let asciidoc = self.convert_to_asciidoc(
+            &document,
+            &styles,
+            relationships.as_ref(),
+            &metadata,
+            &comments,
+            &comment_ranges,
+        );
 
         Ok(ExtractedDocument {
             asciidoc,
@@ -176,14 +452,35 @@ impl AsciiDocExtractor {
         document: &Document,
         styles: &StyleSheet,
         rels: Option<&Relationships>,
+        metadata: &DocumentMetadata,
+        comments: &Comments,
+        comment_ranges: &CommentRanges,
     ) -> String {
         let mut output = String::new();
-        let mut first_heading_found = false;
+        let mut title_written = false;
+        let mut last_was_list = false;
+        let mut last_num_id: Option<u32> = None;
+        let mut block_index: usize = 0;
+
+        // If we have a title from docProps, use it as the document title
+        if self.include_header {
+            if let Some(ref title) = metadata.title {
+                writeln!(output, "= {}", title).unwrap();
+                // Add document metadata attributes after title
+                let header_attrs = metadata.to_asciidoc_header();
+                if !header_attrs.is_empty() {
+                    output.push_str(&header_attrs);
+                }
+                writeln!(output).unwrap();
+                title_written = true;
+            }
+        }
 
         for block in &document.blocks {
             match block {
                 Block::Paragraph(para) => {
                     if para.is_empty() {
+                        block_index += 1;
                         continue;
                     }
 
@@ -192,18 +489,113 @@ impl AsciiDocExtractor {
                     // Check if this is a heading
                     if let Some(ref style_id) = para.style_id {
                         if let Some(level) = styles.heading_level(style_id) {
-                            // First heading might be document title
-                            if !first_heading_found && level == 1 && self.include_header {
-                                writeln!(output, "= {}", text.trim()).unwrap();
+                            // End any list before heading (add blank line)
+                            if last_was_list {
                                 writeln!(output).unwrap();
-                                first_heading_found = true;
+                                last_was_list = false;
+                                last_num_id = None;
+                            }
+                            // If no title was written and this is level 1, use as title
+                            if !title_written && level == 1 && self.include_header {
+                                writeln!(output, "= {}", text.trim()).unwrap();
+                                // Add document metadata attributes after title
+                                let header_attrs = metadata.to_asciidoc_header();
+                                if !header_attrs.is_empty() {
+                                    output.push_str(&header_attrs);
+                                }
+                                writeln!(output).unwrap();
+                                title_written = true;
                             } else {
                                 let prefix = "=".repeat(level as usize + 1);
                                 writeln!(output, "{} {}", prefix, text.trim()).unwrap();
                                 writeln!(output).unwrap();
                             }
+                            block_index += 1;
                             continue;
                         }
+
+                        // Check for code block style
+                        let style_lower = style_id.to_lowercase();
+                        if style_lower.contains("code") || style_lower.contains("source") {
+                            if last_was_list {
+                                writeln!(output).unwrap();
+                                last_was_list = false;
+                                last_num_id = None;
+                            }
+                            // Check for language from comment
+                            let lang = self.get_language_from_comment(block_index, comments, comment_ranges);
+                            if let Some(ref lang) = lang {
+                                writeln!(output, "[source,{}]", lang).unwrap();
+                            } else {
+                                writeln!(output, "[source]").unwrap();
+                            }
+                            writeln!(output, "----").unwrap();
+                            writeln!(output, "{}", text.trim()).unwrap();
+                            writeln!(output, "----").unwrap();
+                            writeln!(output).unwrap();
+                            block_index += 1;
+                            continue;
+                        }
+                    }
+
+                    // Check if this is a multi-line monospace paragraph (code block)
+                    // This catches code blocks that use a template-specific style
+                    if self.is_code_block_paragraph(para) {
+                        if last_was_list {
+                            writeln!(output).unwrap();
+                            last_was_list = false;
+                            last_num_id = None;
+                        }
+                        // Get raw text without formatting marks for code blocks
+                        let raw_text = self.get_raw_paragraph_text(para);
+                        // Check for language from comment
+                        let lang = self.get_language_from_comment(block_index, comments, comment_ranges);
+                        if let Some(ref lang) = lang {
+                            writeln!(output, "[source,{}]", lang).unwrap();
+                        } else {
+                            writeln!(output, "[source]").unwrap();
+                        }
+                        writeln!(output, "----").unwrap();
+                        writeln!(output, "{}", raw_text.trim()).unwrap();
+                        writeln!(output, "----").unwrap();
+                        writeln!(output).unwrap();
+                        block_index += 1;
+                        continue;
+                    }
+
+                    // Check if this is a list item
+                    if let Some(ref numbering) = para.numbering {
+                        let is_new_list = last_num_id != Some(numbering.num_id);
+
+                        // Add blank line before new list
+                        if is_new_list && !last_was_list {
+                            // Already have blank line from previous paragraph
+                        }
+
+                        // Determine list marker based on style
+                        // NumId 1-9 are typically bullet lists, 10+ are numbered
+                        // Also check if the numbering ilvl > 0 for nested items
+                        let indent = "*".repeat((numbering.ilvl + 1) as usize);
+
+                        // Check if this looks like a numbered list (could improve with numbering.xml)
+                        let marker = if self.is_numbered_list(numbering.num_id, styles) {
+                            ".".repeat((numbering.ilvl + 1) as usize)
+                        } else {
+                            indent
+                        };
+
+                        writeln!(output, "{} {}", marker, text.trim()).unwrap();
+                        last_was_list = true;
+                        last_num_id = Some(numbering.num_id);
+                        block_index += 1;
+                        continue;
+                    }
+
+                    // End list if we hit a non-list paragraph
+                    if last_was_list {
+                        writeln!(output).unwrap();
+                        last_was_list = false;
+                        last_num_id = None;
                     }
 
                     // Regular paragraph
@@ -211,24 +603,121 @@ impl AsciiDocExtractor {
                         writeln!(output, "{}", text.trim()).unwrap();
                         writeln!(output).unwrap();
                     }
+                    block_index += 1;
                 }
                 Block::Table(table) if self.extract_tables => {
+                    if last_was_list {
+                        writeln!(output).unwrap();
+                        last_was_list = false;
+                        last_num_id = None;
+                    }
                     let table_text = self.convert_table(table);
-                    writeln!(output, "{}", table_text).unwrap();
+                    // table_text already ends with newline from |===
+                    output.push_str(&table_text);
                     writeln!(output).unwrap();
+                    block_index += 1;
                 }
                 Block::Table(_) => {
                     writeln!(output, "// [TABLE OMITTED]").unwrap();
                     writeln!(output).unwrap();
+                    block_index += 1;
                 }
                 Block::SectionBreak => {
+                    if last_was_list {
+                        writeln!(output).unwrap();
+                        last_was_list = false;
+                        last_num_id = None;
+                    }
                     writeln!(output, "'''").unwrap();
                     writeln!(output).unwrap();
+                    // SectionBreak doesn't increment block_index as it's not a block-level element
                 }
             }
         }
 
         output
+    }
+
+    /// Get language from comment for a code block at a given index
+    fn get_language_from_comment(
+        &self,
+        block_index: usize,
+        comments: &Comments,
+        comment_ranges: &CommentRanges,
+    ) -> Option<String> {
+        // Check if this block has any associated comments
+        if let Some(comment_ids) = comment_ranges.get_comment_ids(block_index) {
+            for &comment_id in comment_ids {
+                if let Some(lang) = comments.get_language(comment_id) {
+                    return Some(lang);
+                }
+            }
+        }
+        None
+    }
+
+    /// Check if a numbering ID represents a numbered list
+    ///
+    /// This uses a simple heuristic based on our writer's convention:
+    /// - numId 1 = unordered (bullet) list
+    /// - numId 2 = ordered (numbered) list
+    ///
+    /// A more complete implementation would parse numbering.xml to check
+    /// the numFmt value (bullet vs decimal/lowerLetter/etc.)
+    fn is_numbered_list(&self, num_id: u32, _styles: &StyleSheet) -> bool {
+        // Our writer uses numId 2 for ordered lists
+        num_id == 2
+    }
+
+    /// Get raw text from a paragraph without any formatting marks
+    fn get_raw_paragraph_text(&self, para: &Paragraph) -> String {
+        let mut result = String::new();
+
+        for child in &para.children {
+            match child {
+                ParagraphChild::Run(run) => {
+                    result.push_str(&run.text);
+                }
+                ParagraphChild::Hyperlink(hyperlink) => {
+                    for run in &hyperlink.runs {
+                        result.push_str(&run.text);
+                    }
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Check if a paragraph is a code block (multi-line monospace content)
+    ///
+    /// This detects code blocks that:
+    /// 1. Consist entirely of monospace-formatted runs
+    /// 2. Contain newlines (multi-line content)
+    fn is_code_block_paragraph(&self, para: &Paragraph) -> bool {
+        // Get all runs from the paragraph
+        let mut has_monospace = false;
+        let mut has_newline = false;
+        let mut all_monospace = true;
+
+        for child in &para.children {
+            if let ParagraphChild::Run(run) = child {
+                if !run.text.is_empty() {
+                    if run.monospace {
+                        has_monospace = true;
+                        if run.text.contains('\n') {
+                            has_newline = true;
+                        }
+                    } else {
+                        // Non-monospace text present
+                        all_monospace = false;
+                    }
+                }
+            }
+        }
+
+        // It's a code block if all text is monospace and has newlines
+        has_monospace && has_newline && all_monospace
     }
 
     /// Convert a paragraph to AsciiDoc text
@@ -320,41 +809,32 @@ impl AsciiDocExtractor {
             return output;
         }
 
-        // Table header
-        writeln!(
-            output,
-            "[cols=\"{}\", options=\"header\"]",
-            vec!["1"; col_count].join(",")
-        )
-        .unwrap();
+        // Table header with proportional columns
+        let col_spec = (0..col_count).map(|_| "1").collect::<Vec<_>>().join(",");
+        writeln!(output, "[cols=\"{}\",options=\"header\"]", col_spec).unwrap();
         writeln!(output, "|===").unwrap();
 
         for (row_idx, row) in table.rows.iter().enumerate() {
-            // First row as header
-            if row_idx == 0 || row.is_header {
-                for cell in &row.cells {
-                    let text = cell
-                        .paragraphs
+            // Collect cell contents
+            let cells: Vec<String> = row
+                .cells
+                .iter()
+                .map(|cell| {
+                    cell.paragraphs
                         .iter()
                         .map(|p| self.convert_paragraph(p))
                         .collect::<Vec<_>>()
-                        .join(" ");
-                    writeln!(output, "|{}", text.trim()).unwrap();
-                }
-            } else {
-                for cell in &row.cells {
-                    let text = cell
-                        .paragraphs
-                        .iter()
-                        .map(|p| self.convert_paragraph(p))
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    write!(output, "|{} ", text.trim()).unwrap();
-                }
-                writeln!(output).unwrap();
-            }
+                        .join(" ")
+                        .trim()
+                        .to_string()
+                })
+                .collect();
 
-            // Blank line after header row
+            // Output all cells on one line (AsciiDoc compact table format)
+            let row_text = cells.iter().map(|c| format!("|{}", c)).collect::<String>();
+            writeln!(output, "{}", row_text).unwrap();
+
+            // Blank line after header row for AsciiDoc table syntax
             if row_idx == 0 {
                 writeln!(output).unwrap();
             }
@@ -406,9 +886,12 @@ mod tests {
 
         let doc = Document::parse(xml).unwrap();
         let styles = StyleSheet::default();
+        let metadata = DocumentMetadata::default();
+        let comments = Comments::default();
+        let comment_ranges = CommentRanges::default();
 
         let extractor = AsciiDocExtractor::new();
-        let asciidoc = extractor.convert_to_asciidoc(&doc, &styles, None);
+        let asciidoc = extractor.convert_to_asciidoc(&doc, &styles, None, &metadata, &comments, &comment_ranges);
 
         assert!(asciidoc.contains("Hello, world!"));
     }
@@ -442,9 +925,12 @@ mod tests {
 
         let doc = Document::parse(xml).unwrap();
         let styles = StyleSheet::default();
+        let metadata = DocumentMetadata::default();
+        let comments = Comments::default();
+        let comment_ranges = CommentRanges::default();
 
         let extractor = AsciiDocExtractor::new();
-        let asciidoc = extractor.convert_to_asciidoc(&doc, &styles, None);
+        let asciidoc = extractor.convert_to_asciidoc(&doc, &styles, None, &metadata, &comments, &comment_ranges);
 
         println!("Generated AsciiDoc:\n{}", asciidoc);
         // Should generate: <<_Toc123,Click me>>
@@ -453,5 +939,52 @@ mod tests {
             "Expected <<_Toc123,Click me>> but got: {}",
             asciidoc
         );
+    }
+
+    #[test]
+    fn test_comments_parse() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:comment w:id="0" w:author="utf8dok">
+                <w:p><w:r><w:t>Language: bash</w:t></w:r></w:p>
+            </w:comment>
+            <w:comment w:id="1" w:author="utf8dok">
+                <w:p><w:r><w:t>Language: python</w:t></w:r></w:p>
+            </w:comment>
+        </w:comments>"#;
+
+        let comments = Comments::parse(xml);
+
+        assert_eq!(comments.get(0), Some("Language: bash"));
+        assert_eq!(comments.get(1), Some("Language: python"));
+        assert_eq!(comments.get_language(0), Some("bash".to_string()));
+        assert_eq!(comments.get_language(1), Some("python".to_string()));
+        assert_eq!(comments.get(2), None);
+    }
+
+    #[test]
+    fn test_comment_ranges_parse() {
+        // Note: commentRangeStart appears INSIDE the paragraph in OOXML
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p><w:r><w:t>First paragraph</w:t></w:r></w:p>
+                <w:p>
+                    <w:commentRangeStart w:id="0"/>
+                    <w:r><w:t>Code block</w:t></w:r>
+                    <w:commentRangeEnd w:id="0"/>
+                </w:p>
+                <w:p><w:r><w:t>Third paragraph</w:t></w:r></w:p>
+            </w:body>
+        </w:document>"#;
+
+        let ranges = CommentRanges::parse(xml);
+
+        // First paragraph (index 0) has no comment
+        assert!(ranges.get_comment_ids(0).is_none());
+        // Second paragraph (index 1) has comment 0
+        assert_eq!(ranges.get_comment_ids(1), Some(&vec![0u32]));
+        // Third paragraph (index 2) has no comment
+        assert!(ranges.get_comment_ids(2).is_none());
     }
 }

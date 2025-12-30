@@ -108,7 +108,8 @@ impl Document {
     /// Parse a document from XML bytes
     pub fn parse(xml: &[u8]) -> Result<Self> {
         let mut reader = Reader::from_reader(xml);
-        reader.config_mut().trim_text(true);
+        // Don't trim text - preserve whitespace in runs
+        reader.config_mut().trim_text(false);
 
         let mut blocks = Vec::new();
         let mut buf = Vec::new();
@@ -334,6 +335,14 @@ impl Document {
                         }
                         b"i" if current_run.is_some() => {
                             current_run.as_mut().unwrap().italic = true;
+                        }
+                        b"rFonts" if current_run.is_some() => {
+                            // Check for monospace fonts (self-closing element)
+                            if let Some(font) = get_attr(e, b"w:ascii") {
+                                if is_monospace_font(&font) {
+                                    current_run.as_mut().unwrap().monospace = true;
+                                }
+                            }
                         }
                         _ => {}
                     }

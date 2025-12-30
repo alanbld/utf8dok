@@ -439,43 +439,113 @@ impl StyleMap {
     /// Create a StyleMap from a StyleSheet by auto-detecting available styles
     ///
     /// This inspects the template's styles and maps to the best available match.
+    /// Handles localized templates (e.g., Italian "Titolo1" instead of "Heading1")
+    /// by using outline levels and style names rather than relying on style IDs.
     pub fn from_stylesheet(stylesheet: &StyleSheet) -> Self {
-        let mut map = StyleMap::default();
+        let mut map = StyleMap::new();
 
-        // Check for alternative heading styles
-        for level in 1..=9 {
-            let default_id = format!("Heading{}", level);
-            if stylesheet.get(&default_id).is_none() {
-                // Try alternative naming conventions
-                let alternatives = [
-                    format!("heading {}", level),
-                    format!("Heading {}", level),
-                    format!("H{}", level),
-                ];
-                for alt in alternatives {
-                    if stylesheet.get(&alt).is_some() {
-                        map.set(ElementType::Heading(level), alt);
-                        break;
-                    }
+        // Build a name-to-id lookup for locale-independent matching
+        let name_to_id: std::collections::HashMap<String, String> = stylesheet
+            .all()
+            .map(|s| (s.name.to_lowercase(), s.id.clone()))
+            .collect();
+
+        // 1. Map headings by outline level (most reliable, locale-independent)
+        for style in stylesheet.heading_styles() {
+            if let Some(level) = style.outline_level {
+                let heading_level = (level + 1).clamp(1, 9);
+                map.set(ElementType::Heading(heading_level), &style.id);
+            }
+        }
+
+        // 2. Map default paragraph style
+        if let Some(ref default_para) = stylesheet.default_paragraph {
+            map.set(ElementType::Paragraph, default_para);
+        } else {
+            // Fallback: look for "Normal" by name
+            if let Some(id) = name_to_id.get("normal") {
+                map.set(ElementType::Paragraph, id);
+            }
+        }
+
+        // 3. Map list styles by name (handles localization)
+        let list_bullet_names = ["list bullet", "list paragraph", "listbullet", "listparagraph"];
+        for name in list_bullet_names {
+            if let Some(id) = name_to_id.get(name) {
+                map.set(ElementType::ListBullet, id);
+                break;
+            }
+        }
+
+        let list_number_names = ["list number", "listnumber", "list paragraph"];
+        for name in list_number_names {
+            if let Some(id) = name_to_id.get(name) {
+                map.set(ElementType::ListNumber, id);
+                break;
+            }
+        }
+
+        // 4. Map code block style
+        let code_names = ["code", "codeblock", "source code", "verbatim", "html preformatted", "no spacing"];
+        for name in code_names {
+            if let Some(id) = name_to_id.get(name) {
+                map.set(ElementType::CodeBlock, id);
+                break;
+            }
+        }
+
+        // 5. Map table style
+        let table_names = ["table grid", "tablegrid", "grid table 1 light", "plain table 1"];
+        for name in table_names {
+            if let Some(id) = name_to_id.get(name) {
+                map.set(ElementType::Table, id);
+                break;
+            }
+        }
+
+        // 6. Fallback: also check by styleId for English templates
+        if map.mappings.get(&ElementType::Heading(1)).is_none() {
+            for level in 1..=9 {
+                let default_id = format!("Heading{}", level);
+                if stylesheet.get(&default_id).is_some() {
+                    map.set(ElementType::Heading(level as u8), &default_id);
                 }
             }
         }
 
-        // Check for code block style alternatives
-        let code_alternatives = ["CodeBlock", "Code", "NoSpacing", "SourceCode", "Verbatim"];
-        for alt in code_alternatives {
-            if stylesheet.get(alt).is_some() {
-                map.set(ElementType::CodeBlock, alt);
-                break;
+        if map.mappings.get(&ElementType::Paragraph).is_none() {
+            if stylesheet.get("Normal").is_some() {
+                map.set(ElementType::Paragraph, "Normal");
             }
         }
 
-        // Check for table style alternatives
-        let table_alternatives = ["TableGrid", "Table Grid", "GridTable1Light", "PlainTable1"];
-        for alt in table_alternatives {
-            if stylesheet.get(alt).is_some() {
-                map.set(ElementType::Table, alt);
-                break;
+        if map.mappings.get(&ElementType::ListBullet).is_none() {
+            let alternatives = ["ListBullet", "ListParagraph"];
+            for alt in alternatives {
+                if stylesheet.get(alt).is_some() {
+                    map.set(ElementType::ListBullet, alt);
+                    break;
+                }
+            }
+        }
+
+        if map.mappings.get(&ElementType::CodeBlock).is_none() {
+            let alternatives = ["CodeBlock", "Code", "NoSpacing"];
+            for alt in alternatives {
+                if stylesheet.get(alt).is_some() {
+                    map.set(ElementType::CodeBlock, alt);
+                    break;
+                }
+            }
+        }
+
+        if map.mappings.get(&ElementType::Table).is_none() {
+            let alternatives = ["TableGrid", "GridTable1Light", "PlainTable1"];
+            for alt in alternatives {
+                if stylesheet.get(alt).is_some() {
+                    map.set(ElementType::Table, alt);
+                    break;
+                }
             }
         }
 

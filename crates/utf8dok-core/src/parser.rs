@@ -47,10 +47,11 @@ enum ParserState {
     /// Building a list with accumulated items
     List(ListType, Vec<ListItem>),
     /// Building a table with rows and current row being built
-    /// (completed_rows, current_row_cells)
+    /// (completed_rows, current_row_cells, expected_column_count)
     Table {
         rows: Vec<Vec<TableCell>>,
         current_row: Vec<TableCell>,
+        col_count: Option<usize>,
     },
     /// Building a literal block (delimited by ----)
     Literal(Vec<String>),
@@ -118,10 +119,26 @@ impl Parser {
             }
         }
 
+        // Skip block-level attribute lines (appear after headings, not content)
+        // These are metadata like :slide-layout:, :slide-bullets:, etc.
+        if line.starts_with(':') && line.ends_with(':') {
+            // Boolean attribute like :toc:
+            return;
+        }
+        if line.starts_with(':') && line.contains(": ") {
+            // Key-value attribute like :slide-layout: Title
+            // Skip known block attributes that shouldn't be rendered
+            if let Some((key, _)) = self.parse_attribute(line) {
+                if Self::is_block_attribute(&key) {
+                    return;
+                }
+            }
+        }
+
         // Empty line handling
         if line.trim().is_empty() {
             // If we're inside a table, empty lines are row separators
-            if let ParserState::Table { rows, current_row } = &mut self.state {
+            if let ParserState::Table { rows, current_row, col_count: _ } = &mut self.state {
                 if !current_row.is_empty() {
                     // Push current row to rows and start a new row
                     rows.push(std::mem::take(current_row));
@@ -149,6 +166,7 @@ impl Parser {
                     self.state = ParserState::Table {
                         rows: Vec::new(),
                         current_row: Vec::new(),
+                        col_count: None,
                     };
                 }
             }
@@ -156,17 +174,20 @@ impl Parser {
         }
 
         // If we're in a table, handle table cell lines
-        if let ParserState::Table { current_row, .. } = &mut self.state {
+        if let ParserState::Table { rows, current_row, col_count } = &mut self.state {
             if let Some(cell_content) = line.strip_prefix('|') {
                 // Split by | to handle multiple cells on one line: | A | B | C
                 let cell_parts: Vec<&str> = cell_content.split('|').collect();
 
-                // If there's only one part (no more |), it's a single cell
+                // Collect cells from this line
+                let mut line_cells = Vec::new();
+                let is_multicell_line = cell_parts.len() > 1;
+
                 if cell_parts.len() == 1 {
                     // Single cell - content may be empty (for empty cells like "| ")
                     let content = cell_content.trim();
                     let inlines = parse_inlines(content);
-                    current_row.push(TableCell {
+                    line_cells.push(TableCell {
                         content: vec![Block::Paragraph(Paragraph {
                             inlines,
                             style_id: None,
@@ -178,11 +199,10 @@ impl Parser {
                     });
                 } else {
                     // Multiple cells on this line: | A | B | C
-                    // Each part after split is a cell (first part is content after leading |)
                     for cell_text in cell_parts {
                         let trimmed = cell_text.trim();
                         let inlines = parse_inlines(trimmed);
-                        current_row.push(TableCell {
+                        line_cells.push(TableCell {
                             content: vec![Block::Paragraph(Paragraph {
                                 inlines,
                                 style_id: None,
@@ -192,6 +212,22 @@ impl Parser {
                             rowspan: 1,
                             align: None,
                         });
+                    }
+                }
+
+                // Set column count only if this is a multi-cell line
+                // (cells on separate lines use blank-line row separators)
+                if col_count.is_none() && is_multicell_line {
+                    *col_count = Some(line_cells.len());
+                }
+
+                // Add cells to current row
+                current_row.extend(line_cells);
+
+                // If we have multi-cell rows and filled a row, push it and start new
+                if let Some(cols) = *col_count {
+                    if current_row.len() >= cols {
+                        rows.push(std::mem::take(current_row));
                     }
                 }
             }
@@ -250,6 +286,39 @@ impl Parser {
 
         // Otherwise, it's paragraph content
         self.handle_paragraph_line(line);
+    }
+
+    /// Check if an attribute key is a block-level attribute that should not be rendered
+    fn is_block_attribute(key: &str) -> bool {
+        // Dual-nature attributes
+        let block_attrs = [
+            "slide-layout",
+            "slide-bullets",
+            "slide-master",
+            "slide-notes",
+            "slide-transition",
+            "slide-background",
+            "document-style",
+            "document-class",
+            // Common AsciiDoc block attributes
+            "source-highlighter",
+            "icons",
+            "icon",
+            "caption",
+            "title",
+            "id",
+            "role",
+            "options",
+            "cols",
+            "frame",
+            "grid",
+            "width",
+            "height",
+            "align",
+            "float",
+            "language",
+        ];
+        block_attrs.contains(&key.to_lowercase().as_str())
     }
 
     /// Parse an attribute line like `:key: value`
@@ -404,6 +473,7 @@ impl Parser {
             ParserState::Table {
                 mut rows,
                 current_row,
+                col_count: _,
             } => {
                 // Push any remaining current_row to rows
                 if !current_row.is_empty() {

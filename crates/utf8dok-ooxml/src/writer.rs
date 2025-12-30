@@ -54,6 +54,17 @@ const DIAGRAM_STYLES: &[&str] = &[
     "svgbob", // Native rendering support
 ];
 
+/// A comment to be added to the document
+#[derive(Debug, Clone)]
+struct Comment {
+    /// Comment ID
+    id: usize,
+    /// Comment text
+    text: String,
+    /// Author name
+    author: String,
+}
+
 /// DOCX Writer for generating DOCX files from AST
 pub struct DocxWriter {
     /// XML output buffer
@@ -78,6 +89,10 @@ pub struct DocxWriter {
     source_text: Option<String>,
     /// Configuration TOML (for self-contained DOCX)
     config_text: Option<String>,
+    /// Comments to be added to comments.xml
+    comments: Vec<Comment>,
+    /// Next comment ID
+    next_comment_id: usize,
 }
 
 impl Default for DocxWriter {
@@ -101,6 +116,8 @@ impl DocxWriter {
             style_map: StyleMap::default(),
             source_text: None,
             config_text: None,
+            comments: Vec::new(),
+            next_comment_id: 1,
         }
     }
 
@@ -118,6 +135,8 @@ impl DocxWriter {
             style_map,
             source_text: None,
             config_text: None,
+            comments: Vec::new(),
+            next_comment_id: 1,
         }
     }
 
@@ -292,6 +311,12 @@ impl DocxWriter {
             self.update_content_types(&mut archive)?;
         }
 
+        // Write comments.xml if we have any language annotations
+        self.write_comments(&mut archive)?;
+
+        // Update docProps/core.xml with document metadata (title, author)
+        self.update_core_properties(&mut archive, doc)?;
+
         // Write to output buffer
         let mut output = Cursor::new(Vec::new());
         archive.write_to(&mut output)?;
@@ -359,6 +384,12 @@ impl DocxWriter {
         if !writer.media_files.is_empty() {
             writer.update_content_types(&mut archive)?;
         }
+
+        // Write comments.xml if we have any language annotations
+        writer.write_comments(&mut archive)?;
+
+        // Update docProps/core.xml with document metadata (title, author)
+        writer.update_core_properties(&mut archive, doc)?;
 
         // Write to output buffer
         let mut output = Cursor::new(Vec::new());
@@ -450,11 +481,223 @@ impl DocxWriter {
             writer.update_content_types(&mut archive)?;
         }
 
+        // Write comments.xml if we have any language annotations
+        writer.write_comments(&mut archive)?;
+
+        // Update docProps/core.xml with document metadata (title, author)
+        writer.update_core_properties(&mut archive, doc)?;
+
         // Write to output buffer
         let mut output = Cursor::new(Vec::new());
         archive.write_to(&mut output)?;
 
         Ok(output.into_inner())
+    }
+
+    /// Update docProps/core.xml with document metadata
+    fn update_core_properties(&self, archive: &mut OoxmlArchive, doc: &Document) -> Result<()> {
+        // Get the document title and author from AST metadata
+        let title = doc.metadata.title.as_deref();
+
+        // Check both authors Vec and attributes for author
+        let author = doc.metadata.authors.first().map(|s| s.as_str())
+            .or_else(|| doc.metadata.attributes.get("author").map(|s| s.as_str()));
+
+        // Check for revdate attribute
+        let revdate = doc.metadata.revision.as_deref()
+            .or_else(|| doc.metadata.attributes.get("revdate").map(|s| s.as_str()));
+
+        // Only update if we have metadata to write
+        if title.is_none() && author.is_none() && revdate.is_none() {
+            return Ok(());
+        }
+
+        // Check if docProps/core.xml exists
+        if let Some(core_xml) = archive.get_string("docProps/core.xml")? {
+            // Update existing core.xml
+            let mut updated = core_xml;
+
+            if let Some(new_title) = title {
+                // Replace existing title or insert one
+                if updated.contains("<dc:title>") {
+                    updated = updated
+                        .split("<dc:title>")
+                        .enumerate()
+                        .map(|(i, part)| {
+                            if i == 0 {
+                                part.to_string()
+                            } else if let Some((_, rest)) = part.split_once("</dc:title>") {
+                                format!("<dc:title>{}</dc:title>{}", escape_xml(new_title), rest)
+                            } else {
+                                part.to_string()
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("");
+                } else if updated.contains("<cp:coreProperties") {
+                    // Insert title after opening tag
+                    updated = updated.replace(
+                        "</cp:coreProperties>",
+                        &format!("<dc:title>{}</dc:title></cp:coreProperties>", escape_xml(new_title)),
+                    );
+                }
+            }
+
+            if let Some(new_author) = author {
+                // Replace existing creator or insert one
+                if updated.contains("<dc:creator>") {
+                    updated = updated
+                        .split("<dc:creator>")
+                        .enumerate()
+                        .map(|(i, part)| {
+                            if i == 0 {
+                                part.to_string()
+                            } else if let Some((_, rest)) = part.split_once("</dc:creator>") {
+                                format!("<dc:creator>{}</dc:creator>{}", escape_xml(new_author), rest)
+                            } else {
+                                part.to_string()
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("");
+                } else if updated.contains("<cp:coreProperties") {
+                    // Insert creator after opening tag
+                    updated = updated.replace(
+                        "</cp:coreProperties>",
+                        &format!("<dc:creator>{}</dc:creator></cp:coreProperties>", escape_xml(new_author)),
+                    );
+                }
+            }
+
+            if let Some(new_revdate) = revdate {
+                // Convert revdate to ISO format (add T00:00:00Z if just date)
+                let iso_date = if new_revdate.contains('T') {
+                    new_revdate.to_string()
+                } else {
+                    format!("{}T00:00:00Z", new_revdate)
+                };
+
+                // Replace existing modified date or insert one
+                if updated.contains("<dcterms:modified") {
+                    // Use regex-like replacement for the modified element (has xsi:type attribute)
+                    if let Some(start) = updated.find("<dcterms:modified") {
+                        if let Some(end) = updated[start..].find("</dcterms:modified>") {
+                            let end_pos = start + end + "</dcterms:modified>".len();
+                            let replacement = format!(
+                                "<dcterms:modified xsi:type=\"dcterms:W3CDTF\">{}</dcterms:modified>",
+                                iso_date
+                            );
+                            updated = format!("{}{}{}", &updated[..start], replacement, &updated[end_pos..]);
+                        }
+                    }
+                } else if updated.contains("<cp:coreProperties") {
+                    // Insert modified date before closing tag
+                    updated = updated.replace(
+                        "</cp:coreProperties>",
+                        &format!(
+                            "<dcterms:modified xsi:type=\"dcterms:W3CDTF\">{}</dcterms:modified></cp:coreProperties>",
+                            iso_date
+                        ),
+                    );
+                }
+            }
+
+            archive.set_string("docProps/core.xml", updated);
+        } else {
+            // Create new core.xml
+            let mut core_xml = String::from(
+                r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">"#,
+            );
+
+            if let Some(t) = title {
+                core_xml.push_str(&format!("<dc:title>{}</dc:title>", escape_xml(t)));
+            }
+            if let Some(a) = author {
+                core_xml.push_str(&format!("<dc:creator>{}</dc:creator>", escape_xml(a)));
+            }
+            if let Some(r) = revdate {
+                let iso_date = if r.contains('T') {
+                    r.to_string()
+                } else {
+                    format!("{}T00:00:00Z", r)
+                };
+                core_xml.push_str(&format!(
+                    "<dcterms:modified xsi:type=\"dcterms:W3CDTF\">{}</dcterms:modified>",
+                    iso_date
+                ));
+            }
+
+            core_xml.push_str("</cp:coreProperties>");
+            archive.set_string("docProps/core.xml", core_xml);
+        }
+
+        Ok(())
+    }
+
+    /// Generate comments.xml if there are any comments
+    fn generate_comments_xml(&self) -> Option<String> {
+        if self.comments.is_empty() {
+            return None;
+        }
+
+        let mut xml = String::from(
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">"#,
+        );
+
+        for comment in &self.comments {
+            xml.push_str(&format!(
+                r#"
+<w:comment w:id="{}" w:author="{}" w:date="2024-01-01T00:00:00Z">
+<w:p><w:r><w:t>{}</w:t></w:r></w:p>
+</w:comment>"#,
+                comment.id,
+                escape_xml(&comment.author),
+                escape_xml(&comment.text)
+            ));
+        }
+
+        xml.push_str("\n</w:comments>");
+        Some(xml)
+    }
+
+    /// Write comments.xml and update relationships/content types
+    fn write_comments(&self, archive: &mut OoxmlArchive) -> Result<()> {
+        if let Some(comments_xml) = self.generate_comments_xml() {
+            // Write comments.xml
+            archive.set_string("word/comments.xml", comments_xml);
+
+            // Update document relationships to include comments
+            if let Some(rels) = archive.get_string("word/_rels/document.xml.rels")? {
+                if !rels.contains("comments.xml") {
+                    // Find the next rId
+                    let next_rid = rels.matches("Id=\"rId").count() + 1;
+                    let new_rels = rels.replace(
+                        "</Relationships>",
+                        &format!(
+                            r#"<Relationship Id="rId{}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments" Target="comments.xml"/>
+</Relationships>"#,
+                            next_rid
+                        ),
+                    );
+                    archive.set_string("word/_rels/document.xml.rels", new_rels);
+                }
+            }
+
+            // Update [Content_Types].xml to include comments
+            if let Some(content_types) = archive.get_string("[Content_Types].xml")? {
+                if !content_types.contains("comments.xml") {
+                    let new_content_types = content_types.replace(
+                        "</Types>",
+                        r#"<Override PartName="/word/comments.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml"/>
+</Types>"#,
+                    );
+                    archive.set_string("[Content_Types].xml", new_content_types);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Update [Content_Types].xml to include PNG extension
@@ -746,6 +989,23 @@ impl DocxWriter {
             .push_str(&format!("<w:pStyle w:val=\"{}\"/>\n", escape_xml(style)));
         self.output.push_str("</w:pPr>\n");
 
+        // If there's a language, add a comment to preserve it
+        let comment_id = if let Some(ref lang) = literal.language {
+            let id = self.next_comment_id;
+            self.next_comment_id += 1;
+            self.comments.push(Comment {
+                id,
+                text: format!("Language: {}", lang),
+                author: "utf8dok".to_string(),
+            });
+            // Add comment range start
+            self.output
+                .push_str(&format!("<w:commentRangeStart w:id=\"{}\"/>\n", id));
+            Some(id)
+        } else {
+            None
+        };
+
         // Generate the content as a run with preserved whitespace
         self.output.push_str("<w:r>\n");
         self.output.push_str("<w:rPr>\n");
@@ -757,6 +1017,16 @@ impl DocxWriter {
             escape_xml(&literal.content)
         ));
         self.output.push_str("</w:r>\n");
+
+        // Close comment range if we added one
+        if let Some(id) = comment_id {
+            self.output
+                .push_str(&format!("<w:commentRangeEnd w:id=\"{}\"/>\n", id));
+            self.output.push_str("<w:r>\n");
+            self.output
+                .push_str(&format!("<w:commentReference w:id=\"{}\"/>\n", id));
+            self.output.push_str("</w:r>\n");
+        }
 
         self.output.push_str("</w:p>\n");
     }
