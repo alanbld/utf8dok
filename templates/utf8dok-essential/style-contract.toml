@@ -1,0 +1,274 @@
+# utf8dok Essential - StyleContract for open_template.dotx
+#
+# This is the canonical mapping between Italian-heritage corporate styles
+# and AsciiDoc semantic roles. The template was derived from a real
+# corporate template, anonymized with open-source fonts and branding.
+#
+# IMPORTANT: Style IDs are the internal OOXML identifiers (locale-dependent).
+# The 'name' in Word's UI may differ from the styleId.
+
+[meta]
+template = "open_template.dotx"
+template_name = "utf8dok Essential"
+locale = "it-IT"
+version = "1.0.0"
+created = "2025-12-31T12:00:00Z"
+description = "Open-source template derived from Italian corporate design"
+
+# =============================================================================
+# PARAGRAPH STYLES
+# =============================================================================
+
+[paragraph_styles]
+
+# -----------------------------------------------------------------------------
+# Heading Hierarchy (9 levels)
+# Italian: Titolo = Title/Heading
+# -----------------------------------------------------------------------------
+
+Titolo1 = { role = "h1", heading_level = 1, description = "Major section" }
+Titolo2 = { role = "h2", heading_level = 2, description = "Subsection" }
+Titolo3 = { role = "h3", heading_level = 3, description = "Sub-subsection" }
+Titolo4 = { role = "h4", heading_level = 4 }
+Titolo5 = { role = "h5", heading_level = 5 }
+Titolo6 = { role = "h6", heading_level = 6 }
+Titolo7 = { role = "h7", heading_level = 7 }
+Titolo8 = { role = "h8", heading_level = 8 }
+Titolo9 = { role = "h9", heading_level = 9 }
+
+# Document title (distinct from section headings)
+Titolo = { role = "title", description = "Document main title" }
+Sottotitolo = { role = "subtitle", description = "Document subtitle" }
+
+# Custom heading variants from corporate template
+Titolo1NuovoperdocContrattuali = { role = "h1", heading_level = 1, description = "Contractual doc heading 1" }
+StileTitolo1NuovoperdocContrattualiArial = { role = "h1", heading_level = 1, description = "Arial variant" }
+StileTitolo2PropostaArialBlunotte = { role = "h2", heading_level = 2, description = "Proposal heading 2" }
+
+# -----------------------------------------------------------------------------
+# Body Text Styles
+# Italian: Normale = Normal
+# -----------------------------------------------------------------------------
+
+Normale = { role = "body", description = "Standard paragraph" }
+Nessunaspaziatura = { role = "body-compact", description = "No spacing paragraph" }
+Normaleconrigavuotadopo = { role = "body", description = "Normal with blank line after" }
+NormaleProposta = { role = "body", description = "Proposal body text" }
+StileNormalePropostaArial = { role = "body", description = "Proposal body (Arial)" }
+
+# -----------------------------------------------------------------------------
+# Quote Styles
+# Italian: Citazione = Quote
+# -----------------------------------------------------------------------------
+
+Citazione = { role = "quote", description = "Block quote" }
+Citazioneintensa = { role = "quote-intense", description = "Emphasized block quote" }
+
+# -----------------------------------------------------------------------------
+# List Styles
+# Italian: Elenco = List, Paragrafo = Paragraph
+# -----------------------------------------------------------------------------
+
+Paragrafoelenco = { role = "list-item", list_type = "unordered", description = "Bulleted list paragraph" }
+Numeroelenco = { role = "list-item", list_type = "ordered", description = "Numbered list paragraph" }
+
+# -----------------------------------------------------------------------------
+# Table of Contents Styles
+# Italian: Sommario = TOC/Summary
+# -----------------------------------------------------------------------------
+
+Sommario1 = { role = "toc1", heading_level = 1 }
+Sommario2 = { role = "toc2", heading_level = 2 }
+Sommario3 = { role = "toc3", heading_level = 3 }
+Sommario4 = { role = "toc4", heading_level = 4 }
+Sommario5 = { role = "toc5", heading_level = 5 }
+Sommario6 = { role = "toc6", heading_level = 6 }
+Sommario7 = { role = "toc7", heading_level = 7 }
+Sommario8 = { role = "toc8", heading_level = 8 }
+Sommario9 = { role = "toc9", heading_level = 9 }
+Titolosommario = { role = "toc-heading", description = "TOC title" }
+
+# -----------------------------------------------------------------------------
+# Caption and Figure Styles
+# Italian: Didascalia = Caption
+# -----------------------------------------------------------------------------
+
+Didascalia = { role = "caption", description = "Figure/table caption" }
+TitoloGrafico = { role = "chart-title", description = "Chart title" }
+
+# -----------------------------------------------------------------------------
+# Header/Footer
+# Italian: Intestazione = Header, Piè di pagina = Footer
+# -----------------------------------------------------------------------------
+
+Intestazione = { role = "header", description = "Page header" }
+Pidipagina = { role = "footer", description = "Page footer" }
+Numeropagina = { role = "page-number", description = "Page number" }
+
+# -----------------------------------------------------------------------------
+# Comment/Annotation Styles
+# Italian: Commento = Comment, Fumetto = Balloon
+# -----------------------------------------------------------------------------
+
+Testocommento = { role = "comment", description = "Comment text" }
+Soggettocommento = { role = "comment-subject", description = "Comment subject" }
+Testofumetto = { role = "balloon", description = "Balloon text" }
+
+# -----------------------------------------------------------------------------
+# Notes
+# Italian: Nota = Note
+# -----------------------------------------------------------------------------
+
+anota = { role = "note", description = "Note paragraph" }
+
+# =============================================================================
+# CHARACTER STYLES
+# =============================================================================
+
+[character_styles]
+
+# Italian: Enfasi = Emphasis, Grassetto = Bold, Corsivo = Italic
+
+Enfasigrassetto = { role = "strong", description = "Bold emphasis" }
+Enfasicorsivo = { role = "emphasis", description = "Italic emphasis" }
+Enfasidelicata = { role = "emphasis-subtle", description = "Subtle emphasis" }
+Enfasiintensa = { role = "emphasis-strong", description = "Intense emphasis" }
+
+# References
+Riferimentodelicato = { role = "reference", description = "Subtle reference" }
+Riferimentointenso = { role = "reference-strong", description = "Strong reference" }
+
+# Hyperlinks
+Collegamentoipertestuale = { role = "link", description = "Hyperlink" }
+Collegamentovisitato = { role = "link-visited", description = "Visited hyperlink" }
+
+# Book/document references
+Titolodellibro = { role = "book-title", description = "Book title reference" }
+Marcato = { role = "marked", description = "Marked/highlighted text" }
+
+# Linked character styles (auto-generated by Word)
+Titolo1Carattere = { role = "h1-char", linked_to = "Titolo1" }
+Titolo2Carattere = { role = "h2-char", linked_to = "Titolo2" }
+Titolo3Carattere = { role = "h3-char", linked_to = "Titolo3" }
+Titolo4Carattere = { role = "h4-char", linked_to = "Titolo4" }
+Titolo5Carattere = { role = "h5-char", linked_to = "Titolo5" }
+Titolo6Carattere = { role = "h6-char", linked_to = "Titolo6" }
+Titolo7Carattere = { role = "h7-char", linked_to = "Titolo7" }
+Titolo8Carattere = { role = "h8-char", linked_to = "Titolo8" }
+Titolo9Carattere = { role = "h9-char", linked_to = "Titolo9" }
+TitoloCarattere = { role = "title-char", linked_to = "Titolo" }
+SottotitoloCarattere = { role = "subtitle-char", linked_to = "Sottotitolo" }
+CitazioneCarattere = { role = "quote-char", linked_to = "Citazione" }
+CitazioneintensaCarattere = { role = "quote-intense-char", linked_to = "Citazioneintensa" }
+
+# =============================================================================
+# TABLE STYLES
+# =============================================================================
+
+[table_styles]
+
+# Default tables
+Tabellanormale = { role = "default", description = "Normal table" }
+Grigliatabella = { role = "grid", description = "Table grid" }
+Grigliatabellachiara = { role = "grid-light", description = "Light table grid" }
+
+# Simple tables (Italian: Semplice = Simple)
+Tabellasemplice-1 = { role = "simple-1" }
+Tabellasemplice-2 = { role = "simple-2" }
+Tabellasemplice-3 = { role = "simple-3" }
+Tabellasemplice4 = { role = "simple-4" }
+Tabellasemplice5 = { role = "simple-5" }
+
+# Grid tables with color accents
+Tabellagriglia1chiara = { role = "grid-1-light" }
+Tabellagriglia2 = { role = "grid-2" }
+Grigliatab3 = { role = "grid-3" }
+Grigliatab4 = { role = "grid-4" }
+Elencotab4 = { role = "list-table", description = "Corporate list table" }
+
+# Colored table variants (colore = color)
+"Tabellagriglia1chiara-colore1" = { role = "grid-light-accent1" }
+"Tabellagriglia1chiara-colore2" = { role = "grid-light-accent2" }
+"Tabellagriglia1chiara-colore3" = { role = "grid-light-accent3" }
+"Tabellagriglia1chiara-colore4" = { role = "grid-light-accent4" }
+"Tabellagriglia2-colore1" = { role = "grid-2-accent1" }
+"Tabellagriglia2-colore2" = { role = "grid-2-accent2" }
+"Tabellagriglia2-colore3" = { role = "grid-2-accent3" }
+"Tabellagriglia2-colore4" = { role = "grid-2-accent4" }
+"Tabellagriglia2-colore5" = { role = "grid-2-accent5" }
+"Tabellagriglia2-colore6" = { role = "grid-2-accent6" }
+
+# List tables (Italian: Elenco = List)
+"Tabellaelenco3-colore2" = { role = "list-3-accent2" }
+"Tabellaelenco3-colore5" = { role = "list-3-accent5" }
+"Tabellaelenco3-colore6" = { role = "list-3-accent6" }
+"Tabellaelenco4-colore4" = { role = "list-4-accent4" }
+Tabellaelenco6acolori = { role = "list-6-colorful" }
+"Tabellaelenco6acolori-colore3" = { role = "list-6-colorful-accent3" }
+
+# Grid with colors
+Tabellagriglia6acolori = { role = "grid-6-colorful" }
+"Tabellagriglia6acolori-colore4" = { role = "grid-6-colorful-accent4" }
+"Tabellagriglia6acolori-colore5" = { role = "grid-6-colorful-accent5" }
+Tabellagriglia7acolori = { role = "grid-7-colorful" }
+"Tabellagriglia7acolori-colore1" = { role = "grid-7-colorful-accent1" }
+"Tabellagriglia7acolori-colore3" = { role = "grid-7-colorful-accent3" }
+
+# Dark grid tables (scura = dark)
+"Tabellagriglia5scura-colore4" = { role = "grid-5-dark-accent4" }
+"Tabellagriglia5scura-colore5" = { role = "grid-5-dark-accent5" }
+"Tabellagriglia5scura-colore6" = { role = "grid-5-dark-accent6" }
+
+# =============================================================================
+# THEME DEFAULTS
+# =============================================================================
+
+[theme]
+name = "utf8dok Essential"
+major_font = "Inter"
+minor_font = "Inter"
+code_font = "JetBrains Mono"
+
+# Color palette (Essential theme - vibrant and accessible)
+accent1 = "#D946EF"  # Fuchsia - Primary, headings
+accent2 = "#06B6D4"  # Cyan - Links, highlights
+accent3 = "#8B5CF6"  # Violet - Secondary accents
+accent4 = "#F59E0B"  # Amber - Warnings
+accent5 = "#EA580C"  # Orange - Alerts
+accent6 = "#64748B"  # Slate - Borders, subtle
+dk1 = "#000000"      # Black - Main text
+lt1 = "#FFFFFF"      # White - Backgrounds
+dk2 = "#0F172A"      # Slate-900 - Dark backgrounds
+lt2 = "#F1F5F9"      # Slate-100 - Subtle backgrounds
+hyperlink = "#0891B2" # Cyan-600 - Links
+followed_hyperlink = "#8B5CF6"  # Violet - Visited links
+
+# =============================================================================
+# ROLE REVERSE MAPPINGS (AsciiDoc role → Word styleId)
+# =============================================================================
+# Used during rendering to find the correct Word style for each semantic role
+
+[role_to_style]
+h1 = "Titolo1"
+h2 = "Titolo2"
+h3 = "Titolo3"
+h4 = "Titolo4"
+h5 = "Titolo5"
+h6 = "Titolo6"
+h7 = "Titolo7"
+h8 = "Titolo8"
+h9 = "Titolo9"
+title = "Titolo"
+subtitle = "Sottotitolo"
+body = "Normale"
+body-compact = "Nessunaspaziatura"
+quote = "Citazione"
+quote-intense = "Citazioneintensa"
+caption = "Didascalia"
+header = "Intestazione"
+footer = "Pidipagina"
+list-item = "Paragrafoelenco"
+note = "anota"
+strong = "Enfasigrassetto"
+emphasis = "Enfasicorsivo"
+link = "Collegamentoipertestuale"

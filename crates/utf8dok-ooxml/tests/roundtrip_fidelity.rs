@@ -1026,3 +1026,203 @@ mod textbox_tests {
         );
     }
 }
+
+// =============================================================================
+// PART 10: ESSENTIAL TEMPLATE TESTS (ADR-008)
+// =============================================================================
+
+mod essential_template_tests {
+    //! Tests for the utf8dok Essential open-source template
+    //!
+    //! Verifies that the canonical style-contract.toml works with open_template.dotx
+
+    use std::path::Path;
+
+    const ESSENTIAL_TEMPLATE: &str = "../../templates/utf8dok-essential/open_template.dotx";
+    const ESSENTIAL_CONTRACT: &str = "../../templates/utf8dok-essential/style-contract.toml";
+
+    /// Test that the essential style-contract.toml can be parsed
+    #[test]
+    fn test_essential_style_contract_parses() {
+        let path = Path::new(ESSENTIAL_CONTRACT);
+        if !path.exists() {
+            eprintln!("Skipping test: {} not found", ESSENTIAL_CONTRACT);
+            return;
+        }
+
+        let toml_content = std::fs::read_to_string(path).expect("Failed to read style-contract.toml");
+
+        // Try to parse - extra fields are ignored by serde default
+        let contract = utf8dok_ooxml::StyleContract::from_toml(&toml_content);
+
+        match contract {
+            Ok(c) => {
+                eprintln!("Successfully parsed style-contract.toml");
+                eprintln!("  {} paragraph styles", c.paragraph_styles.len());
+                eprintln!("  {} character styles", c.character_styles.len());
+                eprintln!("  {} table styles", c.table_styles.len());
+
+                // Verify key Italian styles are present
+                assert!(
+                    c.paragraph_styles.contains_key("Titolo1"),
+                    "Should have Titolo1 style"
+                );
+                assert!(
+                    c.paragraph_styles.contains_key("Normale"),
+                    "Should have Normale style"
+                );
+
+                // Verify heading levels
+                let titolo1 = c.paragraph_styles.get("Titolo1").unwrap();
+                assert_eq!(titolo1.heading_level, Some(1), "Titolo1 should be level 1");
+            }
+            Err(e) => {
+                panic!("Failed to parse style-contract.toml: {}", e);
+            }
+        }
+    }
+
+    /// Test that the essential template file exists and is valid
+    #[test]
+    fn test_essential_template_exists() {
+        let path = Path::new(ESSENTIAL_TEMPLATE);
+        if !path.exists() {
+            eprintln!("Skipping test: {} not found", ESSENTIAL_TEMPLATE);
+            return;
+        }
+
+        // Try to open as ZIP
+        let file = std::fs::File::open(path).expect("Failed to open template");
+        let archive = zip::ZipArchive::new(file).expect("Template is not a valid ZIP");
+
+        // Verify key OOXML parts exist
+        let mut has_document = false;
+        let mut has_styles = false;
+        let mut has_content_types = false;
+
+        for i in 0..archive.len() {
+            let name = archive.name_for_index(i).unwrap();
+            if name == "word/document.xml" {
+                has_document = true;
+            }
+            if name == "word/styles.xml" {
+                has_styles = true;
+            }
+            if name == "[Content_Types].xml" {
+                has_content_types = true;
+            }
+        }
+
+        assert!(has_content_types, "Template should have [Content_Types].xml");
+        assert!(has_document, "Template should have word/document.xml");
+        assert!(has_styles, "Template should have word/styles.xml");
+
+        eprintln!("Essential template is valid OOXML with {} entries", archive.len());
+    }
+
+    /// Test that essential template has expected Italian style IDs
+    #[test]
+    fn test_essential_template_style_ids() {
+        let path = Path::new(ESSENTIAL_TEMPLATE);
+        if !path.exists() {
+            return;
+        }
+
+        let mut template = utf8dok_ooxml::Template::load(path).expect("Failed to load template");
+
+        // Check for Italian heading styles
+        let expected_styles = [
+            "Titolo1", "Titolo2", "Titolo3", "Titolo4", "Titolo5",
+            "Titolo6", "Titolo7", "Titolo8", "Titolo9", "Normale",
+        ];
+
+        let available = template.available_style_ids().expect("Failed to get style IDs");
+
+        for style in &expected_styles {
+            assert!(
+                available.contains(&style.to_string()),
+                "Template should have {} style. Available: {:?}",
+                style,
+                available.iter().take(20).collect::<Vec<_>>()
+            );
+        }
+
+        eprintln!("Essential template has {} styles", available.len());
+    }
+
+    /// Test round-trip using essential template
+    #[test]
+    fn test_essential_template_roundtrip() {
+        use utf8dok_ooxml::{DocxWriter, Template};
+
+        let template_path = Path::new(ESSENTIAL_TEMPLATE);
+        let contract_path = Path::new(ESSENTIAL_CONTRACT);
+
+        if !template_path.exists() || !contract_path.exists() {
+            eprintln!("Skipping round-trip test: template or contract not found");
+            return;
+        }
+
+        // Load template
+        let template = Template::load(template_path).expect("Failed to load template");
+
+        // Load style contract
+        let toml_content = std::fs::read_to_string(contract_path).unwrap();
+        let contract = utf8dok_ooxml::StyleContract::from_toml(&toml_content).unwrap();
+
+        // Create a simple AST using correct utf8dok_ast types
+        use utf8dok_ast::{Block, Document, DocumentMeta, Heading, Inline, Paragraph};
+
+        let doc = Document {
+            metadata: DocumentMeta {
+                title: Some("Test Document".into()),
+                ..Default::default()
+            },
+            blocks: vec![
+                Block::Heading(Heading {
+                    level: 1,
+                    text: vec![Inline::Text("Introduction".into())],
+                    anchor: Some("introduction".into()),
+                    style_id: None,
+                }),
+                Block::Paragraph(Paragraph {
+                    inlines: vec![Inline::Text("This is the introduction paragraph.".into())],
+                    ..Default::default()
+                }),
+                Block::Heading(Heading {
+                    level: 2,
+                    text: vec![Inline::Text("Background".into())],
+                    anchor: Some("background".into()),
+                    style_id: None,
+                }),
+                Block::Paragraph(Paragraph {
+                    inlines: vec![Inline::Text("Some background information.".into())],
+                    ..Default::default()
+                }),
+            ],
+            intent: None,
+        };
+
+        // Render to DOCX
+        let mut writer = DocxWriter::new();
+        writer.set_style_contract(contract);
+        let docx_bytes = writer
+            .generate_with_template(&doc, template)
+            .expect("Failed to generate DOCX");
+
+        // Verify output is valid OOXML
+        let cursor = std::io::Cursor::new(docx_bytes);
+        let archive = zip::ZipArchive::new(cursor).expect("Output is not valid OOXML");
+
+        // Check key parts exist
+        let mut found_document = false;
+        for i in 0..archive.len() {
+            if archive.name_for_index(i).unwrap() == "word/document.xml" {
+                found_document = true;
+            }
+        }
+
+        assert!(found_document, "Output should have word/document.xml");
+        eprintln!("Round-trip produced valid DOCX with {} entries", archive.len());
+    }
+}
