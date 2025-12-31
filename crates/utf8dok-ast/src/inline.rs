@@ -20,6 +20,8 @@ pub enum Inline {
     Image(Image),
     /// A line break
     Break,
+    /// An anchor/bookmark (for internal cross-references)
+    Anchor(String),
 }
 
 /// Text formatting types

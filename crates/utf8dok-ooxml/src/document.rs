@@ -47,6 +47,15 @@ pub enum ParagraphChild {
     Hyperlink(Hyperlink),
     /// An embedded image
     Image(Image),
+    /// A bookmark anchor
+    Bookmark(Bookmark),
+}
+
+/// A bookmark (anchor point for internal links)
+#[derive(Debug, Clone)]
+pub struct Bookmark {
+    /// Bookmark name (used as anchor ID)
+    pub name: String,
 }
 
 /// A hyperlink with its target and content
@@ -119,6 +128,7 @@ impl Document {
 
         // State for current paragraph
         let mut in_body = false;
+        let mut in_textbox_content = false; // Track if inside <w:txbxContent>
         let mut current_para: Option<ParagraphBuilder> = None;
         let mut current_run: Option<RunBuilder> = None;
         let mut current_table: Option<TableBuilder> = None;
@@ -135,7 +145,11 @@ impl Document {
                     let name = e.local_name();
                     match name.as_ref() {
                         b"body" => in_body = true,
-                        b"p" if in_body && current_table.is_none() => {
+                        b"txbxContent" => {
+                            // Text box content - treat like body for paragraph parsing
+                            in_textbox_content = true;
+                        }
+                        b"p" if (in_body || in_textbox_content) && current_table.is_none() => {
                             current_para = Some(ParagraphBuilder::new());
                         }
                         b"p" if current_table.is_some() => {
@@ -316,6 +330,7 @@ impl Document {
                     let name = e.local_name();
                     match name.as_ref() {
                         b"body" => in_body = false,
+                        b"txbxContent" => in_textbox_content = false,
                         b"p" if current_para.is_some() => {
                             let para = current_para.take().unwrap().build();
 
@@ -433,6 +448,17 @@ impl Document {
                                 }
                             }
                         }
+                        b"bookmarkStart" if current_para.is_some() => {
+                            // Parse bookmark anchor
+                            if let Some(name) = get_attr(e, b"w:name") {
+                                // Skip internal Word bookmarks (starting with _)
+                                if !name.starts_with('_') {
+                                    let para = current_para.as_mut().unwrap();
+                                    para.children
+                                        .push(ParagraphChild::Bookmark(Bookmark { name }));
+                                }
+                            }
+                        }
                         b"extent" if current_image.is_some() => {
                             // Image dimensions in EMUs (self-closing)
                             if let Some(cx) = get_attr(e, b"cx") {
@@ -545,6 +571,7 @@ impl Paragraph {
                     // Use alt text as placeholder if available
                     img.alt.clone().unwrap_or_default()
                 }
+                ParagraphChild::Bookmark(_) => String::new(), // Bookmarks have no text
             })
             .collect::<Vec<_>>()
             .join("")
@@ -559,6 +586,7 @@ impl Paragraph {
                     hyperlink.runs.iter().all(|r| r.text.trim().is_empty())
                 }
                 ParagraphChild::Image(_) => false, // Images are never "empty"
+                ParagraphChild::Bookmark(_) => true, // Bookmarks are "empty" (no visible content)
             })
     }
 
@@ -570,6 +598,7 @@ impl Paragraph {
                 hyperlink.runs.iter().collect::<Vec<_>>().into_iter()
             }
             ParagraphChild::Image(_) => vec![].into_iter(),
+            ParagraphChild::Bookmark(_) => vec![].into_iter(), // Bookmarks have no runs
         })
     }
 

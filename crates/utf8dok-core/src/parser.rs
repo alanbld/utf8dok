@@ -633,6 +633,8 @@ fn parse_inlines(text: &str) -> Vec<Inline> {
     let mono_re = Regex::new(r"`([^`]+)`").unwrap();
     // Cross-reference: <<anchor,text>> or <<anchor>>
     let xref_re = Regex::new(r"<<([^,>]+),([^>]+)>>|<<([^>]+)>>").unwrap();
+    // Inline anchor: [[name]]
+    let anchor_re = Regex::new(r"\[\[([^\]]+)\]\]").unwrap();
 
     let mut result = Vec::new();
     let mut remaining = text;
@@ -643,6 +645,7 @@ fn parse_inlines(text: &str) -> Vec<Inline> {
         let italic_match = italic_re.find(remaining);
         let mono_match = mono_re.find(remaining);
         let xref_match = xref_re.find(remaining);
+        let anchor_match = anchor_re.find(remaining);
 
         // Determine which match comes first
         let earliest = [
@@ -650,6 +653,7 @@ fn parse_inlines(text: &str) -> Vec<Inline> {
             italic_match.map(|m| (m.start(), m.end(), "italic")),
             mono_match.map(|m| (m.start(), m.end(), "mono")),
             xref_match.map(|m| (m.start(), m.end(), "xref")),
+            anchor_match.map(|m| (m.start(), m.end(), "anchor")),
         ]
         .into_iter()
         .flatten()
@@ -706,6 +710,18 @@ fn parse_inlines(text: &str) -> Vec<Inline> {
                                 })
                             } else {
                                 // Fallback: treat as plain text
+                                Inline::Text(matched.to_string())
+                            }
+                        } else {
+                            Inline::Text(matched.to_string())
+                        }
+                    }
+                    "anchor" => {
+                        // Parse anchor: [[name]]
+                        if let Some(caps) = anchor_re.captures(matched) {
+                            if let Some(name) = caps.get(1) {
+                                Inline::Anchor(name.as_str().to_string())
+                            } else {
                                 Inline::Text(matched.to_string())
                             }
                         } else {

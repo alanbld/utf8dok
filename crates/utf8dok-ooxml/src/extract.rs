@@ -694,6 +694,9 @@ impl AsciiDocExtractor {
                         result.push_str(alt);
                     }
                 }
+                ParagraphChild::Bookmark(_) => {
+                    // Bookmarks have no text content
+                }
             }
         }
 
@@ -782,6 +785,14 @@ impl AsciiDocExtractor {
                         result.push_str(&self.convert_run(&merged));
                     }
                     result.push_str(&self.convert_image(img, rels));
+                }
+                ParagraphChild::Bookmark(bookmark) => {
+                    // Flush any pending merged runs before bookmark
+                    for merged in merged_runs.drain(..) {
+                        result.push_str(&self.convert_run(&merged));
+                    }
+                    // Output AsciiDoc anchor
+                    result.push_str(&format!("[[{}]]", bookmark.name));
                 }
             }
         }

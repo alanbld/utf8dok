@@ -196,6 +196,10 @@ impl AsciiDocGenerator {
             Inline::Break => {
                 writeln!(self.output, " +").unwrap();
             }
+            Inline::Anchor(name) => {
+                // Generate inline anchor: [[name]]
+                write!(self.output, "[[{}]]", name).unwrap();
+            }
         }
     }
 

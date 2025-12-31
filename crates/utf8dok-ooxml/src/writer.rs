@@ -93,6 +93,8 @@ pub struct DocxWriter {
     comments: Vec<Comment>,
     /// Next comment ID
     next_comment_id: usize,
+    /// Next bookmark ID for unique bookmark IDs
+    next_bookmark_id: usize,
 }
 
 impl Default for DocxWriter {
@@ -118,6 +120,7 @@ impl DocxWriter {
             config_text: None,
             comments: Vec::new(),
             next_comment_id: 1,
+            next_bookmark_id: 0,
         }
     }
 
@@ -137,6 +140,7 @@ impl DocxWriter {
             config_text: None,
             comments: Vec::new(),
             next_comment_id: 1,
+            next_bookmark_id: 0,
         }
     }
 
@@ -156,6 +160,13 @@ impl DocxWriter {
     pub fn set_embedded_content(&mut self, source: impl Into<String>, config: impl Into<String>) {
         self.source_text = Some(source.into());
         self.config_text = Some(config.into());
+    }
+
+    /// Get the next unique bookmark ID
+    fn next_bookmark_id(&mut self) -> usize {
+        let id = self.next_bookmark_id;
+        self.next_bookmark_id += 1;
+        id
     }
 
     /// Initialize the writer from a template archive
@@ -1277,6 +1288,19 @@ impl DocxWriter {
                 self.output.push_str("<w:br/>\n");
                 self.output.push_str("</w:r>\n");
             }
+            Inline::Anchor(name) => {
+                // Generate bookmark start and end at this position
+                let bookmark_id = self.next_bookmark_id();
+                self.output.push_str(&format!(
+                    "<w:bookmarkStart w:id=\"{}\" w:name=\"{}\"/>\n",
+                    bookmark_id,
+                    escape_xml(name)
+                ));
+                self.output.push_str(&format!(
+                    "<w:bookmarkEnd w:id=\"{}\"/>\n",
+                    bookmark_id
+                ));
+            }
         }
     }
 
@@ -1464,6 +1488,7 @@ fn extract_text(inline: &Inline) -> String {
         Inline::Link(link) => link.text.iter().map(extract_text).collect(),
         Inline::Image(image) => image.alt.clone().unwrap_or_default(),
         Inline::Break => String::new(),
+        Inline::Anchor(_) => String::new(), // Anchors have no text content
     }
 }
 

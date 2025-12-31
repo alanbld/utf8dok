@@ -160,6 +160,10 @@ impl ToAst for ParagraphChild {
                 let text = img.alt.clone().unwrap_or_else(|| "[image]".to_string());
                 vec![Inline::Text(text)]
             }
+            ParagraphChild::Bookmark(bookmark) => {
+                // Convert bookmark to inline anchor
+                vec![Inline::Anchor(bookmark.name.clone())]
+            }
         }
     }
 }
