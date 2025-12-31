@@ -28,6 +28,7 @@ use crate::archive::OoxmlArchive;
 use crate::error::Result;
 use crate::manifest::{ElementMeta, Manifest};
 use crate::relationships::Relationships;
+use crate::style_map::StyleContract;
 use crate::styles::StyleMap;
 use crate::template::Template;
 
@@ -85,6 +86,8 @@ pub struct DocxWriter {
     diagram_engine: Option<DiagramEngine>,
     /// Style mapping for template injection
     style_map: StyleMap,
+    /// Style contract for round-trip fidelity (ADR-007)
+    style_contract: Option<StyleContract>,
     /// Original AsciiDoc source (for self-contained DOCX)
     source_text: Option<String>,
     /// Configuration TOML (for self-contained DOCX)
@@ -116,6 +119,7 @@ impl DocxWriter {
             next_drawing_id: 1,
             diagram_engine: None,
             style_map: StyleMap::default(),
+            style_contract: None,
             source_text: None,
             config_text: None,
             comments: Vec::new(),
@@ -136,6 +140,7 @@ impl DocxWriter {
             next_drawing_id: 1,
             diagram_engine: None,
             style_map,
+            style_contract: None,
             source_text: None,
             config_text: None,
             comments: Vec::new(),
@@ -160,6 +165,30 @@ impl DocxWriter {
     pub fn set_embedded_content(&mut self, source: impl Into<String>, config: impl Into<String>) {
         self.source_text = Some(source.into());
         self.config_text = Some(config.into());
+    }
+
+    /// Set the style contract for round-trip fidelity (ADR-007)
+    ///
+    /// When set, the writer will use the contract to restore original
+    /// bookmark names and anchor mappings from extraction.
+    pub fn set_style_contract(&mut self, contract: StyleContract) {
+        self.style_contract = Some(contract);
+    }
+
+    /// Resolve an anchor name to the original Word bookmark name
+    ///
+    /// If a StyleContract is set and contains a reverse mapping for this
+    /// semantic anchor, returns the original Word bookmark name.
+    /// Otherwise, returns the anchor name as-is.
+    fn resolve_anchor_name(&self, semantic_anchor: &str) -> String {
+        if let Some(ref contract) = self.style_contract {
+            // Look for a mapping where semantic_id matches this anchor
+            if let Some(word_bookmark) = contract.get_word_bookmark(semantic_anchor) {
+                return word_bookmark.to_string();
+            }
+        }
+        // Fall back to the semantic anchor name
+        semantic_anchor.to_string()
     }
 
     /// Get the next unique bookmark ID
@@ -1242,10 +1271,12 @@ impl DocxWriter {
             Inline::Link(link) => {
                 if link.url.starts_with('#') {
                     // Internal link (cross-reference): use w:hyperlink with w:anchor
-                    let anchor = &link.url[1..]; // Strip the leading #
+                    // Use StyleContract to restore original anchor name if available
+                    let semantic_anchor = &link.url[1..]; // Strip the leading #
+                    let anchor = self.resolve_anchor_name(semantic_anchor);
                     self.output.push_str(&format!(
                         "<w:hyperlink w:anchor=\"{}\">\n",
-                        escape_xml(anchor)
+                        escape_xml(&anchor)
                     ));
                     self.output.push_str("<w:r>\n");
                     self.output.push_str("<w:rPr>\n");
@@ -1290,11 +1321,13 @@ impl DocxWriter {
             }
             Inline::Anchor(name) => {
                 // Generate bookmark start and end at this position
+                // Use StyleContract to restore original bookmark name if available
+                let bookmark_name = self.resolve_anchor_name(name);
                 let bookmark_id = self.next_bookmark_id();
                 self.output.push_str(&format!(
                     "<w:bookmarkStart w:id=\"{}\" w:name=\"{}\"/>\n",
                     bookmark_id,
-                    escape_xml(name)
+                    escape_xml(&bookmark_name)
                 ));
                 self.output.push_str(&format!(
                     "<w:bookmarkEnd w:id=\"{}\"/>\n",
