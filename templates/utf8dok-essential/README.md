@@ -18,6 +18,18 @@ This template provides:
 | `open_template.dotx` | Word template file |
 | `style-contract.toml` | StyleContract mapping (Italian IDs → semantic roles) |
 
+### Cover Images
+
+| File | Description | Use Case |
+|------|-------------|----------|
+| `cover-screen.png` | Full-color 3D geometric design | Screen, digital PDFs |
+| `cover-print.svg` | Light background, outline geometry | Print (saves ink) |
+| `cover-print-dark.svg` | Dark header band with wave accents | Print (minimal ink) |
+
+**Design Philosophy**:
+- **Screen**: Vibrant 3D glass cubes with Fuchsia/Cyan/Violet edge highlights on purple gradient
+- **Print**: White background with outline-only geometry using same color accents (90%+ ink savings)
+
 ## Style IDs
 
 The template uses Italian style IDs from its corporate heritage:

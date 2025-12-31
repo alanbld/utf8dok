@@ -1,0 +1,737 @@
+= utf8dok: The Document Compiler
+:author: utf8dok Team
+:email: utf8dok@example.com
+:revnumber: 1.0.0
+:revdate: 2025-12-31
+:revremark: Comprehensive Guide
+:description: Complete guide to utf8dok - template-aware document processing with round-trip fidelity
+:keywords: asciidoc, docx, rust, documentation, round-trip, template
+:toc: left
+:toclevels: 3
+:sectnums:
+:icons: font
+:source-highlighter: rouge
+:experimental:
+:doctype: book
+
+[abstract]
+--
+*utf8dok* is a high-performance document compiler written in Rust that transforms AsciiDoc into corporate-compliant DOCX with full round-trip editing capability. Unlike traditional tools that generate documents from scratch, utf8dok _injects_ content into `.dotx` templates, producing output that matches organizational standards while preserving embedded sources for lossless round-trips.
+
+This comprehensive guide covers installation, architecture, workflows, the StyleContract system, tutorials, and architecture decision records.
+--
+
+== Executive Summary
+
+=== The Problem
+
+Technical documentation in corporate environments faces a fundamental tension:
+
+. *Writers prefer plain text* -- version control, diff-friendly, IDE-integrated
+. *Stakeholders expect polished DOCX* -- branded templates, professional formatting
+. *Existing tools generate generic output* -- styles lost, formatting inconsistent
+
+Current solutions like Asciidoctor produce DOCX from scratch, ignoring carefully crafted corporate templates. The result: manual post-processing, lost metadata, and no path back to source.
+
+=== The Solution
+
+utf8dok introduces *template-aware document generation*:
+
+[cols="1,2",options="header"]
+|===
+|Traditional Approach |utf8dok Approach
+
+|Generate OOXML from scratch
+|Inject content into existing `.dotx` template
+
+|Generic, unstyled output
+|Corporate-compliant, branded documents
+
+|One-way conversion
+|*Lossless round-trip* (DOCX -> AsciiDoc -> DOCX)
+
+|External diagram images
+|Self-contained with embedded diagram sources
+|===
+
+=== Key Differentiators
+
+[horizontal]
+Template-Aware:: Preserves corporate branding, styles, and structure
+Self-Contained:: Embeds AsciiDoc sources inside DOCX for round-trip editing
+StyleContract:: Locale-independent mapping between Word styles and semantic roles
+Rust-Powered:: Native performance with WASM browser support
+TCK-First:: Targeting Eclipse AsciiDoc standards compliance
+
+== Installation
+
+=== From Source (Recommended)
+
+[source,bash]
+----
+# Clone the repository
+git clone https://github.com/utf8dok/utf8dok.git
+cd utf8dok
+
+# Build release binary
+cargo build --release
+
+# Install globally
+cargo install --path crates/utf8dok-cli
+----
+
+=== Pre-built Binaries
+
+[source,bash]
+----
+# Linux (x86_64)
+curl -LO https://github.com/utf8dok/utf8dok/releases/latest/download/utf8dok-linux-x86_64.tar.gz
+tar xzf utf8dok-linux-x86_64.tar.gz
+sudo mv utf8dok /usr/local/bin/
+
+# Verify installation
+utf8dok --version
+----
+
+=== Docker
+
+[source,bash]
+----
+docker pull ghcr.io/utf8dok/cli:latest
+docker run -v $(pwd):/docs ghcr.io/utf8dok/cli render /docs/document.adoc
+----
+
+== Architecture Overview
+
+=== Crate Structure
+
+utf8dok is organized as a Cargo workspace:
+
+[cols="1,3",options="header"]
+|===
+|Crate |Purpose
+
+|`utf8dok-core`
+|Parser, AST construction, diagnostics engine
+
+|`utf8dok-ast`
+|Abstract Syntax Tree type definitions
+
+|`utf8dok-ooxml`
+|DOCX/DOTX reading and writing (OOXML format)
+
+|`utf8dok-diagrams`
+|Diagram rendering (Kroki, native Mermaid)
+
+|`utf8dok-validate`
+|Document validation and compliance rules
+
+|`utf8dok-plugins`
+|Rhai scripting for custom extensions
+
+|`utf8dok-lsp`
+|Language Server Protocol implementation
+
+|`utf8dok-cli`
+|Command-line interface
+
+|`utf8dok-wasm`
+|WebAssembly bindings
+|===
+
+=== Data Flow
+
+.Extract Workflow (DOCX -> AsciiDoc)
+[source]
+----
+DOCX Archive
+    |
+    v
+Parse word/document.xml
+    |
+    v
+Analyze styles -> StyleContract
+    |
+    v
+Extract content as AsciiDoc
+    |
+    v
+Output: .adoc + style-contract.toml
+----
+
+.Render Workflow (AsciiDoc -> DOCX)
+[source]
+----
+AsciiDoc Source
+    |
+    v
+Parse -> AST
+    |
+    v
+Render diagrams (Kroki/native)
+    |
+    v
+Load template (.dotx) + StyleContract
+    |
+    v
+Inject content with stable IDs
+    |
+    v
+Output: Self-contained .docx
+----
+
+== Self-Contained DOCX Architecture
+
+DOCX files are ZIP archives. Word ignores folders it doesn't recognize. utf8dok embeds source files directly inside:
+
+[source]
+----
+document.docx (ZIP archive)
++-- [Content_Types].xml
++-- _rels/
++-- word/
+|   +-- document.xml      # Main content
+|   +-- styles.xml        # Style definitions
+|   +-- media/            # Rendered images
++-- utf8dok/              # Word ignores this folder!
+    +-- manifest.json     # Element ID mappings
+    +-- source.adoc       # Original AsciiDoc
+    +-- style-contract.toml
+    +-- diagrams/         # Diagram sources
+        +-- fig-architecture.mmd
+        +-- fig-workflow.puml
+----
+
+=== Benefits
+
+[cols="1,3",options="header"]
+|===
+|Benefit |Description
+
+|*Self-contained*
+|Single file has everything needed to reconstruct
+
+|*Round-trip editing*
+|Extract -> edit AsciiDoc -> re-render -> identical structure
+
+|*Diagram sources*
+|Edit Mermaid/PlantUML, re-render charts
+
+|*Word-compatible*
+|Opens normally in Word - custom folder is ignored
+
+|*Git-friendly*
+|Can extract to files for version control
+|===
+
+== StyleContract: The Bridge
+
+The *StyleContract* solves the impedance mismatch between Word's locale-dependent style IDs and AsciiDoc's semantic roles.
+
+=== The Problem
+
+Word style IDs vary by locale:
+
+[cols="1,1,1",options="header"]
+|===
+|English |Italian |German
+
+|Heading 1
+|Titolo1
+|Uberschrift 1
+
+|Normal
+|Normale
+|Standard
+
+|Quote
+|Citazione
+|Zitat
+|===
+
+=== The Solution
+
+StyleContract maps any Word style ID to a semantic role:
+
+[source,toml]
+----
+# style-contract.toml
+[meta]
+template = "open_template.dotx"
+locale = "it-IT"
+version = "1.0.0"
+
+[paragraph_styles]
+Titolo1 = { role = "h1", heading_level = 1 }
+Titolo2 = { role = "h2", heading_level = 2 }
+Normale = { role = "body" }
+Citazione = { role = "quote" }
+
+[character_styles]
+Enfasigrassetto = { role = "strong" }
+Enfasicorsivo = { role = "emphasis" }
+
+[role_to_style]
+h1 = "Titolo1"
+h2 = "Titolo2"
+body = "Normale"
+quote = "Citazione"
+----
+
+=== How It Works
+
+.Extraction (DOCX -> AsciiDoc)
+[source]
+----
+Word Style ID -> StyleContract -> Semantic Role -> AsciiDoc
+   "Titolo1"  ->  lookup(h1)   ->     h1       ->    = Heading
+----
+
+.Rendering (AsciiDoc -> DOCX)
+[source]
+----
+AsciiDoc -> Semantic Role -> StyleContract -> Word Style ID
+= Heading ->     h1       -> lookup("h1")  ->   "Titolo1"
+----
+
+=== Essential Template
+
+utf8dok ships with the *Essential* template demonstrating locale-independent round-trips:
+
+[source]
+----
+templates/utf8dok-essential/
++-- open_template.dotx      # Word template (Italian style IDs)
++-- style-contract.toml     # Complete style mappings (103 styles)
++-- cover-screen.png        # Full-color cover (3D glass cubes)
++-- cover-print.svg         # Print-friendly cover
++-- README.md
+----
+
+== Tutorials
+
+=== Tutorial 1: Extract from Existing DOCX
+
+Convert an existing Word document to AsciiDoc:
+
+[source,bash]
+----
+# Extract content and generate style mappings
+utf8dok extract corporate-report.docx --output project/
+
+# Generated files:
+#   project/document.adoc
+#   project/style-contract.toml
+#   project/manifest.json
+#   project/media/
+----
+
+=== Tutorial 2: Render to Corporate Template
+
+Create a document using a corporate template:
+
+[source,bash]
+----
+utf8dok render document.adoc \
+  --template templates/utf8dok-essential/open_template.dotx \
+  --contract templates/utf8dok-essential/style-contract.toml \
+  --output final.docx
+----
+
+=== Tutorial 3: Round-Trip Editing
+
+[source,bash]
+----
+# Step 1: Extract from DOCX
+utf8dok extract report-v1.docx --output project/
+
+# Step 2: Edit the AsciiDoc
+vim project/document.adoc
+
+# Step 3: Re-render to DOCX
+utf8dok render project/document.adoc \
+  --contract project/style-contract.toml \
+  --output report-v2.docx
+
+# Structure, styles, and element IDs are preserved!
+----
+
+=== Tutorial 4: Diagrams-as-Code
+
+Embed diagrams directly in AsciiDoc:
+
+[source,asciidoc]
+....
+[mermaid]
+----
+graph TD
+    A[AsciiDoc] --> B[Parser]
+    B --> C[AST]
+    C --> D[DOCX]
+----
+....
+
+Diagrams render via Kroki or native engines:
+
+[source,bash]
+----
+utf8dok render document.adoc --output output.docx
+----
+
+== Diagram Integration
+
+=== Supported Types (via Kroki)
+
+[cols="1,1,2",options="header"]
+|===
+|Type |Syntax |Use Case
+
+|Mermaid
+|`[mermaid]`
+|Flowcharts, sequence diagrams, ER diagrams
+
+|PlantUML
+|`[plantuml]`
+|UML diagrams, architecture
+
+|Graphviz
+|`[graphviz]`
+|Network diagrams, graphs
+
+|Ditaa
+|`[ditaa]`
+|ASCII art diagrams
+
+|D2
+|`[d2]`
+|Modern diagramming
+
+|BlockDiag
+|`[blockdiag]`
+|Block diagrams
+|===
+
+=== Diagram Configuration
+
+[source,toml]
+----
+[diagrams]
+server = "https://kroki.io"
+format = "svg"
+cache_dir = ".utf8dok/cache"
+offline_mode = false
+----
+
+== Bidirectional Element Mapping
+
+For lossless round-trips, elements need stable identifiers.
+
+=== Naming Convention
+
+[source]
+----
+{type}-{semantic-name}[-{sequence}]
+----
+
+[cols="1,1,2",options="header"]
+|===
+|Prefix |Element |Example
+
+|`sec-`
+|Section/Heading
+|`sec-architecture`
+
+|`tbl-`
+|Table
+|`tbl-requirements`
+
+|`fig-`
+|Figure/Diagram
+|`fig-system-context`
+
+|`lst-`
+|Code listing
+|`lst-config-example`
+
+|`req-`
+|Requirement
+|`req-FR-001`
+|===
+
+=== AsciiDoc Anchors
+
+[source,asciidoc]
+----
+[[sec-architecture]]
+== Architecture Overview
+
+[[tbl-requirements]]
+.Requirements Matrix
+|===
+|ID |Description
+|FR-001 |OAuth support
+|===
+----
+
+== Validation and Compliance
+
+=== Built-in Validators
+
+[cols="1,3",options="header"]
+|===
+|Validator |Description
+
+|Weasel Words
+|Detects vague language ("various", "somewhat")
+
+|Passive Voice
+|Identifies passive constructions
+
+|Cross-References
+|Validates internal links and anchors
+
+|Required Sections
+|Ensures ADRs have Context, Decision, Consequences
+
+|Bridge Framework
+|Checks documentation structure compliance
+|===
+
+=== Running Validation
+
+[source,bash]
+----
+# Validate single document
+utf8dok validate document.adoc
+
+# Audit entire workspace
+utf8dok audit --config utf8dok.toml
+
+# Generate compliance dashboard
+utf8dok dashboard --output report.html
+----
+
+=== Custom Rules with Rhai
+
+[source,rhai]
+----
+// custom-rules/check-acronyms.rhai
+fn validate(document) {
+    let issues = [];
+    for para in document.paragraphs {
+        let acronyms = para.text.match(/\b[A-Z]{2,}\b/g);
+        for acronym in acronyms {
+            if !document.has_definition(acronym) {
+                issues.push(#{
+                    severity: "warning",
+                    message: `Undefined acronym: ${acronym}`
+                });
+            }
+        }
+    }
+    issues
+}
+----
+
+== LSP and Editor Integration
+
+=== VS Code Extension
+
+[source,bash]
+----
+# Install from marketplace
+code --install-extension utf8dok.vscode-utf8dok
+----
+
+=== Features
+
+* *Real-time diagnostics* -- Validation errors as you type
+* *Hover information* -- Style mappings and definitions
+* *Code completion* -- Block types, attributes, cross-references
+* *Document symbols* -- Navigate headings and anchors
+
+== Architecture Decision Records
+
+Key architectural decisions documented as ADRs:
+
+=== ADR-001: Why utf8dok
+
+*Decision*: Create a modern, fast document processor in Rust.
+
+*Rationale*: Existing solutions have performance limitations and cannot run in browsers. Rust provides zero-cost abstractions, WASM portability, and memory safety.
+
+=== ADR-003: Parser Technology Selection
+
+*Decision*: Use pest (PEG parser generator).
+
+*Rationale*: Declarative grammar in `.pest` files provides excellent maintainability and error messages.
+
+=== ADR-004: TCK-First Development
+
+*Decision*: Develop with Eclipse AsciiDoc TCK compliance as primary goal.
+
+*Rationale*: Standards compliance from day one provides clear success metrics.
+
+=== ADR-007: Style Mapping Architecture
+
+*Decision*: Introduce StyleContract layer for DOCX to AsciiDoc mapping.
+
+*Rationale*: Solves impedance mismatch between Word's locale-dependent styles and AsciiDoc's semantic markup, enabling lossless round-trips.
+
+=== ADR-008: Essential Platform Template
+
+*Decision*: Define open-source template with Italian-heritage style IDs.
+
+*Rationale*: Italian style names validate locale-independence. Any template with proper StyleContract achieves identical round-trip fidelity.
+
+== CLI Reference
+
+=== Core Commands
+
+[source,bash]
+----
+utf8dok extract <INPUT> [OPTIONS]
+    -o, --output <DIR>      Output directory
+    -c, --contract <FILE>   Style contract output path
+
+utf8dok render <INPUT> [OPTIONS]
+    -o, --output <FILE>     Output DOCX path
+    -t, --template <FILE>   Template .dotx file
+    -c, --contract <FILE>   Style contract file
+    --embed-sources         Embed AsciiDoc in output
+
+utf8dok validate <INPUT> [OPTIONS]
+    -c, --config <FILE>     Configuration file
+    --format <FORMAT>       Output format (text, json, sarif)
+
+utf8dok audit [OPTIONS]
+    --ci                    Exit non-zero on issues
+----
+
+== Configuration Reference
+
+=== utf8dok.toml
+
+[source,toml]
+----
+[template]
+path = "templates/corporate.dotx"
+contract = "templates/style-contract.toml"
+
+[output]
+default_format = "docx"
+embed_sources = true
+
+[diagrams]
+server = "https://kroki.io"
+format = "svg"
+cache_dir = ".utf8dok/cache"
+
+[validation]
+enabled = true
+rules = ["weasel-words", "passive-voice", "cross-references"]
+----
+
+== Comparison with Alternatives
+
+[cols="1,1,1,1,1",options="header"]
+|===
+|Feature |Pandoc |Asciidoctor |asciidocr |utf8dok
+
+|DOCX Output
+|Yes
+|Yes
+|Yes
+|Yes
+
+|Template Support
+|Basic
+|Limited
+|No
+|*Full*
+
+|Style Mapping
+|No
+|No
+|No
+|*Yes*
+
+|Round-Trip
+|No
+|No
+|No
+|*Yes*
+
+|Diagrams
+|Limited
+|Plugin
+|No
+|*Native*
+
+|Self-Contained
+|No
+|No
+|No
+|*Yes*
+
+|WASM Support
+|No
+|No
+|No
+|*Yes*
+|===
+
+== Roadmap
+
+=== Completed
+
+* Phase 0: Extraction (DOCX -> AsciiDoc)
+* Phase 1: Core Validation
+* Phase 2: LLM Integration (`--llm-check`)
+* Phase 3: Rhai Plugin System
+* Tier 1 and 2: Diagram engines
+
+=== In Progress
+
+* Full LSP implementation
+* Round-trip fidelity improvements
+* StyleContract reverse lookup
+
+=== Planned
+
+* PPTX generation (dual-nature documents)
+* PDF output
+* Confluence integration
+* Full TCK compliance
+
+== Contributing
+
+[source,bash]
+----
+# Clone and build
+git clone https://github.com/utf8dok/utf8dok.git
+cd utf8dok
+cargo build --workspace
+
+# Run tests
+cargo test --workspace
+
+# Format and lint
+cargo fmt --all
+cargo clippy --workspace -- -D warnings
+----
+
+== License
+
+* *Code*: Apache 2.0
+* *Documentation*: CC-BY-4.0
+* *Fonts* (Inter): SIL Open Font License
+
+---
+
+[.text-center]
+*utf8dok* -- The Document Compiler
+
+_Write once. Render anywhere. Round-trip forever._
+
+_This document was created with utf8dok using the Essential template._

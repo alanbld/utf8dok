@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  utf8dok Essential - Print-Friendly Cover (Dark Variant)
+  Minimal design with accent elements - still print-efficient
+  A4 Portrait: 210mm x 297mm
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 210 297" width="210mm" height="297mm">
+  <defs>
+    <!-- Wave gradient -->
+    <linearGradient id="waveGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#06B6D4" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#8B5CF6" stop-opacity="0.4"/>
+    </linearGradient>
+
+    <!-- Dark header band -->
+    <linearGradient id="headerGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#0F172A"/>
+      <stop offset="100%" stop-color="#1E293B"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Clean white background -->
+  <rect width="210" height="297" fill="#FFFFFF"/>
+
+  <!-- Dark header band (top 25%) - only colored area for print efficiency -->
+  <rect x="0" y="0" width="210" height="75" fill="url(#headerGrad)"/>
+
+  <!-- Flowing wave accent in header -->
+  <path d="M0 55
+           Q30 45, 60 55
+           T120 50
+           T180 55
+           T210 48
+           L210 75 L0 75 Z"
+        fill="url(#waveGrad)" opacity="0.6"/>
+
+  <path d="M0 62
+           Q40 52, 80 60
+           T160 55
+           T210 58
+           L210 75 L0 75 Z"
+        fill="#06B6D4" opacity="0.3"/>
+
+  <!-- Geometric accent elements (lower section - outline only) -->
+  <g transform="translate(130, 180)" stroke-width="1.2" fill="none">
+    <!-- Layered wave lines -->
+    <path d="M0 0 Q20 -10, 40 0 T80 -5" stroke="#06B6D4" stroke-opacity="0.4"/>
+    <path d="M-10 15 Q15 5, 45 15 T90 10" stroke="#8B5CF6" stroke-opacity="0.3"/>
+    <path d="M5 30 Q30 20, 55 30 T95 25" stroke="#64748B" stroke-opacity="0.25"/>
+
+    <!-- Accent rectangles -->
+    <rect x="0" y="50" width="60" height="3" stroke="#06B6D4" stroke-opacity="0.5"/>
+    <rect x="10" y="60" width="40" height="2" stroke="#8B5CF6" stroke-opacity="0.4"/>
+  </g>
+
+  <!-- Corner accent marks -->
+  <path d="M195 282 L195 272 M200 277 L190 277" stroke="#06B6D4" stroke-width="1" stroke-opacity="0.5"/>
+  <path d="M15 282 L15 272 M10 277 L20 277" stroke="#8B5CF6" stroke-width="1" stroke-opacity="0.4"/>
+
+  <!-- Title area in dark band (white text placeholder lines) -->
+  <rect x="20" y="25" width="100" height="2" fill="#FFFFFF" opacity="0.9"/>
+  <rect x="20" y="35" width="70" height="1" fill="#FFFFFF" opacity="0.6"/>
+
+  <!-- Subtle bottom divider -->
+  <rect x="20" y="280" width="170" height="0.5" fill="#64748B" opacity="0.3"/>
+</svg>
