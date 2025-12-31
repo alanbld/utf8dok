@@ -467,8 +467,14 @@ impl Document {
                         b"bookmarkStart" if current_para.is_some() => {
                             // Parse bookmark anchor
                             if let Some(name) = get_attr(e, b"w:name") {
-                                // Skip internal Word bookmarks (starting with _)
-                                if !name.starts_with('_') {
+                                // Keep semantically meaningful bookmarks, skip internal ones
+                                // _Toc* - TOC/heading anchors (important for navigation)
+                                // _Ref* - Cross-reference targets (important for linking)
+                                // Skip: _Hlk* (hyperlink highlights), _GoBack, other internal
+                                let should_keep = !name.starts_with('_')
+                                    || name.starts_with("_Toc")
+                                    || name.starts_with("_Ref");
+                                if should_keep {
                                     let para = current_para.as_mut().unwrap();
                                     para.children
                                         .push(ParagraphChild::Bookmark(Bookmark { name }));

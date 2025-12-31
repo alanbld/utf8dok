@@ -30,6 +30,7 @@ pub mod extract;
 pub mod image;
 pub mod manifest;
 pub mod relationships;
+pub mod style_contract_validator;
 pub mod style_map;
 pub mod styles;
 pub mod template;
@@ -44,6 +45,9 @@ pub use error::{OoxmlError, Result};
 pub use extract::{AsciiDocExtractor, ExtractedDocument, SourceOrigin};
 pub use manifest::{ElementMeta, Manifest, MANIFEST_PATH};
 pub use relationships::Relationships;
+pub use style_contract_validator::{
+    Severity, StyleContractValidator, ValidationCategory, ValidationIssue, ValidationResult,
+};
 pub use style_map::{
     classify_bookmark, normalize_heading_to_anchor, AnchorMapping, AnchorType,
     CharacterStyleMapping, HyperlinkMapping, ListType, ParagraphStyleMapping, StyleContract,

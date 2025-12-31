@@ -612,7 +612,7 @@ mod bookmark_anchor_tests {
         }
     }
 
-    /// Test internal bookmarks (_Toc, _Hlk) are filtered
+    /// Test bookmark filtering: _Toc and _Ref are kept, _Hlk and other internal are filtered
     #[test]
     fn test_internal_bookmark_filtering() {
         let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
@@ -624,41 +624,53 @@ mod bookmark_anchor_tests {
                     <w:bookmarkEnd w:id="0"/>
                 </w:p>
                 <w:p>
-                    <w:bookmarkStart w:id="1" w:name="_Hlk789012"/>
-                    <w:r><w:t>Highlighted</w:t></w:r>
+                    <w:bookmarkStart w:id="1" w:name="_Ref789012"/>
+                    <w:r><w:t>Reference</w:t></w:r>
                     <w:bookmarkEnd w:id="1"/>
+                </w:p>
+                <w:p>
+                    <w:bookmarkStart w:id="2" w:name="_Hlk345678"/>
+                    <w:r><w:t>Highlighted</w:t></w:r>
+                    <w:bookmarkEnd w:id="2"/>
+                </w:p>
+                <w:p>
+                    <w:bookmarkStart w:id="3" w:name="_GoBack"/>
+                    <w:r><w:t>GoBack</w:t></w:r>
+                    <w:bookmarkEnd w:id="3"/>
                 </w:p>
             </w:body>
         </w:document>"#;
 
         let doc = Document::parse(xml).unwrap();
 
-        // Internal bookmarks should be filtered out
+        let mut found_toc = false;
+        let mut found_ref = false;
+        let mut found_hlk = false;
+        let mut found_goback = false;
+
         for block in &doc.blocks {
             if let Block::Paragraph(p) = block {
-                let internal_bookmarks: Vec<_> = p
-                    .children
-                    .iter()
-                    .filter_map(|c| {
-                        if let ParagraphChild::Bookmark(b) = c {
-                            if b.name.starts_with('_') {
-                                Some(&b.name)
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
+                for child in &p.children {
+                    if let ParagraphChild::Bookmark(b) = child {
+                        match b.name.as_str() {
+                            "_Toc123456" => found_toc = true,
+                            "_Ref789012" => found_ref = true,
+                            "_Hlk345678" => found_hlk = true,
+                            "_GoBack" => found_goback = true,
+                            _ => {}
                         }
-                    })
-                    .collect();
-
-                assert!(
-                    internal_bookmarks.is_empty(),
-                    "Internal bookmarks should be filtered: {:?}",
-                    internal_bookmarks
-                );
+                    }
+                }
             }
         }
+
+        // _Toc and _Ref should be kept (semantically meaningful)
+        assert!(found_toc, "_Toc bookmarks should be kept for anchor mapping");
+        assert!(found_ref, "_Ref bookmarks should be kept for cross-references");
+
+        // _Hlk and _GoBack should be filtered (truly internal)
+        assert!(!found_hlk, "_Hlk bookmarks should be filtered out");
+        assert!(!found_goback, "_GoBack bookmarks should be filtered out");
     }
 }
 
@@ -768,6 +780,185 @@ mod style_contract_tests {
             parsed.hyperlinks.get("link1").unwrap().url,
             Some("https://example.com".into())
         );
+    }
+}
+
+// =============================================================================
+// PART 9: REAL-DOCUMENT CONFORMANCE TESTS
+// =============================================================================
+
+mod conformance_tests {
+    //! Real-document conformance tests per StyleContract validation spec
+    //!
+    //! These tests verify StyleContract works with actual DOCX files.
+
+    use std::path::Path;
+    use utf8dok_ooxml::{AsciiDocExtractor, StyleContractValidator};
+
+    const SWP_DOCX: &str = "../../corporate/SWP Application Architecture.docx";
+
+    /// Test that SWP document extraction produces a valid StyleContract
+    #[test]
+    fn test_swp_style_contract_validation() {
+        let path = Path::new(SWP_DOCX);
+        if !path.exists() {
+            eprintln!("Skipping test: {} not found", SWP_DOCX);
+            return;
+        }
+
+        let extractor = AsciiDocExtractor::new().with_force_parse(true);
+        let result = extractor.extract_file(path).unwrap();
+
+        // Run full validation
+        let validation = StyleContractValidator::validate(&result.style_contract);
+
+        // Print any issues for debugging
+        for issue in &validation.issues {
+            eprintln!(
+                "[{:?}] {:?}: {} (field: {:?})",
+                issue.severity, issue.category, issue.message, issue.field
+            );
+        }
+
+        // Must pass all validation (no errors)
+        assert!(
+            validation.is_valid(),
+            "StyleContract validation failed with {} errors",
+            validation.errors().len()
+        );
+    }
+
+    /// Test that SWP document has expected paragraph style mappings
+    #[test]
+    fn test_swp_paragraph_styles_present() {
+        let path = Path::new(SWP_DOCX);
+        if !path.exists() {
+            return;
+        }
+
+        let extractor = AsciiDocExtractor::new().with_force_parse(true);
+        let result = extractor.extract_file(path).unwrap();
+        let contract = &result.style_contract;
+
+        // Should have heading styles
+        let has_headings = contract
+            .paragraph_styles
+            .values()
+            .any(|m| m.heading_level.is_some());
+        assert!(has_headings, "Should extract heading style mappings");
+
+        // Print extracted styles for debugging
+        eprintln!("Extracted {} paragraph styles:", contract.paragraph_styles.len());
+        for (id, mapping) in &contract.paragraph_styles {
+            eprintln!("  {} -> role={}, level={:?}", id, mapping.role, mapping.heading_level);
+        }
+    }
+
+    /// Test that SWP document has anchor mappings for TOC entries
+    #[test]
+    fn test_swp_anchor_mappings_present() {
+        use utf8dok_ooxml::document::{Block, Document, ParagraphChild};
+        use utf8dok_ooxml::OoxmlArchive;
+
+        let path = Path::new(SWP_DOCX);
+        if !path.exists() {
+            return;
+        }
+
+        // First, let's see what bookmarks the document parser extracts
+        let archive = OoxmlArchive::open(path).unwrap();
+        let doc_xml = archive.document_xml().unwrap();
+        let document = Document::parse(doc_xml).unwrap();
+
+        let mut bookmark_count = 0;
+        for block in &document.blocks {
+            if let Block::Paragraph(para) = block {
+                for child in &para.children {
+                    if let ParagraphChild::Bookmark(bookmark) = child {
+                        bookmark_count += 1;
+                        if bookmark_count <= 10 {
+                            eprintln!("Parsed bookmark: {}", bookmark.name);
+                        }
+                    }
+                }
+            }
+        }
+        eprintln!("Total bookmarks parsed from document: {}", bookmark_count);
+
+        // Now check the extraction
+        let extractor = AsciiDocExtractor::new().with_force_parse(true);
+        let result = extractor.extract_file(path).unwrap();
+        let contract = &result.style_contract;
+
+        // Should have anchor mappings
+        assert!(
+            !contract.anchors.is_empty(),
+            "Should extract anchor mappings (found 0)"
+        );
+
+        // Count TOC anchors
+        let toc_anchors = contract
+            .anchors
+            .values()
+            .filter(|m| matches!(m.anchor_type, utf8dok_ooxml::AnchorType::Toc))
+            .count();
+
+        eprintln!("Extracted {} total anchors, {} are TOC anchors",
+            contract.anchors.len(), toc_anchors);
+
+        // Print first 10 anchors
+        for (bookmark, mapping) in contract.anchors.iter().take(10) {
+            eprintln!(
+                "  {} -> semantic_id={}, type={:?}",
+                bookmark, mapping.semantic_id, mapping.anchor_type
+            );
+        }
+    }
+
+    /// Test that StyleContract TOML serialization round-trips correctly
+    #[test]
+    fn test_swp_style_contract_toml_roundtrip() {
+        let path = Path::new(SWP_DOCX);
+        if !path.exists() {
+            return;
+        }
+
+        let extractor = AsciiDocExtractor::new().with_force_parse(true);
+        let result = extractor.extract_file(path).unwrap();
+        let contract = &result.style_contract;
+
+        // Serialize to TOML
+        let toml = contract.to_toml().expect("TOML serialization failed");
+
+        // Deserialize back
+        let roundtripped = utf8dok_ooxml::StyleContract::from_toml(&toml)
+            .expect("TOML deserialization failed");
+
+        // Verify counts match
+        assert_eq!(
+            contract.paragraph_styles.len(),
+            roundtripped.paragraph_styles.len(),
+            "Paragraph style count mismatch after TOML round-trip"
+        );
+        assert_eq!(
+            contract.anchors.len(),
+            roundtripped.anchors.len(),
+            "Anchor count mismatch after TOML round-trip"
+        );
+        assert_eq!(
+            contract.hyperlinks.len(),
+            roundtripped.hyperlinks.len(),
+            "Hyperlink count mismatch after TOML round-trip"
+        );
+
+        // Validate the round-tripped contract
+        let validation = StyleContractValidator::validate(&roundtripped);
+        assert!(
+            validation.is_valid(),
+            "Round-tripped StyleContract failed validation"
+        );
+
+        eprintln!("TOML round-trip successful: {} bytes", toml.len());
     }
 }
 

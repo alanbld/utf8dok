@@ -322,11 +322,15 @@ impl StyleContract {
     }
 
     /// Get the Word bookmark for a semantic anchor ID
+    ///
+    /// When multiple bookmarks map to the same semantic ID (common in edited docs),
+    /// returns the canonical bookmark (first alphabetically) for deterministic behavior.
     pub fn get_word_bookmark(&self, semantic_id: &str) -> Option<&str> {
         self.anchors
             .iter()
-            .find(|(_, m)| m.semantic_id == semantic_id)
+            .filter(|(_, m)| m.semantic_id == semantic_id)
             .map(|(k, _)| k.as_str())
+            .min() // Canonical = first alphabetically
     }
 
     /// Check if an anchor is a TOC entry
