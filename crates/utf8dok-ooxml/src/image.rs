@@ -156,9 +156,10 @@ impl Image {
 }
 
 /// Image positioning type
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum ImagePosition {
     /// Flows inline with text
+    #[default]
     Inline,
     /// Floating, anchored to a position
     Anchor {
@@ -169,12 +170,6 @@ pub enum ImagePosition {
         /// Text wrapping style
         wrap: WrapType,
     },
-}
-
-impl Default for ImagePosition {
-    fn default() -> Self {
-        Self::Inline
-    }
 }
 
 /// Text wrapping style for anchored images

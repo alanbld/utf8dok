@@ -345,9 +345,7 @@ impl Document {
                         b"txbxContent" => in_textbox_content = false,
                         b"wsp" | b"sp" | b"cxnSp" => {
                             // End of DrawingML shape
-                            if in_drawingml_shape > 0 {
-                                in_drawingml_shape -= 1;
-                            }
+                            in_drawingml_shape = in_drawingml_shape.saturating_sub(1);
                         }
                         b"p" if current_para.is_some() => {
                             let para = current_para.take().unwrap().build();

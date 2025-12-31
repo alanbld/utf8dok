@@ -521,7 +521,7 @@ impl StyleMap {
         }
 
         // 6. Fallback: also check by styleId for English templates
-        if map.mappings.get(&ElementType::Heading(1)).is_none() {
+        if !map.mappings.contains_key(&ElementType::Heading(1)) {
             for level in 1..=9 {
                 let default_id = format!("Heading{}", level);
                 if stylesheet.get(&default_id).is_some() {
@@ -530,13 +530,12 @@ impl StyleMap {
             }
         }
 
-        if map.mappings.get(&ElementType::Paragraph).is_none() {
-            if stylesheet.get("Normal").is_some() {
-                map.set(ElementType::Paragraph, "Normal");
-            }
+        if !map.mappings.contains_key(&ElementType::Paragraph) && stylesheet.get("Normal").is_some()
+        {
+            map.set(ElementType::Paragraph, "Normal");
         }
 
-        if map.mappings.get(&ElementType::ListBullet).is_none() {
+        if !map.mappings.contains_key(&ElementType::ListBullet) {
             let alternatives = ["ListBullet", "ListParagraph"];
             for alt in alternatives {
                 if stylesheet.get(alt).is_some() {
@@ -546,7 +545,7 @@ impl StyleMap {
             }
         }
 
-        if map.mappings.get(&ElementType::CodeBlock).is_none() {
+        if !map.mappings.contains_key(&ElementType::CodeBlock) {
             let alternatives = ["CodeBlock", "Code", "NoSpacing"];
             for alt in alternatives {
                 if stylesheet.get(alt).is_some() {
@@ -556,7 +555,7 @@ impl StyleMap {
             }
         }
 
-        if map.mappings.get(&ElementType::Table).is_none() {
+        if !map.mappings.contains_key(&ElementType::Table) {
             let alternatives = ["TableGrid", "GridTable1Light", "PlainTable1"];
             for alt in alternatives {
                 if stylesheet.get(alt).is_some() {

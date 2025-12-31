@@ -15,6 +15,10 @@ use crate::archive::OoxmlArchive;
 use crate::document::{Block, Document, Hyperlink, Paragraph, ParagraphChild, Run, Table};
 use crate::error::Result;
 use crate::relationships::Relationships;
+use crate::style_map::{
+    classify_bookmark, normalize_heading_to_anchor, AnchorMapping, AnchorType, HyperlinkMapping,
+    ParagraphStyleMapping, StyleContract,
+};
 use crate::styles::StyleSheet;
 
 /// Parsed comments from word/comments.xml
@@ -213,8 +217,10 @@ pub enum SourceOrigin {
 pub struct ExtractedDocument {
     /// The generated AsciiDoc content
     pub asciidoc: String,
-    /// The detected style mappings (for utf8dok.toml)
+    /// The detected style mappings (for utf8dok.toml) - legacy format
     pub style_mappings: StyleMappings,
+    /// Style contract for round-trip fidelity (ADR-007)
+    pub style_contract: StyleContract,
     /// Document metadata extracted from properties
     pub metadata: DocumentMetadata,
     /// Indicates where the AsciiDoc content came from
@@ -353,8 +359,13 @@ impl AsciiDocExtractor {
 
     /// Extract a document from a file path
     pub fn extract_file<P: AsRef<Path>>(&self, path: P) -> Result<ExtractedDocument> {
+        let source_file = path
+            .as_ref()
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|s| s.to_string());
         let archive = OoxmlArchive::open(path)?;
-        self.extract_archive(&archive)
+        self.extract_archive_with_source(&archive, source_file)
     }
 
     /// Extract from an already-opened archive
@@ -362,17 +373,32 @@ impl AsciiDocExtractor {
     /// If the archive contains embedded utf8dok source (from a previous render),
     /// that source is returned directly unless `force_parse` is set.
     pub fn extract_archive(&self, archive: &OoxmlArchive) -> Result<ExtractedDocument> {
+        self.extract_archive_with_source(archive, None)
+    }
+
+    /// Extract from an already-opened archive with optional source file name
+    ///
+    /// If the archive contains embedded utf8dok source (from a previous render),
+    /// that source is returned directly unless `force_parse` is set.
+    pub fn extract_archive_with_source(
+        &self,
+        archive: &OoxmlArchive,
+        source_file: Option<String>,
+    ) -> Result<ExtractedDocument> {
         // Check for embedded source first (unless force_parse is set)
         if !self.force_parse {
             if let Ok(Some(embedded_source)) = archive.read_utf8dok_string("source.adoc") {
                 // Parse styles for style mappings even when using embedded source
                 let styles = StyleSheet::parse(archive.styles_xml()?)?;
                 let style_mappings = self.detect_style_mappings(&styles);
+                let style_contract =
+                    self.build_style_contract_from_stylesheet(&styles, source_file);
                 let metadata = DocumentMetadata::default();
 
                 return Ok(ExtractedDocument {
                     asciidoc: embedded_source,
                     style_mappings,
+                    style_contract,
                     metadata,
                     source_origin: SourceOrigin::Embedded,
                 });
@@ -406,6 +432,14 @@ impl AsciiDocExtractor {
         // Parse comment ranges from document.xml
         let comment_ranges = CommentRanges::parse(doc_xml);
 
+        // Build the style contract (ADR-007)
+        let style_contract = self.build_style_contract(
+            &document,
+            &styles,
+            relationships.as_ref(),
+            source_file,
+        );
+
         let asciidoc = self.convert_to_asciidoc(
             &document,
             &styles,
@@ -418,6 +452,7 @@ impl AsciiDocExtractor {
         Ok(ExtractedDocument {
             asciidoc,
             style_mappings,
+            style_contract,
             metadata,
             source_origin: SourceOrigin::Parsed,
         })
@@ -444,6 +479,239 @@ impl AsciiDocExtractor {
         }
 
         mappings
+    }
+
+    /// Build a StyleContract from document, styles, and relationships (ADR-007)
+    fn build_style_contract(
+        &self,
+        document: &Document,
+        styles: &StyleSheet,
+        rels: Option<&Relationships>,
+        source_file: Option<String>,
+    ) -> StyleContract {
+        let mut contract = if let Some(ref src) = source_file {
+            StyleContract::with_source(src)
+        } else {
+            StyleContract::new()
+        };
+
+        // Add paragraph style mappings from stylesheet
+        self.add_paragraph_styles(&mut contract, styles);
+
+        // Extract anchors/bookmarks from document
+        self.extract_anchors(&mut contract, document, styles);
+
+        // Extract hyperlink mappings
+        self.extract_hyperlinks(&mut contract, document, rels);
+
+        contract
+    }
+
+    /// Build a minimal StyleContract from stylesheet only (for embedded sources)
+    fn build_style_contract_from_stylesheet(
+        &self,
+        styles: &StyleSheet,
+        source_file: Option<String>,
+    ) -> StyleContract {
+        let mut contract = if let Some(ref src) = source_file {
+            StyleContract::with_source(src)
+        } else {
+            StyleContract::new()
+        };
+
+        self.add_paragraph_styles(&mut contract, styles);
+        contract
+    }
+
+    /// Add paragraph style mappings to the contract
+    fn add_paragraph_styles(&self, contract: &mut StyleContract, styles: &StyleSheet) {
+        // Map heading styles
+        for style in styles.heading_styles() {
+            if let Some(level) = style.outline_level {
+                contract.add_paragraph_style(
+                    &style.id,
+                    ParagraphStyleMapping {
+                        role: format!("h{}", level + 1),
+                        heading_level: Some(level + 1),
+                        is_list: false,
+                        list_type: None,
+                        based_on: style.based_on.clone(),
+                    },
+                );
+            }
+        }
+
+        // Map default paragraph style
+        if let Some(ref para_style) = styles.default_paragraph {
+            contract.add_paragraph_style(
+                para_style,
+                ParagraphStyleMapping {
+                    role: "body".into(),
+                    heading_level: None,
+                    is_list: false,
+                    list_type: None,
+                    based_on: None,
+                },
+            );
+        }
+
+        // Add common style mappings
+        contract.add_paragraph_style(
+            "Normal",
+            ParagraphStyleMapping {
+                role: "body".into(),
+                heading_level: None,
+                is_list: false,
+                list_type: None,
+                based_on: None,
+            },
+        );
+    }
+
+    /// Extract anchor/bookmark mappings from the document
+    fn extract_anchors(
+        &self,
+        contract: &mut StyleContract,
+        document: &Document,
+        styles: &StyleSheet,
+    ) {
+        // Track heading text for anchor semantic ID generation
+        let mut current_heading_text: Option<String> = None;
+
+        for block in &document.blocks {
+            if let Block::Paragraph(para) = block {
+                // Check if this is a heading - capture its text for anchor normalization
+                if let Some(ref style_id) = para.style_id {
+                    if styles.heading_level(style_id).is_some() {
+                        current_heading_text = Some(self.get_raw_paragraph_text(para));
+                    }
+                }
+
+                // Extract bookmarks from paragraph children
+                for child in &para.children {
+                    if let ParagraphChild::Bookmark(bookmark) = child {
+                        let anchor_type = classify_bookmark(&bookmark.name);
+
+                        // Generate semantic ID based on anchor type
+                        let semantic_id = match anchor_type {
+                            AnchorType::Toc | AnchorType::Heading => {
+                                // Use current heading text if available
+                                current_heading_text
+                                    .as_ref()
+                                    .map(|h| normalize_heading_to_anchor(h))
+                                    .unwrap_or_else(|| bookmark.name.clone())
+                            }
+                            AnchorType::Reference => {
+                                // Keep ref prefix for reference anchors
+                                format!("ref-{}", bookmark.name.trim_start_matches("_Ref"))
+                            }
+                            AnchorType::Highlight => {
+                                // Skip highlight anchors - they're not semantically meaningful
+                                continue;
+                            }
+                            AnchorType::UserDefined => {
+                                // User-defined bookmarks keep their name
+                                normalize_heading_to_anchor(&bookmark.name)
+                            }
+                        };
+
+                        contract.add_anchor(
+                            &bookmark.name,
+                            AnchorMapping {
+                                semantic_id,
+                                anchor_type,
+                                target_heading: current_heading_text.clone(),
+                                original_bookmark: Some(bookmark.name.clone()),
+                            },
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Extract hyperlink mappings from the document
+    fn extract_hyperlinks(
+        &self,
+        contract: &mut StyleContract,
+        document: &Document,
+        rels: Option<&Relationships>,
+    ) {
+        let mut link_counter = 0u32;
+
+        for block in &document.blocks {
+            if let Block::Paragraph(para) = block {
+                for child in &para.children {
+                    if let ParagraphChild::Hyperlink(hyperlink) = child {
+                        link_counter += 1;
+                        let link_id = format!("link{}", link_counter);
+
+                        // Determine if external or internal
+                        let is_external = hyperlink.id.is_some();
+                        let url = if is_external {
+                            hyperlink
+                                .id
+                                .as_ref()
+                                .and_then(|id| rels.and_then(|r| r.get(id)))
+                                .map(|s| s.to_string())
+                        } else {
+                            None
+                        };
+                        let anchor_target = hyperlink.anchor.clone();
+
+                        contract.add_hyperlink(
+                            &link_id,
+                            HyperlinkMapping {
+                                is_external,
+                                url,
+                                anchor_target,
+                                original_rel_id: hyperlink.id.clone(),
+                                original_anchor: hyperlink.anchor.clone(),
+                            },
+                        );
+                    }
+                }
+            }
+
+            // Also check table cells for hyperlinks
+            if let Block::Table(table) = block {
+                for row in &table.rows {
+                    for cell in &row.cells {
+                        for para in &cell.paragraphs {
+                            for child in &para.children {
+                                if let ParagraphChild::Hyperlink(hyperlink) = child {
+                                    link_counter += 1;
+                                    let link_id = format!("link{}", link_counter);
+
+                                    let is_external = hyperlink.id.is_some();
+                                    let url = if is_external {
+                                        hyperlink
+                                            .id
+                                            .as_ref()
+                                            .and_then(|id| rels.and_then(|r| r.get(id)))
+                                            .map(|s| s.to_string())
+                                    } else {
+                                        None
+                                    };
+                                    let anchor_target = hyperlink.anchor.clone();
+
+                                    contract.add_hyperlink(
+                                        &link_id,
+                                        HyperlinkMapping {
+                                            is_external,
+                                            url,
+                                            anchor_target,
+                                            original_rel_id: hyperlink.id.clone(),
+                                            original_anchor: hyperlink.anchor.clone(),
+                                        },
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Convert document to AsciiDoc string

@@ -666,6 +666,111 @@ mod bookmark_anchor_tests {
 // PART 7: TEXT BOX TESTS (ALREADY IMPLEMENTED)
 // =============================================================================
 
+// =============================================================================
+// PART 8: STYLE CONTRACT TESTS (ADR-007)
+// =============================================================================
+
+mod style_contract_tests {
+    //! Verify StyleContract extraction per ADR-007
+
+    use utf8dok_ooxml::{AnchorType, StyleContract};
+
+    /// Test that StyleContract is built during extraction
+    #[test]
+    fn test_style_contract_extraction() {
+        // Note: XML fixtures defined here for future archive-based tests
+        // For now, we test the StyleContract struct directly
+        let mut contract = StyleContract::new();
+        contract.add_paragraph_style(
+            "Heading1",
+            utf8dok_ooxml::ParagraphStyleMapping {
+                role: "h1".into(),
+                heading_level: Some(1),
+                is_list: false,
+                list_type: None,
+                based_on: None,
+            },
+        );
+        contract.add_anchor(
+            "_Toc123456",
+            utf8dok_ooxml::AnchorMapping {
+                semantic_id: "introduction".into(),
+                anchor_type: AnchorType::Toc,
+                target_heading: Some("Introduction".into()),
+                original_bookmark: Some("_Toc123456".into()),
+            },
+        );
+
+        // Verify TOML serialization
+        let toml = contract.to_toml().unwrap();
+        assert!(toml.contains("[paragraph_styles.Heading1]"));
+        assert!(toml.contains("role = \"h1\""));
+        assert!(toml.contains("[anchors._Toc123456]"));
+        assert!(toml.contains("semantic_id = \"introduction\""));
+    }
+
+    /// Test anchor normalization for TOC entries
+    #[test]
+    fn test_anchor_semantic_normalization() {
+        use utf8dok_ooxml::style_map::{classify_bookmark, normalize_heading_to_anchor};
+
+        // TOC bookmarks get semantic IDs from heading text
+        assert_eq!(classify_bookmark("_Toc192197374"), AnchorType::Toc);
+        assert_eq!(
+            normalize_heading_to_anchor("1.2 Purpose and Scope"),
+            "purpose-and-scope"
+        );
+
+        // Reference bookmarks keep ref prefix
+        assert_eq!(classify_bookmark("_Ref123456"), AnchorType::Reference);
+
+        // User bookmarks are normalized
+        assert_eq!(classify_bookmark("custom_anchor"), AnchorType::UserDefined);
+        assert_eq!(
+            normalize_heading_to_anchor("Custom Anchor Name"),
+            "custom-anchor-name"
+        );
+    }
+
+    /// Test StyleContract round-trip via TOML
+    #[test]
+    fn test_style_contract_toml_roundtrip() {
+        let mut original = StyleContract::with_source("test.docx");
+        original.add_paragraph_style(
+            "Heading2",
+            utf8dok_ooxml::ParagraphStyleMapping {
+                role: "h2".into(),
+                heading_level: Some(2),
+                is_list: false,
+                list_type: None,
+                based_on: Some("Heading1".into()),
+            },
+        );
+        original.add_hyperlink(
+            "link1",
+            utf8dok_ooxml::HyperlinkMapping {
+                is_external: true,
+                url: Some("https://example.com".into()),
+                anchor_target: None,
+                original_rel_id: Some("rId5".into()),
+                original_anchor: None,
+            },
+        );
+
+        // Serialize and deserialize
+        let toml = original.to_toml().unwrap();
+        let parsed = StyleContract::from_toml(&toml).unwrap();
+
+        // Verify contents
+        assert_eq!(parsed.get_heading_level("Heading2"), Some(2));
+        assert!(parsed.hyperlinks.contains_key("link1"));
+        assert_eq!(
+            parsed.hyperlinks.get("link1").unwrap().url,
+            Some("https://example.com".into())
+        );
+    }
+}
+
 mod textbox_tests {
     //! Verify existing text box support
 
