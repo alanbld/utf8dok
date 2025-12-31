@@ -341,6 +341,39 @@ impl StyleContract {
             .unwrap_or(false)
     }
 
+    /// Get the Word style ID for a semantic role (reverse lookup)
+    ///
+    /// Searches paragraph_styles for a mapping with the given role.
+    /// When multiple styles map to the same role, returns the first alphabetically.
+    pub fn get_word_style_for_role(&self, role: &str) -> Option<&str> {
+        self.paragraph_styles
+            .iter()
+            .filter(|(_, m)| m.role == role)
+            .map(|(k, _)| k.as_str())
+            .min() // First alphabetically for determinism
+    }
+
+    /// Get the Word style ID for a heading level (reverse lookup)
+    ///
+    /// Searches paragraph_styles for a heading with the specified level.
+    /// Returns the first matching style alphabetically.
+    pub fn get_word_heading_style(&self, level: u8) -> Option<&str> {
+        self.paragraph_styles
+            .iter()
+            .filter(|(_, m)| m.heading_level == Some(level))
+            .map(|(k, _)| k.as_str())
+            .min() // First alphabetically for determinism
+    }
+
+    /// Get the Word character style ID for a semantic role
+    pub fn get_word_char_style_for_role(&self, role: &str) -> Option<&str> {
+        self.character_styles
+            .iter()
+            .filter(|(_, m)| m.role == role)
+            .map(|(k, _)| k.as_str())
+            .min()
+    }
+
     /// Serialize to TOML string
     pub fn to_toml(&self) -> Result<String> {
         toml::to_string_pretty(self).map_err(|e| {

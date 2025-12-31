@@ -191,6 +191,33 @@ impl DocxWriter {
         semantic_anchor.to_string()
     }
 
+    /// Resolve heading level to Word style ID
+    ///
+    /// Uses StyleContract if available for round-trip fidelity,
+    /// otherwise falls back to StyleMap defaults.
+    fn resolve_heading_style(&self, level: u8) -> &str {
+        if let Some(ref contract) = self.style_contract {
+            if let Some(style) = contract.get_word_heading_style(level) {
+                return style;
+            }
+        }
+        // Fall back to style_map
+        self.style_map.heading(level)
+    }
+
+    /// Resolve semantic role to Word paragraph style ID
+    ///
+    /// Uses StyleContract if available, otherwise falls back to StyleMap.
+    fn resolve_paragraph_style(&self, role: &str) -> &str {
+        if let Some(ref contract) = self.style_contract {
+            if let Some(style) = contract.get_word_style_for_role(role) {
+                return style;
+            }
+        }
+        // Fall back to style_map for body text
+        self.style_map.paragraph()
+    }
+
     /// Get the next unique bookmark ID
     fn next_bookmark_id(&mut self) -> usize {
         let id = self.next_bookmark_id;
@@ -831,14 +858,17 @@ impl DocxWriter {
     fn generate_paragraph(&mut self, para: &Paragraph) {
         self.output.push_str("<w:p>\n");
 
-        // Paragraph properties (style) - use explicit style_id or mapped style
-        let style = para
+        // Paragraph style resolution priority:
+        // 1. Explicit style_id from AST
+        // 2. StyleContract body role mapping (for round-trip fidelity)
+        // 3. StyleMap default (English style IDs)
+        let style: String = para
             .style_id
-            .as_deref()
-            .unwrap_or_else(|| self.style_map.paragraph());
+            .clone()
+            .unwrap_or_else(|| self.resolve_paragraph_style("body").to_string());
         self.output.push_str("<w:pPr>\n");
         self.output
-            .push_str(&format!("<w:pStyle w:val=\"{}\"/>\n", escape_xml(style)));
+            .push_str(&format!("<w:pStyle w:val=\"{}\"/>\n", escape_xml(&style)));
         self.output.push_str("</w:pPr>\n");
 
         // Generate runs for inline content
@@ -853,15 +883,18 @@ impl DocxWriter {
     fn generate_heading(&mut self, heading: &Heading) {
         self.output.push_str("<w:p>\n");
 
-        // Heading style based on level or explicit style_id - use style_map
-        let style = heading
+        // Heading style resolution priority:
+        // 1. Explicit style_id from AST
+        // 2. StyleContract heading level mapping (for round-trip fidelity)
+        // 3. StyleMap default (English style IDs)
+        let style: String = heading
             .style_id
-            .as_deref()
-            .unwrap_or_else(|| self.style_map.heading(heading.level));
+            .clone()
+            .unwrap_or_else(|| self.resolve_heading_style(heading.level).to_string());
 
         self.output.push_str("<w:pPr>\n");
         self.output
-            .push_str(&format!("<w:pStyle w:val=\"{}\"/>\n", escape_xml(style)));
+            .push_str(&format!("<w:pStyle w:val=\"{}\"/>\n", escape_xml(&style)));
         self.output.push_str("</w:pPr>\n");
 
         // Generate runs for heading text

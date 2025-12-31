@@ -1225,4 +1225,88 @@ mod essential_template_tests {
         assert!(found_document, "Output should have word/document.xml");
         eprintln!("Round-trip produced valid DOCX with {} entries", archive.len());
     }
+
+    /// Test that StyleContract causes Italian style IDs to be used
+    #[test]
+    fn test_essential_template_uses_italian_styles() {
+        use utf8dok_ooxml::{DocxWriter, Template};
+        use std::io::Read;
+
+        let template_path = Path::new(ESSENTIAL_TEMPLATE);
+        let contract_path = Path::new(ESSENTIAL_CONTRACT);
+
+        if !template_path.exists() || !contract_path.exists() {
+            eprintln!("Skipping test: template or contract not found");
+            return;
+        }
+
+        let template = Template::load(template_path).expect("Failed to load template");
+        let toml_content = std::fs::read_to_string(contract_path).unwrap();
+        let contract = utf8dok_ooxml::StyleContract::from_toml(&toml_content).unwrap();
+
+        // Verify the contract maps headings to Italian styles
+        assert_eq!(
+            contract.get_word_heading_style(1),
+            Some("Titolo1"),
+            "Contract should map h1 -> Titolo1"
+        );
+        assert_eq!(
+            contract.get_word_style_for_role("body"),
+            Some("Normale"),
+            "Contract should map body -> Normale"
+        );
+
+        // Create an AST
+        use utf8dok_ast::{Block, Document, DocumentMeta, Heading, Inline, Paragraph};
+
+        let doc = Document {
+            metadata: DocumentMeta::default(),
+            blocks: vec![
+                Block::Heading(Heading {
+                    level: 1,
+                    text: vec![Inline::Text("Test Heading".into())],
+                    anchor: None,
+                    style_id: None, // Let StyleContract resolve this
+                }),
+                Block::Paragraph(Paragraph {
+                    inlines: vec![Inline::Text("Test paragraph.".into())],
+                    style_id: None, // Let StyleContract resolve this
+                    ..Default::default()
+                }),
+            ],
+            intent: None,
+        };
+
+        // Render with StyleContract
+        let mut writer = DocxWriter::new();
+        writer.set_style_contract(contract);
+        let docx_bytes = writer
+            .generate_with_template(&doc, template)
+            .expect("Failed to generate DOCX");
+
+        // Extract document.xml and check style IDs
+        let cursor = std::io::Cursor::new(docx_bytes);
+        let mut archive = zip::ZipArchive::new(cursor).expect("Invalid OOXML");
+
+        let mut doc_xml = String::new();
+        archive
+            .by_name("word/document.xml")
+            .expect("Missing document.xml")
+            .read_to_string(&mut doc_xml)
+            .unwrap();
+
+        // Verify Italian style IDs are used
+        assert!(
+            doc_xml.contains("<w:pStyle w:val=\"Titolo1\"/>"),
+            "Should use Italian Titolo1 style for heading 1. Got:\n{}",
+            &doc_xml[..std::cmp::min(2000, doc_xml.len())]
+        );
+        assert!(
+            doc_xml.contains("<w:pStyle w:val=\"Normale\"/>"),
+            "Should use Italian Normale style for body text. Got:\n{}",
+            &doc_xml[..std::cmp::min(2000, doc_xml.len())]
+        );
+
+        eprintln!("✓ Italian style IDs (Titolo1, Normale) correctly used in output");
+    }
 }

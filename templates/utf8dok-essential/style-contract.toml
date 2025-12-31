@@ -41,9 +41,10 @@ Titolo = { role = "title", description = "Document main title" }
 Sottotitolo = { role = "subtitle", description = "Document subtitle" }
 
 # Custom heading variants from corporate template
-Titolo1NuovoperdocContrattuali = { role = "h1", heading_level = 1, description = "Contractual doc heading 1" }
-StileTitolo1NuovoperdocContrattualiArial = { role = "h1", heading_level = 1, description = "Arial variant" }
-StileTitolo2PropostaArialBlunotte = { role = "h2", heading_level = 2, description = "Proposal heading 2" }
+# Note: These have role but NOT heading_level, so Titolo1/2 are canonical for level lookup
+Titolo1NuovoperdocContrattuali = { role = "h1-variant", description = "Contractual doc heading 1" }
+StileTitolo1NuovoperdocContrattualiArial = { role = "h1-variant", description = "Arial variant" }
+StileTitolo2PropostaArialBlunotte = { role = "h2-variant", description = "Proposal heading 2" }
 
 # -----------------------------------------------------------------------------
 # Body Text Styles
@@ -77,15 +78,17 @@ Numeroelenco = { role = "list-item", list_type = "ordered", description = "Numbe
 # Italian: Sommario = TOC/Summary
 # -----------------------------------------------------------------------------
 
-Sommario1 = { role = "toc1", heading_level = 1 }
-Sommario2 = { role = "toc2", heading_level = 2 }
-Sommario3 = { role = "toc3", heading_level = 3 }
-Sommario4 = { role = "toc4", heading_level = 4 }
-Sommario5 = { role = "toc5", heading_level = 5 }
-Sommario6 = { role = "toc6", heading_level = 6 }
-Sommario7 = { role = "toc7", heading_level = 7 }
-Sommario8 = { role = "toc8", heading_level = 8 }
-Sommario9 = { role = "toc9", heading_level = 9 }
+# TOC styles format the table of contents entries, not actual headings
+# Do NOT set heading_level - these are for TOC formatting only
+Sommario1 = { role = "toc1" }
+Sommario2 = { role = "toc2" }
+Sommario3 = { role = "toc3" }
+Sommario4 = { role = "toc4" }
+Sommario5 = { role = "toc5" }
+Sommario6 = { role = "toc6" }
+Sommario7 = { role = "toc7" }
+Sommario8 = { role = "toc8" }
+Sommario9 = { role = "toc9" }
 Titolosommario = { role = "toc-heading", description = "TOC title" }
 
 # -----------------------------------------------------------------------------
