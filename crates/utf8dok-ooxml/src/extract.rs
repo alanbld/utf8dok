@@ -744,18 +744,51 @@ impl AsciiDocExtractor {
     ) -> String {
         let mut result = String::new();
 
+        // Collect and merge consecutive runs with the same formatting
+        let mut merged_runs: Vec<Run> = Vec::new();
+
         for child in &para.children {
             match child {
                 ParagraphChild::Run(run) => {
-                    result.push_str(&self.convert_run(run));
+                    // Try to merge with previous run if formatting matches
+                    if let Some(last) = merged_runs.last_mut() {
+                        if last.bold == run.bold
+                            && last.italic == run.italic
+                            && last.monospace == run.monospace
+                        {
+                            // Same formatting - merge text
+                            last.text.push_str(&run.text);
+                        } else {
+                            // Different formatting - convert previous runs and start new
+                            for merged in merged_runs.drain(..) {
+                                result.push_str(&self.convert_run(&merged));
+                            }
+                            merged_runs.push(run.clone());
+                        }
+                    } else {
+                        merged_runs.push(run.clone());
+                    }
                 }
                 ParagraphChild::Hyperlink(hyperlink) => {
+                    // Flush any pending merged runs before hyperlink
+                    for merged in merged_runs.drain(..) {
+                        result.push_str(&self.convert_run(&merged));
+                    }
                     result.push_str(&self.convert_hyperlink(hyperlink, rels));
                 }
                 ParagraphChild::Image(img) => {
+                    // Flush any pending merged runs before image
+                    for merged in merged_runs.drain(..) {
+                        result.push_str(&self.convert_run(&merged));
+                    }
                     result.push_str(&self.convert_image(img, rels));
                 }
             }
+        }
+
+        // Flush any remaining merged runs
+        for merged in merged_runs {
+            result.push_str(&self.convert_run(&merged));
         }
 
         result
@@ -823,10 +856,43 @@ impl AsciiDocExtractor {
         }
     }
 
+    /// Merge consecutive runs with the same formatting and convert to AsciiDoc
+    fn merge_and_convert_runs(&self, runs: &[Run]) -> String {
+        let mut result = String::new();
+        let mut merged_runs: Vec<Run> = Vec::new();
+
+        for run in runs {
+            if let Some(last) = merged_runs.last_mut() {
+                if last.bold == run.bold
+                    && last.italic == run.italic
+                    && last.monospace == run.monospace
+                {
+                    // Same formatting - merge text
+                    last.text.push_str(&run.text);
+                } else {
+                    // Different formatting - convert previous runs and start new
+                    for merged in merged_runs.drain(..) {
+                        result.push_str(&self.convert_run(&merged));
+                    }
+                    merged_runs.push(run.clone());
+                }
+            } else {
+                merged_runs.push(run.clone());
+            }
+        }
+
+        // Flush any remaining merged runs
+        for merged in merged_runs {
+            result.push_str(&self.convert_run(&merged));
+        }
+
+        result
+    }
+
     /// Convert a hyperlink to AsciiDoc format
     fn convert_hyperlink(&self, hyperlink: &Hyperlink, rels: Option<&Relationships>) -> String {
-        // Get the link text from the runs
-        let text: String = hyperlink.runs.iter().map(|r| self.convert_run(r)).collect();
+        // Get the link text from the runs, merging consecutive runs with same formatting
+        let text = self.merge_and_convert_runs(&hyperlink.runs);
 
         // Resolve the target URL
         let target = if let Some(ref id) = hyperlink.id {
