@@ -275,3 +275,72 @@ note = "anota"
 strong = "Enfasigrassetto"
 emphasis = "Enfasicorsivo"
 link = "Collegamentoipertestuale"
+
+# =============================================================================
+# COVER PAGE CONFIGURATION
+# =============================================================================
+# Defines styling for the document cover/title page
+# Follows Asciidoctor PDF conventions with OOXML-native implementation
+# Reference: ADR-009, COVER-PAGE-SPEC.md
+
+[cover]
+# Layout mode: "background" places image behind text, "block" places above
+layout = "background"
+
+# Image scaling: "cover" fills page, "contain" fits within, "fill" stretches
+image_fit = "cover"
+
+# Vertical alignment when image doesn't fill page
+image_position = "center"
+
+# Cover title styling (document title)
+[cover.title]
+# Word style to use (optional - if present, inherits font from template)
+# style = "TitoloCover"
+
+# Direct formatting (overrides style if set)
+color = "FFFFFF"           # White text for visibility over image
+font_size = 72             # 36pt in half-points
+font_family = "Inter"      # Match template theme font
+bold = true
+italic = false
+
+# Positioning
+top = "35%"                # 35% from top of page
+align = "center"           # Horizontal alignment
+
+# Cover subtitle styling (uses :description: or :revremark:)
+[cover.subtitle]
+color = "FFFFFF"
+font_size = 32             # 16pt
+font_family = "Inter"
+bold = false
+italic = true
+top = "45%"
+align = "center"
+
+# Author information
+[cover.authors]
+color = "FFFFFF"
+font_size = 28             # 14pt
+font_family = "Inter"
+bold = false
+italic = false
+top = "75%"
+align = "center"
+# Template for author display - supports {author}, {email}, {name}
+content = "{author}"
+
+# Revision/version information
+[cover.revision]
+color = "FFFFFF"
+font_size = 24             # 12pt
+font_family = "Inter"
+bold = false
+italic = false
+top = "80%"
+align = "center"
+# Delimiter between version and date
+delimiter = " | "
+# Template for revision display
+content = "Version {revnumber}{delimiter}{revdate}"

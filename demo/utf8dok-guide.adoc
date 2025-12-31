@@ -422,6 +422,100 @@ cache_dir = ".utf8dok/cache"
 offline_mode = false
 ----
 
+== Cover Page Configuration
+
+utf8dok supports corporate-style cover pages with configurable text overlays on background images. The cover system follows Asciidoctor PDF conventions for AsciiDoc compatibility.
+
+=== AsciiDoc Attributes
+
+Use standard document attributes to configure cover images:
+
+[source,asciidoc]
+----
+= Document Title
+:author: Jane Doe
+:revnumber: 1.0.0
+:revdate: 2025-12-31
+:description: Complete guide to your project
+:front-cover-image: image:covers/front.png[]
+----
+
+=== StyleContract Cover Section
+
+For fine-grained control, define cover styling in `style-contract.toml`:
+
+[source,toml]
+----
+[cover]
+layout = "background"      # Image behind text
+image_fit = "cover"        # Scale to fill page
+image_position = "center"
+
+[cover.title]
+color = "FFFFFF"           # White text
+font_size = 72             # 36pt (half-points)
+bold = true
+top = "35%"                # Position from top
+align = "center"
+
+[cover.subtitle]
+color = "FFFFFF"
+font_size = 32
+italic = true
+top = "45%"
+
+[cover.authors]
+color = "FFFFFF"
+font_size = 28
+top = "75%"
+content = "{author}"
+
+[cover.revision]
+color = "FFFFFF"
+font_size = 24
+top = "80%"
+delimiter = " | "
+content = "Version {revnumber}{delimiter}{revdate}"
+----
+
+=== Template Variables
+
+Cover elements support these template variables:
+
+[cols="1,2",options="header"]
+|===
+|Variable |Source
+
+|`{title}`
+|`:doctitle:` or document title
+
+|`{author}`
+|`:author:` attribute
+
+|`{email}`
+|`:email:` attribute
+
+|`{revnumber}`
+|`:revnumber:` attribute
+
+|`{revdate}`
+|`:revdate:` attribute
+
+|`{delimiter}`
+|Local delimiter config
+|===
+
+=== CLI Usage
+
+[source,bash]
+----
+# Render with cover image
+utf8dok render document.adoc --cover cover.png --output out.docx
+
+# Disable cover page
+utf8dok render document.adoc --no-cover --output out.docx
+----
+
 == Bidirectional Element Mapping
 
 For lossless round-trips, elements need stable identifiers.

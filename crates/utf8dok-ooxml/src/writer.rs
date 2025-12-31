@@ -28,7 +28,7 @@ use crate::archive::OoxmlArchive;
 use crate::error::Result;
 use crate::manifest::{ElementMeta, Manifest};
 use crate::relationships::Relationships;
-use crate::style_map::StyleContract;
+use crate::style_map::{CoverConfig, CoverMetadata, StyleContract, TextAlign};
 use crate::styles::StyleMap;
 use crate::template::Template;
 
@@ -98,6 +98,8 @@ pub struct DocxWriter {
     next_comment_id: usize,
     /// Next bookmark ID for unique bookmark IDs
     next_bookmark_id: usize,
+    /// Cover image path and bytes (for title page)
+    cover_image: Option<(String, Vec<u8>)>,
 }
 
 impl Default for DocxWriter {
@@ -125,6 +127,7 @@ impl DocxWriter {
             comments: Vec::new(),
             next_comment_id: 1,
             next_bookmark_id: 0,
+            cover_image: None,
         }
     }
 
@@ -146,7 +149,16 @@ impl DocxWriter {
             comments: Vec::new(),
             next_comment_id: 1,
             next_bookmark_id: 0,
+            cover_image: None,
         }
+    }
+
+    /// Set a cover image for the title page
+    ///
+    /// The cover image will be rendered as a full-page image at the beginning
+    /// of the document, followed by a page break.
+    pub fn set_cover_image(&mut self, filename: impl Into<String>, data: Vec<u8>) {
+        self.cover_image = Some((filename.into(), data));
     }
 
     /// Set the original AsciiDoc source text to embed in the DOCX
@@ -829,6 +841,9 @@ impl DocxWriter {
         self.output.push('\n');
         self.output.push_str("<w:body>\n");
 
+        // Generate cover page if set (with document metadata)
+        self.generate_cover_page(doc);
+
         // Generate blocks
         for block in &doc.blocks {
             self.generate_block(block);
@@ -839,6 +854,286 @@ impl DocxWriter {
         self.output.push_str("</w:document>");
 
         self.output.clone()
+    }
+
+    /// Generate a cover page with image as background and text overlaid on top
+    /// Uses wp:anchor with behindDoc="1" for corporate-style layout
+    /// Configuration is read from StyleContract.cover (ADR-009)
+    fn generate_cover_page(&mut self, doc: &Document) {
+        // Check if cover image is set
+        let cover_data = match self.cover_image.take() {
+            Some(data) => data,
+            None => return,
+        };
+
+        let (filename, image_bytes) = cover_data;
+
+        // Get cover configuration from StyleContract or use defaults
+        let cover_config = self.style_contract
+            .as_ref()
+            .and_then(|sc| sc.cover.clone())
+            .unwrap_or_else(CoverConfig::for_dark_background);
+
+        // Add cover image to media files
+        let media_filename = format!("cover_{}", filename);
+        let archive_path = format!("word/media/{}", media_filename);
+        let rel_path = format!("media/{}", media_filename);
+        self.media_files.push((archive_path, image_bytes));
+
+        // Generate relationship for the cover image
+        let rel_id = self.relationships.add_image(&rel_path);
+
+        // Get unique drawing ID
+        let image_id = self.next_drawing_id;
+        self.next_drawing_id += 1;
+
+        // Full page dimensions (A4: 210mm x 297mm, minus margins ~25mm each side)
+        // A4 in EMU: 210mm = 7560000 EMU, 297mm = 10692000 EMU
+        let page_width_emu: i64 = 5943600; // ~16.5cm = reasonable page width
+        let page_height_emu: i64 = 8419465; // ~23.4cm = fits most of page
+
+        // Build cover metadata from document
+        let metadata = self.extract_cover_metadata(doc);
+
+        // === COVER IMAGE (anchored behind document) ===
+        self.output.push_str("<w:p>\n");
+        self.output.push_str("<w:r>\n");
+        self.output.push_str("<w:drawing>\n");
+
+        // wp:anchor places image at fixed position, behindDoc="1" puts it behind text
+        self.output.push_str(&format!(
+            r#"<wp:anchor xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+                distT="0" distB="0" distL="0" distR="0"
+                simplePos="0" relativeHeight="0" behindDoc="1"
+                locked="0" layoutInCell="1" allowOverlap="1">
+<wp:simplePos x="0" y="0"/>
+<wp:positionH relativeFrom="page"><wp:align>center</wp:align></wp:positionH>
+<wp:positionV relativeFrom="page"><wp:posOffset>457200</wp:posOffset></wp:positionV>
+<wp:extent cx="{}" cy="{}"/>
+<wp:effectExtent l="0" t="0" r="0" b="0"/>
+<wp:wrapNone/>
+<wp:docPr id="{}" name="Cover Image" descr="Document cover"/>
+<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>
+<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+<pic:nvPicPr><pic:cNvPr id="{}" name="Cover"/><pic:cNvPicPr/></pic:nvPicPr>
+<pic:blipFill><a:blip r:embed="{}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>
+<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="{}" cy="{}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>
+</pic:pic></a:graphicData></a:graphic></wp:anchor>"#,
+            page_width_emu, page_height_emu,
+            image_id, image_id,
+            rel_id,
+            page_width_emu, page_height_emu
+        ));
+        self.output.push('\n');
+        self.output.push_str("</w:drawing>\n</w:r>\n</w:p>\n");
+
+        // === TITLE ===
+        if !metadata.title.is_empty() {
+            self.generate_cover_element(
+                &metadata.title,
+                &cover_config.title,
+                page_height_emu,
+            );
+        }
+
+        // === SUBTITLE ===
+        if !metadata.subtitle.is_empty() {
+            self.generate_cover_element(
+                &metadata.subtitle,
+                &cover_config.subtitle,
+                page_height_emu,
+            );
+        }
+
+        // === AUTHORS ===
+        let authors_text = if let Some(ref template) = cover_config.authors.content {
+            CoverConfig::expand_template(template, &metadata, &cover_config.revision.delimiter)
+        } else {
+            metadata.author.clone()
+        };
+        if !authors_text.is_empty() {
+            self.generate_cover_element(
+                &authors_text,
+                &cover_config.authors,
+                page_height_emu,
+            );
+        }
+
+        // === REVISION ===
+        let revision_text = CoverConfig::expand_template(
+            &cover_config.revision.content,
+            &metadata,
+            &cover_config.revision.delimiter,
+        );
+        // Only show if we have actual values (not just template placeholders)
+        let revision_has_content = !metadata.revnumber.is_empty() || !metadata.revdate.is_empty();
+        if revision_has_content && !revision_text.trim().is_empty() {
+            self.generate_cover_revision_element(
+                &revision_text,
+                &cover_config.revision,
+                page_height_emu,
+            );
+        }
+
+        // === PAGE BREAK ===
+        self.output.push_str("<w:p>\n<w:r>\n");
+        self.output.push_str(r#"<w:br w:type="page"/>"#);
+        self.output.push('\n');
+        self.output.push_str("</w:r>\n</w:p>\n");
+    }
+
+    /// Extract cover metadata from document
+    fn extract_cover_metadata(&self, doc: &Document) -> CoverMetadata {
+        // Title
+        let title = doc.metadata.title.clone().unwrap_or_default();
+
+        // Authors: try direct field first, then attribute
+        let author = if !doc.metadata.authors.is_empty() {
+            doc.metadata.authors.join(", ")
+        } else {
+            doc.metadata.attributes.get("author").cloned().unwrap_or_default()
+        };
+
+        // Email
+        let email = doc.metadata.attributes.get("email").cloned().unwrap_or_default();
+
+        // Revision: try direct field first, then attribute
+        let revnumber = doc.metadata.revision.clone()
+            .or_else(|| doc.metadata.attributes.get("revnumber").cloned())
+            .unwrap_or_default();
+
+        let revdate = doc.metadata.attributes.get("revdate").cloned().unwrap_or_default();
+
+        let revremark = doc.metadata.attributes.get("revremark").cloned().unwrap_or_default();
+
+        // Subtitle: try multiple sources
+        let subtitle = doc.metadata.attributes.get("description").cloned()
+            .or_else(|| doc.metadata.attributes.get("subtitle").cloned())
+            .or_else(|| doc.metadata.attributes.get("revremark").cloned())
+            .unwrap_or_default();
+
+        CoverMetadata {
+            title,
+            subtitle,
+            author,
+            email,
+            revnumber,
+            revdate,
+            revremark,
+        }
+    }
+
+    /// Generate a cover text element using configuration
+    fn generate_cover_element(
+        &mut self,
+        text: &str,
+        config: &crate::style_map::CoverElementConfig,
+        page_height_emu: i64,
+    ) {
+        // Calculate position in twips (1 twip = 1/20 pt = 1/1440 in = 635 EMU)
+        let position_emu = CoverConfig::parse_position_to_emu(&config.top, page_height_emu);
+        let position_twips = position_emu / 635;
+
+        self.output.push_str("<w:p>\n<w:pPr>\n");
+
+        // Alignment
+        let align_val = match config.align {
+            TextAlign::Left => "left",
+            TextAlign::Center => "center",
+            TextAlign::Right => "right",
+        };
+        self.output.push_str(&format!("<w:jc w:val=\"{}\"/>\n", align_val));
+
+        // Frame positioning for absolute placement
+        self.output.push_str(&format!(
+            "<w:framePr w:vAnchor=\"page\" w:y=\"{}\"/>\n",
+            position_twips
+        ));
+
+        self.output.push_str("</w:pPr>\n");
+        self.output.push_str("<w:r>\n<w:rPr>\n");
+
+        // Font size
+        self.output.push_str(&format!("<w:sz w:val=\"{}\"/>\n", config.font_size));
+        self.output.push_str(&format!("<w:szCs w:val=\"{}\"/>\n", config.font_size));
+
+        // Color
+        self.output.push_str(&format!("<w:color w:val=\"{}\"/>\n", config.color));
+
+        // Bold
+        if config.bold {
+            self.output.push_str("<w:b/>\n");
+        }
+
+        // Italic
+        if config.italic {
+            self.output.push_str("<w:i/>\n");
+        }
+
+        // Font family
+        if let Some(ref font) = config.font_family {
+            self.output.push_str(&format!(
+                "<w:rFonts w:ascii=\"{}\" w:hAnsi=\"{}\"/>\n",
+                escape_xml(font), escape_xml(font)
+            ));
+        }
+
+        self.output.push_str("</w:rPr>\n");
+        self.output.push_str("<w:t>");
+        self.output.push_str(&escape_xml(text));
+        self.output.push_str("</w:t>\n</w:r>\n</w:p>\n");
+    }
+
+    /// Generate a cover revision element using configuration
+    fn generate_cover_revision_element(
+        &mut self,
+        text: &str,
+        config: &crate::style_map::CoverRevisionConfig,
+        page_height_emu: i64,
+    ) {
+        let position_emu = CoverConfig::parse_position_to_emu(&config.top, page_height_emu);
+        let position_twips = position_emu / 635;
+
+        self.output.push_str("<w:p>\n<w:pPr>\n");
+
+        let align_val = match config.align {
+            TextAlign::Left => "left",
+            TextAlign::Center => "center",
+            TextAlign::Right => "right",
+        };
+        self.output.push_str(&format!("<w:jc w:val=\"{}\"/>\n", align_val));
+        self.output.push_str(&format!(
+            "<w:framePr w:vAnchor=\"page\" w:y=\"{}\"/>\n",
+            position_twips
+        ));
+
+        self.output.push_str("</w:pPr>\n");
+        self.output.push_str("<w:r>\n<w:rPr>\n");
+
+        self.output.push_str(&format!("<w:sz w:val=\"{}\"/>\n", config.font_size));
+        self.output.push_str(&format!("<w:szCs w:val=\"{}\"/>\n", config.font_size));
+        self.output.push_str(&format!("<w:color w:val=\"{}\"/>\n", config.color));
+
+        if config.bold {
+            self.output.push_str("<w:b/>\n");
+        }
+        if config.italic {
+            self.output.push_str("<w:i/>\n");
+        }
+
+        if let Some(ref font) = config.font_family {
+            self.output.push_str(&format!(
+                "<w:rFonts w:ascii=\"{}\" w:hAnsi=\"{}\"/>\n",
+                escape_xml(font), escape_xml(font)
+            ));
+        }
+
+        self.output.push_str("</w:rPr>\n");
+        self.output.push_str("<w:t>");
+        self.output.push_str(&escape_xml(text));
+        self.output.push_str("</w:t>\n</w:r>\n</w:p>\n");
     }
 
     /// Generate XML for a single block

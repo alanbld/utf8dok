@@ -88,6 +88,10 @@ pub struct StyleContract {
     /// Theme defaults extracted from document
     #[serde(default)]
     pub theme: ThemeDefaults,
+
+    /// Cover page configuration (ADR-009)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cover: Option<CoverConfig>,
 }
 
 /// Metadata about the style contract source
@@ -256,6 +260,401 @@ pub struct ThemeDefaults {
     /// Primary accent color (hex)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub accent_color: Option<String>,
+}
+
+// =============================================================================
+// COVER PAGE CONFIGURATION (ADR-009)
+// =============================================================================
+
+/// Cover page configuration
+///
+/// Defines styling and layout for document cover/title pages.
+/// Follows Asciidoctor PDF conventions for AsciiDoc compatibility.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CoverConfig {
+    /// Layout mode: "background" (image behind text) or "block" (image above text)
+    #[serde(default = "default_layout")]
+    pub layout: CoverLayout,
+
+    /// Image scaling mode
+    #[serde(default = "default_image_fit")]
+    pub image_fit: ImageFit,
+
+    /// Vertical alignment when image doesn't fill page
+    #[serde(default = "default_image_position")]
+    pub image_position: ImagePosition,
+
+    /// Title element configuration
+    #[serde(default)]
+    pub title: CoverElementConfig,
+
+    /// Subtitle element configuration
+    #[serde(default)]
+    pub subtitle: CoverElementConfig,
+
+    /// Authors element configuration
+    #[serde(default)]
+    pub authors: CoverElementConfig,
+
+    /// Revision element configuration
+    #[serde(default)]
+    pub revision: CoverRevisionConfig,
+}
+
+/// Cover layout mode
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum CoverLayout {
+    /// Image placed behind text (z-order: back)
+    #[default]
+    Background,
+    /// Image placed above text as a block element
+    Block,
+}
+
+fn default_layout() -> CoverLayout {
+    CoverLayout::Background
+}
+
+/// Image scaling mode
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ImageFit {
+    /// Scale to cover entire area (may crop)
+    #[default]
+    Cover,
+    /// Scale to fit within area (may letterbox)
+    Contain,
+    /// Stretch to fill (may distort)
+    Fill,
+    /// No scaling
+    None,
+}
+
+fn default_image_fit() -> ImageFit {
+    ImageFit::Cover
+}
+
+/// Image vertical position
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ImagePosition {
+    /// Center vertically
+    #[default]
+    Center,
+    /// Align to top
+    Top,
+    /// Align to bottom
+    Bottom,
+}
+
+fn default_image_position() -> ImagePosition {
+    ImagePosition::Center
+}
+
+/// Text alignment
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum TextAlign {
+    Left,
+    #[default]
+    Center,
+    Right,
+}
+
+/// Configuration for a cover text element (title, subtitle, authors)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoverElementConfig {
+    /// Word style ID to use (optional - inherits from template if set)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style: Option<String>,
+
+    /// Text color (hex RGB, e.g., "FFFFFF")
+    #[serde(default = "default_color")]
+    pub color: String,
+
+    /// Font size in half-points (e.g., 72 = 36pt)
+    #[serde(default = "default_title_font_size")]
+    pub font_size: u32,
+
+    /// Font family name
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub font_family: Option<String>,
+
+    /// Bold text
+    #[serde(default)]
+    pub bold: bool,
+
+    /// Italic text
+    #[serde(default)]
+    pub italic: bool,
+
+    /// Vertical position from top (percentage or absolute)
+    #[serde(default = "default_top")]
+    pub top: String,
+
+    /// Horizontal alignment
+    #[serde(default)]
+    pub align: TextAlign,
+
+    /// Content template (for authors: "{author}", "{email}")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+}
+
+impl Default for CoverElementConfig {
+    fn default() -> Self {
+        Self {
+            style: None,
+            color: "FFFFFF".to_string(),
+            font_size: 72, // 36pt
+            font_family: None,
+            bold: false,
+            italic: false,
+            top: "35%".to_string(),
+            align: TextAlign::Center,
+            content: None,
+        }
+    }
+}
+
+fn default_color() -> String {
+    "FFFFFF".to_string()
+}
+
+fn default_title_font_size() -> u32 {
+    72
+}
+
+fn default_top() -> String {
+    "35%".to_string()
+}
+
+/// Configuration for revision element (extends CoverElementConfig)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoverRevisionConfig {
+    /// Word style ID to use
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style: Option<String>,
+
+    /// Text color (hex RGB)
+    #[serde(default = "default_color")]
+    pub color: String,
+
+    /// Font size in half-points
+    #[serde(default = "default_revision_font_size")]
+    pub font_size: u32,
+
+    /// Font family name
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub font_family: Option<String>,
+
+    /// Bold text
+    #[serde(default)]
+    pub bold: bool,
+
+    /// Italic text
+    #[serde(default)]
+    pub italic: bool,
+
+    /// Vertical position from top
+    #[serde(default = "default_revision_top")]
+    pub top: String,
+
+    /// Horizontal alignment
+    #[serde(default)]
+    pub align: TextAlign,
+
+    /// Delimiter between version and date
+    #[serde(default = "default_delimiter")]
+    pub delimiter: String,
+
+    /// Content template
+    #[serde(default = "default_revision_content")]
+    pub content: String,
+}
+
+impl Default for CoverRevisionConfig {
+    fn default() -> Self {
+        Self {
+            style: None,
+            color: "FFFFFF".to_string(),
+            font_size: 24, // 12pt
+            font_family: None,
+            bold: false,
+            italic: false,
+            top: "80%".to_string(),
+            align: TextAlign::Center,
+            delimiter: " | ".to_string(),
+            content: "Version {revnumber}{delimiter}{revdate}".to_string(),
+        }
+    }
+}
+
+fn default_revision_font_size() -> u32 {
+    24
+}
+
+fn default_revision_top() -> String {
+    "80%".to_string()
+}
+
+fn default_delimiter() -> String {
+    " | ".to_string()
+}
+
+fn default_revision_content() -> String {
+    "Version {revnumber}{delimiter}{revdate}".to_string()
+}
+
+impl CoverConfig {
+    /// Create a new CoverConfig with default settings
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Create a CoverConfig optimized for dark cover images (white text)
+    pub fn for_dark_background() -> Self {
+        Self {
+            layout: CoverLayout::Background,
+            image_fit: ImageFit::Cover,
+            image_position: ImagePosition::Center,
+            title: CoverElementConfig {
+                color: "FFFFFF".to_string(),
+                font_size: 72,
+                bold: true,
+                top: "35%".to_string(),
+                ..Default::default()
+            },
+            subtitle: CoverElementConfig {
+                color: "FFFFFF".to_string(),
+                font_size: 32,
+                italic: true,
+                top: "45%".to_string(),
+                ..Default::default()
+            },
+            authors: CoverElementConfig {
+                color: "FFFFFF".to_string(),
+                font_size: 28,
+                top: "75%".to_string(),
+                content: Some("{author}".to_string()),
+                ..Default::default()
+            },
+            revision: CoverRevisionConfig::default(),
+        }
+    }
+
+    /// Create a CoverConfig optimized for light cover images (dark text)
+    pub fn for_light_background() -> Self {
+        Self {
+            layout: CoverLayout::Background,
+            image_fit: ImageFit::Cover,
+            image_position: ImagePosition::Center,
+            title: CoverElementConfig {
+                color: "1F2937".to_string(), // Dark gray
+                font_size: 72,
+                bold: true,
+                top: "35%".to_string(),
+                ..Default::default()
+            },
+            subtitle: CoverElementConfig {
+                color: "4B5563".to_string(), // Medium gray
+                font_size: 32,
+                italic: true,
+                top: "45%".to_string(),
+                ..Default::default()
+            },
+            authors: CoverElementConfig {
+                color: "374151".to_string(),
+                font_size: 28,
+                top: "75%".to_string(),
+                content: Some("{author}".to_string()),
+                ..Default::default()
+            },
+            revision: CoverRevisionConfig {
+                color: "6B7280".to_string(),
+                ..Default::default()
+            },
+        }
+    }
+
+    /// Parse a position string to EMU (English Metric Units)
+    ///
+    /// Supports: "35%", "200pt", "2in", "5cm", "914400emu"
+    pub fn parse_position_to_emu(position: &str, page_height_emu: i64) -> i64 {
+        let position = position.trim();
+
+        if position.ends_with('%') {
+            // Percentage of page height
+            let pct: f64 = position
+                .trim_end_matches('%')
+                .parse()
+                .unwrap_or(35.0);
+            (page_height_emu as f64 * pct / 100.0) as i64
+        } else if position.ends_with("pt") {
+            // Points (1 pt = 12700 EMU)
+            let pts: f64 = position
+                .trim_end_matches("pt")
+                .parse()
+                .unwrap_or(0.0);
+            (pts * 12700.0) as i64
+        } else if position.ends_with("in") {
+            // Inches (1 in = 914400 EMU)
+            let inches: f64 = position
+                .trim_end_matches("in")
+                .parse()
+                .unwrap_or(0.0);
+            (inches * 914400.0) as i64
+        } else if position.ends_with("cm") {
+            // Centimeters (1 cm = 360000 EMU)
+            let cm: f64 = position
+                .trim_end_matches("cm")
+                .parse()
+                .unwrap_or(0.0);
+            (cm * 360000.0) as i64
+        } else if position.ends_with("emu") {
+            // Already EMU
+            position
+                .trim_end_matches("emu")
+                .parse()
+                .unwrap_or(0)
+        } else {
+            // Default: treat as percentage
+            let pct: f64 = position.parse().unwrap_or(35.0);
+            (page_height_emu as f64 * pct / 100.0) as i64
+        }
+    }
+
+    /// Expand a content template with metadata values
+    ///
+    /// Supports: {title}, {subtitle}, {author}, {email}, {revnumber}, {revdate}, {delimiter}
+    pub fn expand_template(
+        template: &str,
+        metadata: &CoverMetadata,
+        delimiter: &str,
+    ) -> String {
+        template
+            .replace("{title}", &metadata.title)
+            .replace("{subtitle}", &metadata.subtitle)
+            .replace("{author}", &metadata.author)
+            .replace("{email}", &metadata.email)
+            .replace("{revnumber}", &metadata.revnumber)
+            .replace("{revdate}", &metadata.revdate)
+            .replace("{revremark}", &metadata.revremark)
+            .replace("{delimiter}", delimiter)
+    }
+}
+
+/// Metadata values for cover template expansion
+#[derive(Debug, Clone, Default)]
+pub struct CoverMetadata {
+    pub title: String,
+    pub subtitle: String,
+    pub author: String,
+    pub email: String,
+    pub revnumber: String,
+    pub revdate: String,
+    pub revremark: String,
 }
 
 impl StyleContract {
@@ -634,5 +1033,267 @@ mod tests {
 
         assert_eq!(contract.get_semantic_anchor("_Toc123"), Some("overview"));
         assert_eq!(contract.get_word_bookmark("overview"), Some("_Toc123"));
+    }
+
+    // =========================================================================
+    // Cover Configuration Tests (ADR-009)
+    // =========================================================================
+
+    #[test]
+    fn test_cover_config_defaults() {
+        let cover = CoverConfig::default();
+
+        assert_eq!(cover.layout, CoverLayout::Background);
+        assert_eq!(cover.image_fit, ImageFit::Cover);
+        assert_eq!(cover.image_position, ImagePosition::Center);
+        assert_eq!(cover.title.color, "FFFFFF");
+        assert_eq!(cover.title.font_size, 72); // 36pt
+        assert_eq!(cover.revision.delimiter, " | ");
+    }
+
+    #[test]
+    fn test_cover_config_for_dark_background() {
+        let cover = CoverConfig::for_dark_background();
+
+        assert_eq!(cover.title.color, "FFFFFF");
+        assert!(cover.title.bold);
+        assert_eq!(cover.subtitle.color, "FFFFFF");
+        assert!(cover.subtitle.italic);
+    }
+
+    #[test]
+    fn test_cover_config_for_light_background() {
+        let cover = CoverConfig::for_light_background();
+
+        assert_eq!(cover.title.color, "1F2937"); // Dark gray
+        assert!(cover.title.bold);
+        assert_eq!(cover.subtitle.color, "4B5563"); // Medium gray
+    }
+
+    #[test]
+    fn test_cover_position_parsing_percentage() {
+        let page_height = 10_000_000; // 10M EMU
+
+        assert_eq!(
+            CoverConfig::parse_position_to_emu("35%", page_height),
+            3_500_000
+        );
+        assert_eq!(
+            CoverConfig::parse_position_to_emu("100%", page_height),
+            10_000_000
+        );
+        assert_eq!(
+            CoverConfig::parse_position_to_emu("0%", page_height),
+            0
+        );
+    }
+
+    #[test]
+    fn test_cover_position_parsing_points() {
+        let page_height = 10_000_000;
+
+        // 1 pt = 12700 EMU
+        assert_eq!(
+            CoverConfig::parse_position_to_emu("100pt", page_height),
+            1_270_000
+        );
+        assert_eq!(
+            CoverConfig::parse_position_to_emu("72pt", page_height),
+            914_400
+        );
+    }
+
+    #[test]
+    fn test_cover_position_parsing_inches() {
+        let page_height = 10_000_000;
+
+        // 1 in = 914400 EMU
+        assert_eq!(
+            CoverConfig::parse_position_to_emu("1in", page_height),
+            914_400
+        );
+        assert_eq!(
+            CoverConfig::parse_position_to_emu("2in", page_height),
+            1_828_800
+        );
+    }
+
+    #[test]
+    fn test_cover_position_parsing_centimeters() {
+        let page_height = 10_000_000;
+
+        // 1 cm = 360000 EMU
+        assert_eq!(
+            CoverConfig::parse_position_to_emu("1cm", page_height),
+            360_000
+        );
+        assert_eq!(
+            CoverConfig::parse_position_to_emu("5cm", page_height),
+            1_800_000
+        );
+    }
+
+    #[test]
+    fn test_cover_position_parsing_emu() {
+        let page_height = 10_000_000;
+
+        assert_eq!(
+            CoverConfig::parse_position_to_emu("914400emu", page_height),
+            914_400
+        );
+    }
+
+    #[test]
+    fn test_cover_template_expansion() {
+        let metadata = CoverMetadata {
+            title: "My Document".to_string(),
+            subtitle: "A great book".to_string(),
+            author: "Jane Doe".to_string(),
+            email: "jane@example.com".to_string(),
+            revnumber: "1.0.0".to_string(),
+            revdate: "2025-12-31".to_string(),
+            revremark: "Initial release".to_string(),
+        };
+
+        let result = CoverConfig::expand_template(
+            "Version {revnumber}{delimiter}{revdate}",
+            &metadata,
+            " | ",
+        );
+        assert_eq!(result, "Version 1.0.0 | 2025-12-31");
+
+        let result2 = CoverConfig::expand_template(
+            "{author} <{email}>",
+            &metadata,
+            "",
+        );
+        assert_eq!(result2, "Jane Doe <jane@example.com>");
+    }
+
+    #[test]
+    fn test_cover_config_toml_serialization() {
+        let cover = CoverConfig::for_dark_background();
+        let toml_str = toml::to_string_pretty(&cover).unwrap();
+
+        assert!(toml_str.contains("layout = \"background\""));
+        assert!(toml_str.contains("image_fit = \"cover\""));
+        assert!(toml_str.contains("[title]"));
+        assert!(toml_str.contains("color = \"FFFFFF\""));
+    }
+
+    #[test]
+    fn test_cover_config_toml_deserialization() {
+        let toml_str = r#"
+layout = "background"
+image_fit = "cover"
+image_position = "center"
+
+[title]
+color = "FF0000"
+font_size = 96
+bold = true
+top = "40%"
+align = "center"
+
+[subtitle]
+color = "00FF00"
+font_size = 48
+italic = true
+
+[authors]
+color = "0000FF"
+font_size = 32
+content = "{author} ({email})"
+
+[revision]
+color = "CCCCCC"
+font_size = 24
+delimiter = " - "
+content = "v{revnumber} ({revdate})"
+"#;
+
+        let cover: CoverConfig = toml::from_str(toml_str).unwrap();
+
+        assert_eq!(cover.layout, CoverLayout::Background);
+        assert_eq!(cover.title.color, "FF0000");
+        assert_eq!(cover.title.font_size, 96);
+        assert!(cover.title.bold);
+        assert_eq!(cover.title.top, "40%");
+        assert_eq!(cover.subtitle.color, "00FF00");
+        assert!(cover.subtitle.italic);
+        assert_eq!(cover.authors.content, Some("{author} ({email})".to_string()));
+        assert_eq!(cover.revision.delimiter, " - ");
+    }
+
+    #[test]
+    fn test_style_contract_with_cover() {
+        let mut contract = StyleContract::new();
+        contract.cover = Some(CoverConfig::for_dark_background());
+
+        let toml_str = contract.to_toml().unwrap();
+        assert!(toml_str.contains("[cover]"));
+        assert!(toml_str.contains("[cover.title]"));
+
+        // Round-trip
+        let parsed = StyleContract::from_toml(&toml_str).unwrap();
+        assert!(parsed.cover.is_some());
+        let cover = parsed.cover.unwrap();
+        assert_eq!(cover.title.color, "FFFFFF");
+    }
+
+    #[test]
+    fn test_parse_essential_style_contract_with_cover() {
+        // Test parsing the actual Essential template style-contract.toml
+        let toml_str = r#"
+[meta]
+template = "open_template.dotx"
+locale = "it-IT"
+
+[paragraph_styles]
+Titolo1 = { role = "h1", heading_level = 1 }
+Normale = { role = "body" }
+
+[cover]
+layout = "background"
+image_fit = "cover"
+
+[cover.title]
+color = "FFFFFF"
+font_size = 72
+bold = true
+top = "35%"
+
+[cover.subtitle]
+color = "FFFFFF"
+font_size = 32
+italic = true
+top = "45%"
+
+[cover.authors]
+color = "FFFFFF"
+font_size = 28
+top = "75%"
+content = "{author}"
+
+[cover.revision]
+color = "FFFFFF"
+font_size = 24
+top = "80%"
+delimiter = " | "
+content = "Version {revnumber}{delimiter}{revdate}"
+"#;
+
+        let contract: StyleContract = toml::from_str(toml_str).unwrap();
+
+        assert_eq!(contract.meta.template, Some("open_template.dotx".to_string()));
+        assert!(contract.cover.is_some());
+
+        let cover = contract.cover.unwrap();
+        assert_eq!(cover.layout, CoverLayout::Background);
+        assert_eq!(cover.title.font_size, 72);
+        assert!(cover.title.bold);
+        assert_eq!(cover.subtitle.top, "45%");
+        assert_eq!(cover.authors.content, Some("{author}".to_string()));
+        assert_eq!(cover.revision.content, "Version {revnumber}{delimiter}{revdate}");
     }
 }

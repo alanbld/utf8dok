@@ -115,6 +115,10 @@ enum Commands {
         /// Template DOTX file
         #[arg(short, long)]
         template: Option<PathBuf>,
+
+        /// Cover image file (PNG, JPG) for title page
+        #[arg(long)]
+        cover: Option<PathBuf>,
     },
 
     /// Check an AsciiDoc file for issues (validation)
@@ -206,8 +210,9 @@ pub fn run_cli() -> Result<()> {
             input,
             output,
             template,
+            cover,
         } => {
-            render_command(&input, output.as_deref(), template.as_deref())?;
+            render_command(&input, output.as_deref(), template.as_deref(), cover.as_deref())?;
         }
         Commands::Check {
             input,
@@ -654,6 +659,7 @@ pub fn render_command(
     input: &std::path::Path,
     output: Option<&std::path::Path>,
     template: Option<&std::path::Path>,
+    cover: Option<&std::path::Path>,
 ) -> Result<()> {
     println!("utf8dok v{}", utf8dok_core::VERSION);
     println!("Rendering: {}", input.display());
@@ -728,6 +734,22 @@ pub fn render_command(
     let mut writer = DocxWriter::new();
     writer.set_source(&source_content);
     writer.set_config(&config_content);
+
+    // Step 5b: Add cover image if specified
+    if let Some(cover_path) = cover {
+        if cover_path.exists() {
+            println!("  Adding cover image: {}", cover_path.display());
+            let cover_bytes = fs::read(cover_path)
+                .with_context(|| format!("Failed to read cover image: {}", cover_path.display()))?;
+            let cover_filename = cover_path
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| "cover.png".to_string());
+            writer.set_cover_image(cover_filename, cover_bytes);
+        } else {
+            eprintln!("  Warning: Cover image not found: {}", cover_path.display());
+        }
+    }
 
     // Step 6: Generate DOCX
     let docx_bytes = writer
@@ -1397,10 +1419,12 @@ mod tests {
                 input,
                 output,
                 template,
+                cover,
             } => {
                 assert_eq!(input, PathBuf::from("doc.adoc"));
                 assert_eq!(output, Some(PathBuf::from("out.docx")));
                 assert_eq!(template, Some(PathBuf::from("tmpl.dotx")));
+                assert_eq!(cover, None);
             }
             _ => panic!("Expected Render command"),
         }
