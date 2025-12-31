@@ -30,8 +30,8 @@ mod shape_text_extraction {
     use utf8dok_ooxml::document::{Block, Document, ParagraphChild};
 
     /// Test extracting text from a simple WordprocessingML shape
+    /// NOTE: This should pass - txbxContent is already handled
     #[test]
-    #[ignore = "TDD: Implement wps:wsp text extraction"]
     fn test_extract_wsp_shape_text() {
         // <wps:wsp> contains <wps:txbx> with <w:txbxContent>
         let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
@@ -81,8 +81,8 @@ mod shape_text_extraction {
     }
 
     /// Test extracting text from grouped shapes
+    /// NOTE: This should pass - txbxContent recursive parsing handles groups
     #[test]
-    #[ignore = "TDD: Implement wpg:wgp group text extraction"]
     fn test_extract_group_shape_text() {
         // <wpg:wgp> contains multiple <wps:wsp> shapes
         let xml = br#"<?xml version="1.0" encoding="UTF-8"?>

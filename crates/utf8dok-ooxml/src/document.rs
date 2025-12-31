@@ -129,11 +129,12 @@ impl Document {
         // State for current paragraph
         let mut in_body = false;
         let mut in_textbox_content = false; // Track if inside <w:txbxContent>
+        let mut in_drawingml_shape = 0u32; // Depth counter for DrawingML shapes (wsp, sp, etc.)
         let mut current_para: Option<ParagraphBuilder> = None;
         let mut current_run: Option<RunBuilder> = None;
         let mut current_table: Option<TableBuilder> = None;
         let mut current_hyperlink: Option<HyperlinkBuilder> = None;
-        // Track if we're inside a <w:t> element (actual text vs instrText)
+        // Track if we're inside a <w:t> or <a:t> element (actual text vs instrText)
         let mut in_text_element = false;
         // Image parsing state
         let mut current_image: Option<ImageBuilder> = None;
@@ -149,11 +150,21 @@ impl Document {
                             // Text box content - treat like body for paragraph parsing
                             in_textbox_content = true;
                         }
+                        // Track DrawingML shapes for a:t text extraction
+                        b"wsp" | b"sp" | b"cxnSp" => {
+                            // WordprocessingML shape, DrawingML shape, or connector shape
+                            in_drawingml_shape += 1;
+                        }
                         b"p" if (in_body || in_textbox_content) && current_table.is_none() => {
                             current_para = Some(ParagraphBuilder::new());
                         }
                         b"p" if current_table.is_some() => {
                             // Paragraph inside table cell
+                            current_para = Some(ParagraphBuilder::new());
+                        }
+                        b"p" if in_drawingml_shape > 0 && !in_textbox_content => {
+                            // DrawingML paragraph (a:p) inside a shape
+                            // Only create if not already inside txbxContent which uses w:p
                             current_para = Some(ParagraphBuilder::new());
                         }
                         b"pStyle" if current_para.is_some() => {
@@ -187,6 +198,7 @@ impl Document {
                             }
                         }
                         b"r" if current_para.is_some() => {
+                            // WordprocessingML run (w:r) or DrawingML run (a:r)
                             current_run = Some(RunBuilder::new());
                         }
                         b"b" if current_run.is_some() => {
@@ -215,7 +227,7 @@ impl Document {
                             }
                         }
                         b"t" if current_run.is_some() => {
-                            // Start of actual text element - capture text from here
+                            // Start of actual text element (w:t or a:t) - capture text from here
                             in_text_element = true;
                         }
                         b"drawing" if current_para.is_some() => {
@@ -331,6 +343,12 @@ impl Document {
                     match name.as_ref() {
                         b"body" => in_body = false,
                         b"txbxContent" => in_textbox_content = false,
+                        b"wsp" | b"sp" | b"cxnSp" => {
+                            // End of DrawingML shape
+                            if in_drawingml_shape > 0 {
+                                in_drawingml_shape -= 1;
+                            }
+                        }
                         b"p" if current_para.is_some() => {
                             let para = current_para.take().unwrap().build();
 
