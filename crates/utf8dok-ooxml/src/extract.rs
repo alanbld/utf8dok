@@ -433,12 +433,8 @@ impl AsciiDocExtractor {
         let comment_ranges = CommentRanges::parse(doc_xml);
 
         // Build the style contract (ADR-007)
-        let style_contract = self.build_style_contract(
-            &document,
-            &styles,
-            relationships.as_ref(),
-            source_file,
-        );
+        let style_contract =
+            self.build_style_contract(&document, &styles, relationships.as_ref(), source_file);
 
         let asciidoc = self.convert_to_asciidoc(
             &document,

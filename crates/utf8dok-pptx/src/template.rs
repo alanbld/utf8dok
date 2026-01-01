@@ -212,8 +212,7 @@ impl PotxTemplate {
                     .ok()
                     .map(|f| f.name().to_string())
                     .filter(|name| {
-                        name.starts_with("ppt/slideLayouts/slideLayout")
-                            && name.ends_with(".xml")
+                        name.starts_with("ppt/slideLayouts/slideLayout") && name.ends_with(".xml")
                     })
             })
             .collect();
@@ -300,8 +299,8 @@ impl PotxTemplate {
                     placeholders.push(PlaceholderInfo::new(
                         ph_idx,
                         ph_type,
-                        (0, 0),     // Position will be extracted from spPr
-                        (0, 0),     // Size will be extracted from spPr
+                        (0, 0), // Position will be extracted from spPr
+                        (0, 0), // Size will be extracted from spPr
                     ));
                 }
                 Ok(Event::Eof) => break,
@@ -437,40 +436,22 @@ mod tests {
 
     #[test]
     fn test_infer_layout_type() {
-        assert_eq!(
-            infer_layout_type("Title Slide"),
-            LayoutType::Title
-        );
+        assert_eq!(infer_layout_type("Title Slide"), LayoutType::Title);
         assert_eq!(
             infer_layout_type("Section Header"),
             LayoutType::SectionHeader
         );
-        assert_eq!(
-            infer_layout_type("Two Content"),
-            LayoutType::TwoContent
-        );
-        assert_eq!(
-            infer_layout_type("Blank"),
-            LayoutType::Blank
-        );
+        assert_eq!(infer_layout_type("Two Content"), LayoutType::TwoContent);
+        assert_eq!(infer_layout_type("Blank"), LayoutType::Blank);
         assert_eq!(
             infer_layout_type("Title and Content"),
             LayoutType::TitleAndContent
         );
-        assert_eq!(
-            infer_layout_type("Custom Layout"),
-            LayoutType::Custom
-        );
+        assert_eq!(infer_layout_type("Custom Layout"), LayoutType::Custom);
 
         // Italian names
-        assert_eq!(
-            infer_layout_type("Diapositiva titolo"),
-            LayoutType::Title
-        );
-        assert_eq!(
-            infer_layout_type("Contenuto"),
-            LayoutType::TitleAndContent
-        );
+        assert_eq!(infer_layout_type("Diapositiva titolo"), LayoutType::Title);
+        assert_eq!(infer_layout_type("Contenuto"), LayoutType::TitleAndContent);
     }
 
     #[test]

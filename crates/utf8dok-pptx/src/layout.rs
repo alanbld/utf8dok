@@ -427,18 +427,9 @@ mod tests {
     fn test_layout_for_hint() {
         let mapping = LayoutMapping::from_contract(&SlideContract::default());
 
-        assert_eq!(
-            mapping.get_layout_for_hint(SlideLayoutHint::Title),
-            1
-        );
-        assert_eq!(
-            mapping.get_layout_for_hint(SlideLayoutHint::Content),
-            2
-        );
-        assert_eq!(
-            mapping.get_layout_for_hint(SlideLayoutHint::Quote),
-            9
-        );
+        assert_eq!(mapping.get_layout_for_hint(SlideLayoutHint::Title), 1);
+        assert_eq!(mapping.get_layout_for_hint(SlideLayoutHint::Content), 2);
+        assert_eq!(mapping.get_layout_for_hint(SlideLayoutHint::Quote), 9);
     }
 
     #[test]
@@ -467,11 +458,7 @@ mod tests {
     fn test_layout_mapping_add_layout() {
         let mut mapping = LayoutMapping::new();
 
-        mapping.add_layout(SlideLayout::new(
-            1,
-            "Title Slide",
-            LayoutType::Title,
-        ));
+        mapping.add_layout(SlideLayout::new(1, "Title Slide", LayoutType::Title));
         mapping.add_layout(SlideLayout::new(
             2,
             "Title and Content",

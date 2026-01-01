@@ -72,8 +72,7 @@ pub mod constants {
     pub const HALF_POINTS_PER_POINT: u32 = 2;
 
     /// PresentationML namespace
-    pub const NS_PRESENTATION: &str =
-        "http://schemas.openxmlformats.org/presentationml/2006/main";
+    pub const NS_PRESENTATION: &str = "http://schemas.openxmlformats.org/presentationml/2006/main";
 
     /// DrawingML namespace
     pub const NS_DRAWING: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
@@ -83,7 +82,8 @@ pub mod constants {
         "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
     /// Content Types namespace
-    pub const NS_CONTENT_TYPES: &str = "http://schemas.openxmlformats.org/package/2006/content-types";
+    pub const NS_CONTENT_TYPES: &str =
+        "http://schemas.openxmlformats.org/package/2006/content-types";
 
     /// Slide relationship type
     pub const REL_TYPE_SLIDE: &str =
@@ -121,10 +121,7 @@ mod tests {
         assert_eq!(constants::EMU_PER_POINT, 12_700);
 
         // 1 inch = 72 points, so EMU_PER_INCH should be 72 * EMU_PER_POINT
-        assert_eq!(
-            constants::EMU_PER_INCH,
-            72 * constants::EMU_PER_POINT
-        );
+        assert_eq!(constants::EMU_PER_INCH, 72 * constants::EMU_PER_POINT);
     }
 
     #[test]

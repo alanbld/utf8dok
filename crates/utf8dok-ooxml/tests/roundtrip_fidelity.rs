@@ -327,7 +327,10 @@ mod toc_hyperlink_preservation {
                 .any(|c| matches!(c, ParagraphChild::Bookmark(_)));
             // Note: _Ref bookmarks are currently filtered out like _Toc
             // This test defines desired behavior to preserve them
-            assert!(has_bookmark, "Should preserve _Ref bookmarks for references");
+            assert!(
+                has_bookmark,
+                "Should preserve _Ref bookmarks for references"
+            );
         }
     }
 }
@@ -665,8 +668,14 @@ mod bookmark_anchor_tests {
         }
 
         // _Toc and _Ref should be kept (semantically meaningful)
-        assert!(found_toc, "_Toc bookmarks should be kept for anchor mapping");
-        assert!(found_ref, "_Ref bookmarks should be kept for cross-references");
+        assert!(
+            found_toc,
+            "_Toc bookmarks should be kept for anchor mapping"
+        );
+        assert!(
+            found_ref,
+            "_Ref bookmarks should be kept for cross-references"
+        );
 
         // _Hlk and _GoBack should be filtered (truly internal)
         assert!(!found_hlk, "_Hlk bookmarks should be filtered out");
@@ -848,9 +857,15 @@ mod conformance_tests {
         assert!(has_headings, "Should extract heading style mappings");
 
         // Print extracted styles for debugging
-        eprintln!("Extracted {} paragraph styles:", contract.paragraph_styles.len());
+        eprintln!(
+            "Extracted {} paragraph styles:",
+            contract.paragraph_styles.len()
+        );
         for (id, mapping) in &contract.paragraph_styles {
-            eprintln!("  {} -> role={}, level={:?}", id, mapping.role, mapping.heading_level);
+            eprintln!(
+                "  {} -> role={}, level={:?}",
+                id, mapping.role, mapping.heading_level
+            );
         }
     }
 
@@ -903,8 +918,11 @@ mod conformance_tests {
             .filter(|m| matches!(m.anchor_type, utf8dok_ooxml::AnchorType::Toc))
             .count();
 
-        eprintln!("Extracted {} total anchors, {} are TOC anchors",
-            contract.anchors.len(), toc_anchors);
+        eprintln!(
+            "Extracted {} total anchors, {} are TOC anchors",
+            contract.anchors.len(),
+            toc_anchors
+        );
 
         // Print first 10 anchors
         for (bookmark, mapping) in contract.anchors.iter().take(10) {
@@ -931,8 +949,8 @@ mod conformance_tests {
         let toml = contract.to_toml().expect("TOML serialization failed");
 
         // Deserialize back
-        let roundtripped = utf8dok_ooxml::StyleContract::from_toml(&toml)
-            .expect("TOML deserialization failed");
+        let roundtripped =
+            utf8dok_ooxml::StyleContract::from_toml(&toml).expect("TOML deserialization failed");
 
         // Verify counts match
         assert_eq!(
@@ -1050,7 +1068,8 @@ mod essential_template_tests {
             return;
         }
 
-        let toml_content = std::fs::read_to_string(path).expect("Failed to read style-contract.toml");
+        let toml_content =
+            std::fs::read_to_string(path).expect("Failed to read style-contract.toml");
 
         // Try to parse - extra fields are ignored by serde default
         let contract = utf8dok_ooxml::StyleContract::from_toml(&toml_content);
@@ -1113,11 +1132,17 @@ mod essential_template_tests {
             }
         }
 
-        assert!(has_content_types, "Template should have [Content_Types].xml");
+        assert!(
+            has_content_types,
+            "Template should have [Content_Types].xml"
+        );
         assert!(has_document, "Template should have word/document.xml");
         assert!(has_styles, "Template should have word/styles.xml");
 
-        eprintln!("Essential template is valid OOXML with {} entries", archive.len());
+        eprintln!(
+            "Essential template is valid OOXML with {} entries",
+            archive.len()
+        );
     }
 
     /// Test that essential template has expected Italian style IDs
@@ -1132,11 +1157,13 @@ mod essential_template_tests {
 
         // Check for Italian heading styles
         let expected_styles = [
-            "Titolo1", "Titolo2", "Titolo3", "Titolo4", "Titolo5",
-            "Titolo6", "Titolo7", "Titolo8", "Titolo9", "Normale",
+            "Titolo1", "Titolo2", "Titolo3", "Titolo4", "Titolo5", "Titolo6", "Titolo7", "Titolo8",
+            "Titolo9", "Normale",
         ];
 
-        let available = template.available_style_ids().expect("Failed to get style IDs");
+        let available = template
+            .available_style_ids()
+            .expect("Failed to get style IDs");
 
         for style in &expected_styles {
             assert!(
@@ -1223,14 +1250,17 @@ mod essential_template_tests {
         }
 
         assert!(found_document, "Output should have word/document.xml");
-        eprintln!("Round-trip produced valid DOCX with {} entries", archive.len());
+        eprintln!(
+            "Round-trip produced valid DOCX with {} entries",
+            archive.len()
+        );
     }
 
     /// Test that StyleContract causes Italian style IDs to be used
     #[test]
     fn test_essential_template_uses_italian_styles() {
-        use utf8dok_ooxml::{DocxWriter, Template};
         use std::io::Read;
+        use utf8dok_ooxml::{DocxWriter, Template};
 
         let template_path = Path::new(ESSENTIAL_TEMPLATE);
         let contract_path = Path::new(ESSENTIAL_CONTRACT);

@@ -514,7 +514,6 @@ impl Default for TableConfig {
     }
 }
 
-
 impl SlideContract {
     /// Load SlideContract from a TOML file
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self> {

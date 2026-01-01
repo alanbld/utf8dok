@@ -325,11 +325,7 @@ impl SlideExtractor {
     /// Handle a list block
     fn handle_list(&mut self, list: &List) {
         // Convert items first (before borrowing current_slide mutably)
-        let items: Vec<SlideListItem> = list
-            .items
-            .iter()
-            .flat_map(convert_list_item)
-            .collect();
+        let items: Vec<SlideListItem> = list.items.iter().flat_map(convert_list_item).collect();
 
         if let Some(ref mut slide) = self.current_slide {
             let list_content = ListContent { items };
@@ -344,7 +340,6 @@ impl SlideExtractor {
             }
         }
     }
-
 
     /// Handle a code/literal block
     fn handle_code_block(&mut self, literal: &utf8dok_ast::LiteralBlock) {

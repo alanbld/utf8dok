@@ -869,7 +869,8 @@ impl DocxWriter {
         let (filename, image_bytes) = cover_data;
 
         // Get cover configuration from StyleContract or use defaults
-        let cover_config = self.style_contract
+        let cover_config = self
+            .style_contract
             .as_ref()
             .and_then(|sc| sc.cover.clone())
             .unwrap_or_else(CoverConfig::for_dark_background);
@@ -931,11 +932,7 @@ impl DocxWriter {
 
         // === TITLE ===
         if !metadata.title.is_empty() {
-            self.generate_cover_element(
-                &metadata.title,
-                &cover_config.title,
-                page_height_emu,
-            );
+            self.generate_cover_element(&metadata.title, &cover_config.title, page_height_emu);
         }
 
         // === SUBTITLE ===
@@ -954,11 +951,7 @@ impl DocxWriter {
             metadata.author.clone()
         };
         if !authors_text.is_empty() {
-            self.generate_cover_element(
-                &authors_text,
-                &cover_config.authors,
-                page_height_emu,
-            );
+            self.generate_cover_element(&authors_text, &cover_config.authors, page_height_emu);
         }
 
         // === REVISION ===
@@ -993,23 +986,49 @@ impl DocxWriter {
         let author = if !doc.metadata.authors.is_empty() {
             doc.metadata.authors.join(", ")
         } else {
-            doc.metadata.attributes.get("author").cloned().unwrap_or_default()
+            doc.metadata
+                .attributes
+                .get("author")
+                .cloned()
+                .unwrap_or_default()
         };
 
         // Email
-        let email = doc.metadata.attributes.get("email").cloned().unwrap_or_default();
+        let email = doc
+            .metadata
+            .attributes
+            .get("email")
+            .cloned()
+            .unwrap_or_default();
 
         // Revision: try direct field first, then attribute
-        let revnumber = doc.metadata.revision.clone()
+        let revnumber = doc
+            .metadata
+            .revision
+            .clone()
             .or_else(|| doc.metadata.attributes.get("revnumber").cloned())
             .unwrap_or_default();
 
-        let revdate = doc.metadata.attributes.get("revdate").cloned().unwrap_or_default();
+        let revdate = doc
+            .metadata
+            .attributes
+            .get("revdate")
+            .cloned()
+            .unwrap_or_default();
 
-        let revremark = doc.metadata.attributes.get("revremark").cloned().unwrap_or_default();
+        let revremark = doc
+            .metadata
+            .attributes
+            .get("revremark")
+            .cloned()
+            .unwrap_or_default();
 
         // Subtitle: try multiple sources
-        let subtitle = doc.metadata.attributes.get("description").cloned()
+        let subtitle = doc
+            .metadata
+            .attributes
+            .get("description")
+            .cloned()
             .or_else(|| doc.metadata.attributes.get("subtitle").cloned())
             .or_else(|| doc.metadata.attributes.get("revremark").cloned())
             .unwrap_or_default();
@@ -1044,7 +1063,8 @@ impl DocxWriter {
             TextAlign::Center => "center",
             TextAlign::Right => "right",
         };
-        self.output.push_str(&format!("<w:jc w:val=\"{}\"/>\n", align_val));
+        self.output
+            .push_str(&format!("<w:jc w:val=\"{}\"/>\n", align_val));
 
         // Frame positioning for absolute placement
         self.output.push_str(&format!(
@@ -1056,11 +1076,14 @@ impl DocxWriter {
         self.output.push_str("<w:r>\n<w:rPr>\n");
 
         // Font size
-        self.output.push_str(&format!("<w:sz w:val=\"{}\"/>\n", config.font_size));
-        self.output.push_str(&format!("<w:szCs w:val=\"{}\"/>\n", config.font_size));
+        self.output
+            .push_str(&format!("<w:sz w:val=\"{}\"/>\n", config.font_size));
+        self.output
+            .push_str(&format!("<w:szCs w:val=\"{}\"/>\n", config.font_size));
 
         // Color
-        self.output.push_str(&format!("<w:color w:val=\"{}\"/>\n", config.color));
+        self.output
+            .push_str(&format!("<w:color w:val=\"{}\"/>\n", config.color));
 
         // Bold
         if config.bold {
@@ -1076,7 +1099,8 @@ impl DocxWriter {
         if let Some(ref font) = config.font_family {
             self.output.push_str(&format!(
                 "<w:rFonts w:ascii=\"{}\" w:hAnsi=\"{}\"/>\n",
-                escape_xml(font), escape_xml(font)
+                escape_xml(font),
+                escape_xml(font)
             ));
         }
 
@@ -1103,7 +1127,8 @@ impl DocxWriter {
             TextAlign::Center => "center",
             TextAlign::Right => "right",
         };
-        self.output.push_str(&format!("<w:jc w:val=\"{}\"/>\n", align_val));
+        self.output
+            .push_str(&format!("<w:jc w:val=\"{}\"/>\n", align_val));
         self.output.push_str(&format!(
             "<w:framePr w:vAnchor=\"page\" w:y=\"{}\"/>\n",
             position_twips
@@ -1112,9 +1137,12 @@ impl DocxWriter {
         self.output.push_str("</w:pPr>\n");
         self.output.push_str("<w:r>\n<w:rPr>\n");
 
-        self.output.push_str(&format!("<w:sz w:val=\"{}\"/>\n", config.font_size));
-        self.output.push_str(&format!("<w:szCs w:val=\"{}\"/>\n", config.font_size));
-        self.output.push_str(&format!("<w:color w:val=\"{}\"/>\n", config.color));
+        self.output
+            .push_str(&format!("<w:sz w:val=\"{}\"/>\n", config.font_size));
+        self.output
+            .push_str(&format!("<w:szCs w:val=\"{}\"/>\n", config.font_size));
+        self.output
+            .push_str(&format!("<w:color w:val=\"{}\"/>\n", config.color));
 
         if config.bold {
             self.output.push_str("<w:b/>\n");
@@ -1126,7 +1154,8 @@ impl DocxWriter {
         if let Some(ref font) = config.font_family {
             self.output.push_str(&format!(
                 "<w:rFonts w:ascii=\"{}\" w:hAnsi=\"{}\"/>\n",
-                escape_xml(font), escape_xml(font)
+                escape_xml(font),
+                escape_xml(font)
             ));
         }
 
@@ -1680,10 +1709,8 @@ impl DocxWriter {
                     bookmark_id,
                     escape_xml(&bookmark_name)
                 ));
-                self.output.push_str(&format!(
-                    "<w:bookmarkEnd w:id=\"{}\"/>\n",
-                    bookmark_id
-                ));
+                self.output
+                    .push_str(&format!("<w:bookmarkEnd w:id=\"{}\"/>\n", bookmark_id));
             }
         }
     }

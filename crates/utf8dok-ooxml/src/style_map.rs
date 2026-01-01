@@ -586,38 +586,23 @@ impl CoverConfig {
 
         if position.ends_with('%') {
             // Percentage of page height
-            let pct: f64 = position
-                .trim_end_matches('%')
-                .parse()
-                .unwrap_or(35.0);
+            let pct: f64 = position.trim_end_matches('%').parse().unwrap_or(35.0);
             (page_height_emu as f64 * pct / 100.0) as i64
         } else if position.ends_with("pt") {
             // Points (1 pt = 12700 EMU)
-            let pts: f64 = position
-                .trim_end_matches("pt")
-                .parse()
-                .unwrap_or(0.0);
+            let pts: f64 = position.trim_end_matches("pt").parse().unwrap_or(0.0);
             (pts * 12700.0) as i64
         } else if position.ends_with("in") {
             // Inches (1 in = 914400 EMU)
-            let inches: f64 = position
-                .trim_end_matches("in")
-                .parse()
-                .unwrap_or(0.0);
+            let inches: f64 = position.trim_end_matches("in").parse().unwrap_or(0.0);
             (inches * 914400.0) as i64
         } else if position.ends_with("cm") {
             // Centimeters (1 cm = 360000 EMU)
-            let cm: f64 = position
-                .trim_end_matches("cm")
-                .parse()
-                .unwrap_or(0.0);
+            let cm: f64 = position.trim_end_matches("cm").parse().unwrap_or(0.0);
             (cm * 360000.0) as i64
         } else if position.ends_with("emu") {
             // Already EMU
-            position
-                .trim_end_matches("emu")
-                .parse()
-                .unwrap_or(0)
+            position.trim_end_matches("emu").parse().unwrap_or(0)
         } else {
             // Default: treat as percentage
             let pct: f64 = position.parse().unwrap_or(35.0);
@@ -628,11 +613,7 @@ impl CoverConfig {
     /// Expand a content template with metadata values
     ///
     /// Supports: {title}, {subtitle}, {author}, {email}, {revnumber}, {revdate}, {delimiter}
-    pub fn expand_template(
-        template: &str,
-        metadata: &CoverMetadata,
-        delimiter: &str,
-    ) -> String {
+    pub fn expand_template(template: &str, metadata: &CoverMetadata, delimiter: &str) -> String {
         template
             .replace("{title}", &metadata.title)
             .replace("{subtitle}", &metadata.subtitle)
@@ -705,7 +686,9 @@ impl StyleContract {
 
     /// Get the semantic role for a paragraph style
     pub fn get_paragraph_role(&self, word_style: &str) -> Option<&str> {
-        self.paragraph_styles.get(word_style).map(|m| m.role.as_str())
+        self.paragraph_styles
+            .get(word_style)
+            .map(|m| m.role.as_str())
     }
 
     /// Get the heading level for a paragraph style
@@ -717,7 +700,9 @@ impl StyleContract {
 
     /// Get the semantic anchor ID for a Word bookmark
     pub fn get_semantic_anchor(&self, word_bookmark: &str) -> Option<&str> {
-        self.anchors.get(word_bookmark).map(|m| m.semantic_id.as_str())
+        self.anchors
+            .get(word_bookmark)
+            .map(|m| m.semantic_id.as_str())
     }
 
     /// Get the Word bookmark for a semantic anchor ID
@@ -1082,10 +1067,7 @@ mod tests {
             CoverConfig::parse_position_to_emu("100%", page_height),
             10_000_000
         );
-        assert_eq!(
-            CoverConfig::parse_position_to_emu("0%", page_height),
-            0
-        );
+        assert_eq!(CoverConfig::parse_position_to_emu("0%", page_height), 0);
     }
 
     #[test]
@@ -1162,11 +1144,7 @@ mod tests {
         );
         assert_eq!(result, "Version 1.0.0 | 2025-12-31");
 
-        let result2 = CoverConfig::expand_template(
-            "{author} <{email}>",
-            &metadata,
-            "",
-        );
+        let result2 = CoverConfig::expand_template("{author} <{email}>", &metadata, "");
         assert_eq!(result2, "Jane Doe <jane@example.com>");
     }
 
@@ -1221,7 +1199,10 @@ content = "v{revnumber} ({revdate})"
         assert_eq!(cover.title.top, "40%");
         assert_eq!(cover.subtitle.color, "00FF00");
         assert!(cover.subtitle.italic);
-        assert_eq!(cover.authors.content, Some("{author} ({email})".to_string()));
+        assert_eq!(
+            cover.authors.content,
+            Some("{author} ({email})".to_string())
+        );
         assert_eq!(cover.revision.delimiter, " - ");
     }
 
@@ -1285,7 +1266,10 @@ content = "Version {revnumber}{delimiter}{revdate}"
 
         let contract: StyleContract = toml::from_str(toml_str).unwrap();
 
-        assert_eq!(contract.meta.template, Some("open_template.dotx".to_string()));
+        assert_eq!(
+            contract.meta.template,
+            Some("open_template.dotx".to_string())
+        );
         assert!(contract.cover.is_some());
 
         let cover = contract.cover.unwrap();
@@ -1294,6 +1278,9 @@ content = "Version {revnumber}{delimiter}{revdate}"
         assert!(cover.title.bold);
         assert_eq!(cover.subtitle.top, "45%");
         assert_eq!(cover.authors.content, Some("{author}".to_string()));
-        assert_eq!(cover.revision.content, "Version {revnumber}{delimiter}{revdate}");
+        assert_eq!(
+            cover.revision.content,
+            "Version {revnumber}{delimiter}{revdate}"
+        );
     }
 }

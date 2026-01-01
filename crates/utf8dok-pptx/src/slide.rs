@@ -364,8 +364,8 @@ impl AdmonitionType {
     /// Get a suggested color for this admonition type (hex RGB)
     pub fn suggested_color(&self) -> &'static str {
         match self {
-            Self::Note => "3B82F6",     // Blue
-            Self::Tip => "22C55E",      // Green
+            Self::Note => "3B82F6",      // Blue
+            Self::Tip => "22C55E",       // Green
             Self::Important => "8B5CF6", // Purple
             Self::Warning => "F59E0B",   // Amber
             Self::Caution => "EF4444",   // Red
@@ -500,10 +500,7 @@ mod tests {
 
         assert_eq!(slide.number, 1);
         assert_eq!(slide.title, Some("Welcome".to_string()));
-        assert_eq!(
-            slide.subtitle,
-            Some("Introduction to utf8dok".to_string())
-        );
+        assert_eq!(slide.subtitle, Some("Introduction to utf8dok".to_string()));
         assert!(slide.is_title_slide());
     }
 
@@ -550,8 +547,7 @@ mod tests {
 
     #[test]
     fn test_code_content() {
-        let code = CodeContent::new("fn main() {}")
-            .with_language("rust");
+        let code = CodeContent::new("fn main() {}").with_language("rust");
 
         assert_eq!(code.source, "fn main() {}");
         assert_eq!(code.language, Some("rust".to_string()));

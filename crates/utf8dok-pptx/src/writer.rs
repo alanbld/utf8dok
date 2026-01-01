@@ -109,8 +109,8 @@ impl PptxWriter {
         let cursor = Cursor::new(buffer);
         let mut zip = ZipWriter::new(cursor);
 
-        let options = SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated);
+        let options =
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
         // Write [Content_Types].xml
         self.write_content_types(&mut zip, options)?;
@@ -1152,19 +1152,21 @@ mod tests {
 
     #[test]
     fn test_generate_with_slides() {
-        let mut writer = PptxWriter::default()
-            .with_title("Test Presentation");
+        let mut writer = PptxWriter::default().with_title("Test Presentation");
 
-        writer.add_slide(Slide::title_slide(1, "Welcome", Some("To the presentation".to_string())));
-        writer.add_slide(
-            Slide::content_slide(2, "Overview")
-                .with_content(SlideContent::BulletList(ListContent {
-                    items: vec![
-                        ListItem::simple("First point"),
-                        ListItem::simple("Second point"),
-                    ],
-                })),
-        );
+        writer.add_slide(Slide::title_slide(
+            1,
+            "Welcome",
+            Some("To the presentation".to_string()),
+        ));
+        writer.add_slide(Slide::content_slide(2, "Overview").with_content(
+            SlideContent::BulletList(ListContent {
+                items: vec![
+                    ListItem::simple("First point"),
+                    ListItem::simple("Second point"),
+                ],
+            }),
+        ));
 
         let result = writer.generate();
         assert!(result.is_ok());
@@ -1217,10 +1219,14 @@ mod tests {
     fn test_layout_selection() {
         let writer = PptxWriter::default();
 
-        let idx = writer.layout_mapping.get_layout_for_hint(SlideLayoutHint::Title);
+        let idx = writer
+            .layout_mapping
+            .get_layout_for_hint(SlideLayoutHint::Title);
         assert_eq!(idx, 1);
 
-        let idx = writer.layout_mapping.get_layout_for_hint(SlideLayoutHint::Content);
+        let idx = writer
+            .layout_mapping
+            .get_layout_for_hint(SlideLayoutHint::Content);
         assert_eq!(idx, 2);
     }
 }

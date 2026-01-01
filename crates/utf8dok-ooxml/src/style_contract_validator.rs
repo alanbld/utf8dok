@@ -464,7 +464,10 @@ impl StyleContractValidator {
         }
         let canonical_bookmark: HashMap<&str, &str> = semantic_to_bookmarks
             .iter()
-            .map(|(sem_id, bookmarks)| (*sem_id, *bookmarks.iter().min().unwrap()))
+            .filter_map(|(sem_id, bookmarks)| {
+                // bookmarks is never empty because we only insert when pushing
+                bookmarks.iter().min().map(|b| (*sem_id, *b))
+            })
             .collect();
 
         // Property: ∀ anchor: get_word_bookmark(get_semantic_anchor(anchor)) == canonical(anchor)
@@ -613,7 +616,9 @@ mod tests {
     #[test]
     fn test_valid_semantic_id() {
         assert!(StyleContractValidator::is_valid_semantic_id("introduction"));
-        assert!(StyleContractValidator::is_valid_semantic_id("purpose-and-scope"));
+        assert!(StyleContractValidator::is_valid_semantic_id(
+            "purpose-and-scope"
+        ));
         assert!(StyleContractValidator::is_valid_semantic_id("section-1"));
         assert!(StyleContractValidator::is_valid_semantic_id("a"));
         assert!(StyleContractValidator::is_valid_semantic_id("1-overview"));
@@ -621,7 +626,9 @@ mod tests {
         assert!(!StyleContractValidator::is_valid_semantic_id(""));
         assert!(!StyleContractValidator::is_valid_semantic_id("-invalid"));
         assert!(!StyleContractValidator::is_valid_semantic_id("UPPERCASE"));
-        assert!(!StyleContractValidator::is_valid_semantic_id("has_underscore"));
+        assert!(!StyleContractValidator::is_valid_semantic_id(
+            "has_underscore"
+        ));
         assert!(!StyleContractValidator::is_valid_semantic_id("has space"));
     }
 
@@ -634,7 +641,9 @@ mod tests {
 
         assert!(!StyleContractValidator::is_valid_xml_ncname(""));
         assert!(!StyleContractValidator::is_valid_xml_ncname("123start"));
-        assert!(!StyleContractValidator::is_valid_xml_ncname("-hyphen-start"));
+        assert!(!StyleContractValidator::is_valid_xml_ncname(
+            "-hyphen-start"
+        ));
         assert!(!StyleContractValidator::is_valid_xml_ncname("has space"));
     }
 
@@ -652,9 +661,7 @@ mod tests {
 
         let result = StyleContractValidator::validate_schema(&contract);
         assert!(result.has_errors());
-        assert!(result.errors()[0]
-            .message
-            .contains("out of range"));
+        assert!(result.errors()[0].message.contains("out of range"));
     }
 
     #[test]
