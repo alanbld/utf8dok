@@ -2,9 +2,11 @@
 //!
 //! This module contains adapters for various data sources (Excel, CSV, etc.)
 
+pub mod csv;
 pub mod excel;
 
-pub use excel::ExcelSource;
+pub use csv::{CsvOptions, CsvSource};
+pub use excel::{CellFormatOptions, ExcelSource, RangeSpec};
 
 use crate::error::Result;
 
