@@ -3,7 +3,7 @@
 > This file tracks the 90-day roadmap for post-PPTX development.
 > **Last Updated:** 2026-01-01
 
-## Current Phase: 24 - Data Engine (Week 1)
+## Current Phase: 24 - Data Engine (Week 2)
 
 ## Completed Phases
 
@@ -13,19 +13,30 @@
 | 20 | Workspace Intelligence | ✅ Complete | 2025 |
 | 22 | PPTX Generation Crate | ✅ Complete | 2025-12 |
 | 23 | Presentation Bridge | ✅ Complete | 2026-01-01 |
+| 24.1 | Data Engine (Week 1) | ✅ Complete | 2026-01-01 |
 
 ## In Progress
 
-### Phase 24: Data Engine - Week 1
-**Goal:** Implement `utf8dok-data` with `calamine` integration
+### Phase 24: Data Engine - Week 2
+**Goal:** Range parsing refinement, cell type handling, error recovery
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Create utf8dok-data crate | ⬜ Pending | |
-| Define DataSource trait | ⬜ Pending | |
-| Implement ExcelSource | ⬜ Pending | calamine wrapper |
-| Implement TableConverter | ⬜ Pending | Range → AST Table |
-| Integration tests | ⬜ Pending | tests/fixtures/simple.xlsx |
+| Extended range syntax | ⬜ Pending | Named ranges, full column (A:A) |
+| Date/time formatting | ⬜ Pending | Excel serial dates → ISO strings |
+| Formula result extraction | ⬜ Pending | Read calculated values |
+| CSV data source | ⬜ Pending | Alternative to Excel |
+| Error recovery | ⬜ Pending | Graceful handling of corrupt cells |
+
+### Week 1 Completed ✅
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Create utf8dok-data crate | ✅ Done | Commit 034882a |
+| Define DataSource trait | ✅ Done | sources/mod.rs |
+| Implement ExcelSource | ✅ Done | calamine 0.32 wrapper |
+| Implement TableConverter | ✅ Done | Range → AST Table |
+| Integration tests | ✅ Done | 24 tests (14 unit + 10 integration) |
 
 ## 90-Day Schedule
 
@@ -56,7 +67,7 @@
 
 ## Checkpoints
 
-- [ ] **Checkpoint 1 (Week 1):** `cargo test -p utf8dok-data` passes
+- [x] **Checkpoint 1 (Week 1):** `cargo test -p utf8dok-data` passes ✅ 24 tests
 - [ ] **Checkpoint 2 (Week 4):** `include::file.xlsx[...]` works in CLI
 - [ ] **Checkpoint 3 (Week 8):** `utf8dok publish --target confluence` works
 - [ ] **Checkpoint 4 (Week 12):** `utf8dok render --format pdf` works
