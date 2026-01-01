@@ -47,3 +47,7 @@ test_llm_output.adoc
 # Local documentation
 SYSTEM_INSTRUCTIONS.md
 VOYAGER_GUIDE.md
+demo/analysis/
+demo/roundtrip_test/
+demo/open_template/
+*.pdf
