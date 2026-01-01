@@ -3,7 +3,7 @@
 > This file tracks the 90-day roadmap for post-PPTX development.
 > **Last Updated:** 2026-01-01
 
-## Current Phase: 25 - Publishing Engine (Week 1)
+## Current Phase: 25 - PDF Engine (Week 1)
 
 ## Completed Phases
 
@@ -17,16 +17,16 @@
 
 ## In Progress
 
-### Phase 25: Publishing Engine - Week 1
-**Goal:** Create utf8dok-publish crate with target abstraction
+### Phase 25: PDF Engine - Week 1
+**Goal:** Evaluate PDF backends and create utf8dok-pdf crate
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Create utf8dok-publish crate | ⬜ Pending | Workspace addition |
-| Define PublishTarget trait | ⬜ Pending | Abstract publish interface |
-| Confluence Storage Format | ⬜ Pending | XHTML generation |
-| SharePoint integration | ⬜ Pending | Graph API setup |
-| Basic authentication | ⬜ Pending | OAuth/token support |
+| Evaluate Typst vs printpdf | ⬜ Pending | Compare approaches |
+| Create utf8dok-pdf crate | ⬜ Pending | Workspace addition |
+| Define PdfRenderer trait | ⬜ Pending | Abstract render interface |
+| Basic document rendering | ⬜ Pending | Headings, paragraphs |
+| Font handling | ⬜ Pending | Embed or system fonts |
 
 ### Phase 24: Data Engine - Complete ✅
 
@@ -75,17 +75,17 @@
 - **Week 3:** Include directive integration in parser
 - **Week 4:** CLI integration, documentation, testing
 
-### Month 2: Publishing Engine (Weeks 5-8)
-- **Week 5:** `utf8dok-publish` crate, target abstraction
-- **Week 6:** Confluence Storage Format generator
-- **Week 7:** SharePoint/Graph API integration
-- **Week 8:** Authentication, incremental updates
+### Month 2: PDF Engine (Weeks 5-8)
+- **Week 5:** `utf8dok-pdf` crate, Typst evaluation, basic structure
+- **Week 6:** Headings, paragraphs, text formatting
+- **Week 7:** Tables, images, code blocks
+- **Week 8:** Themes, ToC, CLI integration
 
-### Month 3: PDF Engine (Weeks 9-12)
-- **Week 9:** `utf8dok-pdf` crate, Typst evaluation
-- **Week 10:** Basic document rendering
-- **Week 11:** Tables, images, code blocks
-- **Week 12:** Themes, ToC, polish
+### Month 3: DOCX Polish (Weeks 9-12)
+- **Week 9:** Cover images, title page improvements
+- **Week 10:** Table styling (borders, shading, alignment)
+- **Week 11:** Diagram embedding in DOCX
+- **Week 12:** Template refinement, final polish
 
 ## Architecture Decisions
 
@@ -98,8 +98,8 @@
 
 - [x] **Checkpoint 1 (Week 1):** `cargo test -p utf8dok-data` passes ✅ 24 tests
 - [x] **Checkpoint 2 (Week 4):** `include::file.xlsx[...]` works in CLI ✅ 53 tests
-- [ ] **Checkpoint 3 (Week 8):** `utf8dok publish --target confluence` works
-- [ ] **Checkpoint 4 (Week 12):** `utf8dok render --format pdf` works
+- [ ] **Checkpoint 3 (Week 8):** `utf8dok render --format pdf` works
+- [ ] **Checkpoint 4 (Week 12):** DOCX polish (cover images, table styling, diagrams)
 
 ## Session Handoff Notes
 
