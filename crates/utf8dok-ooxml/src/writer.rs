@@ -1146,6 +1146,29 @@ impl DocxWriter {
             Block::Break(break_type) => self.generate_break(break_type),
             Block::Literal(literal) => self.generate_literal(literal),
             Block::Admonition(admon) => self.generate_admonition(admon),
+            Block::Open(open) => {
+                // Render open block contents (e.g., [slides], [example])
+                for inner in &open.blocks {
+                    self.generate_block(inner);
+                }
+            }
+            Block::Sidebar(sidebar) => {
+                // Render sidebar as a styled paragraph block
+                for inner in &sidebar.blocks {
+                    self.generate_block(inner);
+                }
+            }
+            Block::Quote(quote) => {
+                // Render quote block contents
+                for inner in &quote.blocks {
+                    self.generate_block(inner);
+                }
+            }
+            Block::ThematicBreak => {
+                // Render as a horizontal rule / page break
+                self.output
+                    .push_str("<w:p><w:pPr><w:pBdr><w:bottom w:val=\"single\" w:sz=\"6\" w:space=\"1\" w:color=\"auto\"/></w:pBdr></w:pPr></w:p>\n");
+            }
         }
     }
 

@@ -29,6 +29,7 @@
 //! ```
 
 pub mod error;
+pub mod extractor;
 pub mod layout;
 pub mod slide;
 pub mod slide_contract;
@@ -37,6 +38,7 @@ pub mod writer;
 
 // Re-exports
 pub use error::{PptxError, Result};
+pub use extractor::{Deck, ExtractorConfig, SlideExtractor};
 pub use layout::{LayoutMapping, SlideLayout};
 pub use slide::{Slide, SlideContent, SpeakerNotes};
 pub use slide_contract::SlideContract;

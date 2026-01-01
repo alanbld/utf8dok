@@ -38,4 +38,4 @@ pub use app::{
     audit_command, check_command, dashboard_command, dual_nature_command, extract_command,
     render_command,
 };
-pub use app::{run_cli, AuditFormat, DualNatureTargetFormat, OutputFormat};
+pub use app::{run_cli, AuditFormat, DualNatureTargetFormat, OutputFormat, RenderFormat};

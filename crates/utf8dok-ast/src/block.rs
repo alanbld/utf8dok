@@ -26,6 +26,16 @@ pub enum Block {
     Literal(LiteralBlock),
     /// A page or section break
     Break(BreakType),
+    /// An open block (delimited with `--` or `====`)
+    /// Used for `[slides]`, `[example]`, `[quote]`, etc.
+    Open(OpenBlock),
+    /// A sidebar block (delimited with `****`)
+    /// Used for speaker notes in presentations
+    Sidebar(Sidebar),
+    /// A quote block
+    Quote(QuoteBlock),
+    /// A thematic break / horizontal rule (`---`)
+    ThematicBreak,
 }
 
 /// A paragraph block
@@ -178,6 +188,82 @@ pub enum BreakType {
     Page,
     /// Section break
     Section,
+}
+
+/// An open block - a generic container with a role/style
+/// Delimited with `--` or `====` in AsciiDoc
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct OpenBlock {
+    /// The role/style of the block (e.g., "slides", "example", "abstract")
+    pub role: Option<String>,
+    /// Optional title for the block
+    pub title: Option<String>,
+    /// Nested blocks within the open block
+    pub blocks: Vec<Block>,
+    /// Additional attributes
+    pub attributes: HashMap<String, String>,
+}
+
+impl OpenBlock {
+    /// Create an open block with a role
+    pub fn with_role(role: impl Into<String>) -> Self {
+        Self {
+            role: Some(role.into()),
+            ..Default::default()
+        }
+    }
+
+    /// Check if this is a slides block
+    pub fn is_slides(&self) -> bool {
+        self.role.as_deref() == Some("slides")
+    }
+}
+
+/// A sidebar block - typically used for speaker notes in presentations
+/// Delimited with `****` in AsciiDoc
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct Sidebar {
+    /// Optional title (often ".Notes" for speaker notes)
+    pub title: Option<String>,
+    /// Content blocks within the sidebar
+    pub blocks: Vec<Block>,
+}
+
+impl Sidebar {
+    /// Check if this sidebar is marked as speaker notes
+    pub fn is_notes(&self) -> bool {
+        self.title
+            .as_ref()
+            .map(|t| t.eq_ignore_ascii_case("notes") || t.eq_ignore_ascii_case(".notes"))
+            .unwrap_or(false)
+    }
+
+    /// Get the text content of the sidebar (flattened)
+    pub fn as_text(&self) -> String {
+        let mut text = String::new();
+        for block in &self.blocks {
+            if let Block::Paragraph(p) = block {
+                for inline in &p.inlines {
+                    if let crate::inline::Inline::Text(t) = inline {
+                        text.push_str(t);
+                    }
+                }
+                text.push('\n');
+            }
+        }
+        text.trim().to_string()
+    }
+}
+
+/// A quote/blockquote block
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct QuoteBlock {
+    /// The quoted content
+    pub blocks: Vec<Block>,
+    /// Attribution (author)
+    pub attribution: Option<String>,
+    /// Citation source
+    pub cite: Option<String>,
 }
 
 impl Default for Heading {

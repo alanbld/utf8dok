@@ -109,6 +109,10 @@ impl AsciiDocGenerator {
             Block::Admonition(a) => self.generate_admonition(a),
             Block::Literal(l) => self.generate_literal(l),
             Block::Break(b) => self.generate_break(b),
+            Block::Open(open) => self.generate_open_block(open),
+            Block::Sidebar(sidebar) => self.generate_sidebar(sidebar),
+            Block::Quote(quote) => self.generate_quote(quote),
+            Block::ThematicBreak => self.generate_thematic_break(),
         }
     }
 
@@ -354,6 +358,62 @@ impl AsciiDocGenerator {
             BreakType::Page => writeln!(self.output, "<<<").unwrap(),
             BreakType::Section => writeln!(self.output, "'''").unwrap(),
         }
+    }
+
+    /// Generate an open block
+    fn generate_open_block(&mut self, open: &utf8dok_ast::OpenBlock) {
+        // Role attribute
+        if let Some(ref role) = open.role {
+            writeln!(self.output, "[{}]", role).unwrap();
+        }
+
+        // Optional title
+        if let Some(ref title) = open.title {
+            writeln!(self.output, ".{}", title).unwrap();
+        }
+
+        writeln!(self.output, "--").unwrap();
+        for block in &open.blocks {
+            self.generate_block(block);
+        }
+        writeln!(self.output, "--").unwrap();
+    }
+
+    /// Generate a sidebar block
+    fn generate_sidebar(&mut self, sidebar: &utf8dok_ast::Sidebar) {
+        // Optional title (e.g., .Notes for speaker notes)
+        if let Some(ref title) = sidebar.title {
+            writeln!(self.output, ".{}", title).unwrap();
+        }
+
+        writeln!(self.output, "****").unwrap();
+        for block in &sidebar.blocks {
+            self.generate_block(block);
+        }
+        writeln!(self.output, "****").unwrap();
+    }
+
+    /// Generate a quote block
+    fn generate_quote(&mut self, quote: &utf8dok_ast::QuoteBlock) {
+        write!(self.output, "[quote").unwrap();
+        if let Some(ref attribution) = quote.attribution {
+            write!(self.output, ", {}", attribution).unwrap();
+        }
+        if let Some(ref cite) = quote.cite {
+            write!(self.output, ", {}", cite).unwrap();
+        }
+        writeln!(self.output, "]").unwrap();
+
+        writeln!(self.output, "____").unwrap();
+        for block in &quote.blocks {
+            self.generate_block(block);
+        }
+        writeln!(self.output, "____").unwrap();
+    }
+
+    /// Generate a thematic break
+    fn generate_thematic_break(&mut self) {
+        writeln!(self.output, "'''").unwrap();
     }
 }
 

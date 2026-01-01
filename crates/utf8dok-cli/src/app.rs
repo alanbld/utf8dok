@@ -23,6 +23,7 @@ use utf8dok_ooxml::{
     AsciiDocExtractor, DocxWriter, OoxmlArchive, SourceOrigin, StyleSheet, Template,
 };
 use utf8dok_plugins::PluginEngine;
+use utf8dok_pptx::{PotxTemplate, PptxWriter, SlideExtractor};
 use utf8dok_validate::ValidationEngine;
 
 /// Output format for diagnostics
@@ -57,6 +58,16 @@ pub enum DualNatureTargetFormat {
     Document,
     /// Show both views side by side
     Both,
+}
+
+/// Output format for render command
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+pub enum RenderFormat {
+    /// Microsoft Word document (.docx)
+    #[default]
+    Docx,
+    /// PowerPoint presentation (.pptx)
+    Pptx,
 }
 
 #[derive(Parser)]
@@ -103,20 +114,24 @@ enum Commands {
         force_parse: bool,
     },
 
-    /// Render AsciiDoc to DOCX using a template (coming soon)
+    /// Render AsciiDoc to DOCX or PPTX
     Render {
         /// Input AsciiDoc file
         input: PathBuf,
 
-        /// Output DOCX file
+        /// Output file (default: input with .docx or .pptx extension)
         #[arg(short, long)]
         output: Option<PathBuf>,
 
-        /// Template DOTX file
+        /// Output format: docx or pptx
+        #[arg(short, long, value_enum, default_value = "docx")]
+        format: RenderFormat,
+
+        /// Template file (DOTX for DOCX, POTX for PPTX)
         #[arg(short, long)]
         template: Option<PathBuf>,
 
-        /// Cover image file (PNG, JPG) for title page
+        /// Cover image file (PNG, JPG) for title page (DOCX only)
         #[arg(long)]
         cover: Option<PathBuf>,
     },
@@ -209,10 +224,11 @@ pub fn run_cli() -> Result<()> {
         Commands::Render {
             input,
             output,
+            format,
             template,
             cover,
         } => {
-            render_command(&input, output.as_deref(), template.as_deref(), cover.as_deref())?;
+            render_command(&input, output.as_deref(), format, template.as_deref(), cover.as_deref())?;
         }
         Commands::Check {
             input,
@@ -658,6 +674,7 @@ fn generate_config_toml(styles: &StyleSheet, input: &std::path::Path) -> String 
 pub fn render_command(
     input: &std::path::Path,
     output: Option<&std::path::Path>,
+    format: RenderFormat,
     template: Option<&std::path::Path>,
     cover: Option<&std::path::Path>,
 ) -> Result<()> {
@@ -668,6 +685,21 @@ pub fn render_command(
     if !input.exists() {
         anyhow::bail!("Input file not found: {}", input.display());
     }
+
+    match format {
+        RenderFormat::Docx => render_docx(input, output, template, cover),
+        RenderFormat::Pptx => render_pptx(input, output, template),
+    }
+}
+
+/// Render AsciiDoc to DOCX
+fn render_docx(
+    input: &std::path::Path,
+    output: Option<&std::path::Path>,
+    template: Option<&std::path::Path>,
+    cover: Option<&std::path::Path>,
+) -> Result<()> {
+    println!("  Format: DOCX");
 
     // Determine output path (default: input with .docx extension)
     let output_path = match output {
@@ -766,6 +798,78 @@ pub fn render_command(
     println!("  Output: {}", output_path.display());
     println!("  Size: {} bytes", docx_bytes.len());
     println!("  Self-contained: yes (source + config embedded)");
+
+    Ok(())
+}
+
+/// Render AsciiDoc to PPTX
+fn render_pptx(
+    input: &std::path::Path,
+    output: Option<&std::path::Path>,
+    template: Option<&std::path::Path>,
+) -> Result<()> {
+    println!("  Format: PPTX");
+
+    // Determine output path (default: input with .pptx extension)
+    let output_path = match output {
+        Some(p) => p.to_path_buf(),
+        None => input.with_extension("pptx"),
+    };
+
+    // Step 1: Read input AsciiDoc file
+    println!("  Reading: {}", input.display());
+    let source_content = fs::read_to_string(input)
+        .with_context(|| format!("Failed to read input file: {}", input.display()))?;
+
+    // Step 2: Parse AsciiDoc to AST
+    println!("  Parsing AsciiDoc...");
+    let ast = parse(&source_content).context("Failed to parse AsciiDoc content")?;
+    println!("    {} blocks parsed", ast.blocks.len());
+
+    // Step 3: Extract slides from AST using SlideExtractor
+    println!("  Extracting slides...");
+    let deck = SlideExtractor::extract(&ast);
+    println!("    {} slides extracted", deck.slides.len());
+
+    // Step 4: Create PPTX writer with title from deck
+    let mut writer = if let Some(ref title) = deck.title {
+        PptxWriter::default().with_title(title)
+    } else {
+        PptxWriter::default()
+    };
+
+    // Step 5: Load template if specified
+    if let Some(template_path) = template {
+        if template_path.exists() {
+            println!("  Loading template: {}", template_path.display());
+            let potx = PotxTemplate::from_file(template_path)
+                .with_context(|| format!("Failed to parse template: {}", template_path.display()))?;
+            writer = writer.with_template(potx);
+        } else {
+            eprintln!("  Warning: Template not found: {}", template_path.display());
+            eprintln!("  Continuing without template...");
+        }
+    }
+
+    // Step 6: Add slides from deck to writer
+    writer.add_slides(deck.slides.clone());
+
+    // Step 7: Generate PPTX
+    println!("  Generating PPTX...");
+    let pptx_bytes = writer
+        .generate()
+        .context("Failed to generate PPTX from slides")?;
+
+    // Step 8: Write output
+    println!("  Writing: {}", output_path.display());
+    fs::write(&output_path, &pptx_bytes)
+        .with_context(|| format!("Failed to write output file: {}", output_path.display()))?;
+
+    println!();
+    println!("Render complete!");
+    println!("  Output: {}", output_path.display());
+    println!("  Size: {} bytes", pptx_bytes.len());
+    println!("  Slides: {}", deck.slides.len());
 
     Ok(())
 }
@@ -1418,13 +1522,75 @@ mod tests {
             Commands::Render {
                 input,
                 output,
+                format,
                 template,
                 cover,
             } => {
                 assert_eq!(input, PathBuf::from("doc.adoc"));
                 assert_eq!(output, Some(PathBuf::from("out.docx")));
+                assert!(matches!(format, RenderFormat::Docx)); // default
                 assert_eq!(template, Some(PathBuf::from("tmpl.dotx")));
                 assert_eq!(cover, None);
+            }
+            _ => panic!("Expected Render command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_render_pptx() {
+        let args = vec![
+            "utf8dok",
+            "render",
+            "slides.adoc",
+            "--format",
+            "pptx",
+            "--output",
+            "slides.pptx",
+        ];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Commands::Render {
+                input,
+                output,
+                format,
+                template,
+                cover: _,
+            } => {
+                assert_eq!(input, PathBuf::from("slides.adoc"));
+                assert_eq!(output, Some(PathBuf::from("slides.pptx")));
+                assert!(matches!(format, RenderFormat::Pptx));
+                assert_eq!(template, None);
+            }
+            _ => panic!("Expected Render command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_render_pptx_with_template() {
+        let args = vec![
+            "utf8dok",
+            "render",
+            "slides.adoc",
+            "--format",
+            "pptx",
+            "--template",
+            "corporate.potx",
+        ];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Commands::Render {
+                input,
+                output,
+                format,
+                template,
+                cover: _,
+            } => {
+                assert_eq!(input, PathBuf::from("slides.adoc"));
+                assert_eq!(output, None);
+                assert!(matches!(format, RenderFormat::Pptx));
+                assert_eq!(template, Some(PathBuf::from("corporate.potx")));
             }
             _ => panic!("Expected Render command"),
         }

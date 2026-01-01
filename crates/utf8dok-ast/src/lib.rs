@@ -32,7 +32,7 @@ pub mod intent;
 // Re-export key types for convenience
 pub use block::{
     Admonition, AdmonitionType, Alignment, Block, BreakType, ColumnSpec, Heading, List, ListItem,
-    ListType, LiteralBlock, Paragraph, Table, TableCell, TableRow,
+    ListType, LiteralBlock, OpenBlock, Paragraph, QuoteBlock, Sidebar, Table, TableCell, TableRow,
 };
 pub use document::{Document, DocumentMeta};
 pub use inline::{FormatType, Image, Inline, Link};
