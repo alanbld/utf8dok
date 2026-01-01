@@ -3,7 +3,7 @@
 > This file tracks the 90-day roadmap for post-PPTX development.
 > **Last Updated:** 2026-01-01
 
-## Current Phase: 24 - Data Engine (Week 4)
+## Current Phase: 25 - Publishing Engine (Week 1)
 
 ## Completed Phases
 
@@ -13,22 +13,29 @@
 | 20 | Workspace Intelligence | ✅ Complete | 2025 |
 | 22 | PPTX Generation Crate | ✅ Complete | 2025-12 |
 | 23 | Presentation Bridge | ✅ Complete | 2026-01-01 |
-| 24.1 | Data Engine (Week 1) | ✅ Complete | 2026-01-01 |
-| 24.2 | Data Engine (Week 2) | ✅ Complete | 2026-01-01 |
-| 24.3 | Data Engine (Week 3) | ✅ Complete | 2026-01-01 |
+| 24 | Data Engine (Month 1) | ✅ Complete | 2026-01-01 |
 
 ## In Progress
 
-### Phase 24: Data Engine - Week 4
-**Goal:** CLI integration, documentation, testing
+### Phase 25: Publishing Engine - Week 1
+**Goal:** Create utf8dok-publish crate with target abstraction
 
 | Task | Status | Notes |
 |------|--------|-------|
-| CLI render --include-data flag | ⬜ Pending | Enable data includes |
-| CLI extract data sources | ⬜ Pending | Show include directives |
-| Documentation (README, examples) | ⬜ Pending | User guide for data includes |
-| Edge case testing | ⬜ Pending | Large files, unicode, errors |
-| Performance benchmarks | ⬜ Pending | Large Excel files |
+| Create utf8dok-publish crate | ⬜ Pending | Workspace addition |
+| Define PublishTarget trait | ⬜ Pending | Abstract publish interface |
+| Confluence Storage Format | ⬜ Pending | XHTML generation |
+| SharePoint integration | ⬜ Pending | Graph API setup |
+| Basic authentication | ⬜ Pending | OAuth/token support |
+
+### Phase 24: Data Engine - Complete ✅
+
+| Week | Tasks | Status |
+|------|-------|--------|
+| Week 1 | Core crate, ExcelSource, TableConverter | ✅ Done |
+| Week 2 | Extended range syntax, CSV, date handling | ✅ Done |
+| Week 3 | Include directive integration in parser | ✅ Done |
+| Week 4 | CLI integration, documentation, testing | ✅ Done |
 
 ### Week 3 Completed ✅
 
@@ -90,7 +97,7 @@
 ## Checkpoints
 
 - [x] **Checkpoint 1 (Week 1):** `cargo test -p utf8dok-data` passes ✅ 24 tests
-- [ ] **Checkpoint 2 (Week 4):** `include::file.xlsx[...]` works in CLI
+- [x] **Checkpoint 2 (Week 4):** `include::file.xlsx[...]` works in CLI ✅ 53 tests
 - [ ] **Checkpoint 3 (Week 8):** `utf8dok publish --target confluence` works
 - [ ] **Checkpoint 4 (Week 12):** `utf8dok render --format pdf` works
 
