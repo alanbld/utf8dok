@@ -51,6 +51,8 @@ utf8dok/
 │   ├── utf8dok-cli/       # Command-line interface (clap)
 │   ├── utf8dok-wasm/      # WebAssembly bindings
 │   ├── utf8dok-ooxml/     # OOXML (.docx/.dotx) reading/writing
+│   ├── utf8dok-pptx/      # PowerPoint generation (Dual-Nature)
+│   ├── utf8dok-data/      # Data sources (Excel/XLSX) [In Progress]
 │   ├── utf8dok-diagrams/  # Diagram rendering (Kroki, Mermaid, native)
 │   ├── utf8dok-validate/  # Document validation engine
 │   ├── utf8dok-plugins/   # Rhai plugin system
@@ -59,6 +61,8 @@ utf8dok/
 │   ├── decisions/adr/     # Architecture Decision Records
 │   ├── roadmap/           # Product vision & launch strategy
 │   └── TECHNICAL_SPEC.md  # Detailed design
+├── demo/                  # Demo documents and templates
+├── ROADMAP_SCHEDULE.md    # 90-day development roadmap
 └── Cargo.toml             # Workspace manifest
 ```
 
@@ -157,17 +161,35 @@ The project aims to pass the Eclipse AsciiDoc TCK. Development follows a TCK-fir
 
 ## Current Implementation Status
 
+> **See `ROADMAP_SCHEDULE.md` for detailed 90-day roadmap and checkpoint tracking.**
+
 ### Completed
 - Phase 0: Compiler Foundation (AsciiDoc → IR)
-- Phase 1: Core Validation (native validators)
-- Phase 2: LLM Integration (`--llm-check`)
-- Phase 3: Rhai Plugin System
-- Phase 3.5: Diagnostic-Only LSP
-- Tier 1 & 2: Diagram engines (Kroki, native Mermaid)
+- Phase 1-13: Core Validation, LSP, Compliance Platform
+- Phase 20: Workspace Intelligence
+- Phase 22: PPTX Generation Crate (`utf8dok-pptx`)
+- Phase 23: Presentation Bridge (Dual-Nature Documents)
+- OOXML template injection with cover page support
+- Round-trip editing (embedded source in DOCX)
 
 ### In Progress
-- OOXML template injection
-- Round-trip editing support
+- **Phase 24: Data Engine** (`utf8dok-data`) - Excel/XLSX integration
+
+### Upcoming (90-Day Roadmap)
+- Month 1: Data Engine - `include::file.xlsx[range=A1:C10]`
+- Month 2: Publishing Engine - Confluence/SharePoint integration
+- Month 3: PDF Engine - Native PDF generation
+
+### Key CLI Commands
+```bash
+# Render to DOCX (default)
+utf8dok render doc.adoc --output doc.docx
+
+# Render to PPTX (Dual-Nature)
+utf8dok render slides.adoc --format pptx --output presentation.pptx
+
+# Coming soon: Excel includes, PDF output, publishing
+```
 
 ## Code Coverage Convention ("rosebud")
 

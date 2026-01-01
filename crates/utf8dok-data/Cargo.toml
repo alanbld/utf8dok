@@ -1,0 +1,18 @@
+[package]
+name = "utf8dok-data"
+description = "Data source integration for utf8dok (Excel/XLSX)"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["asciidoc", "excel", "xlsx", "data"]
+categories = ["text-processing"]
+
+[dependencies]
+utf8dok-ast = { path = "../utf8dok-ast" }
+calamine = "0.32"
+thiserror = "1.0"
+
+[dev-dependencies]
+tempfile = "3.14"
