@@ -516,6 +516,192 @@ utf8dok render document.adoc --cover cover.png --output out.docx
 utf8dok render document.adoc --no-cover --output out.docx
 ----
 
+== PPTX Generation (Presentations)
+
+utf8dok supports generating PowerPoint presentations (PPTX) from AsciiDoc sources, using the same template-injection approach as DOCX. This enables "single source" workflows where documentation and presentations share content.
+
+NOTE: PPTX generation is in development (Phase 1). Basic slide generation works; advanced features are coming.
+
+=== Document Modes
+
+==== Presentation Mode
+
+For dedicated presentation documents:
+
+[source,asciidoc]
+----
+= Quarterly Review
+:doctype: slides
+:slides:
+Author Name
+
+== Introduction
+Opening remarks
+
+== Key Metrics
+* Revenue: +15%
+* Users: 1.2M
+* Satisfaction: 94%
+----
+
+==== Dual-Nature Mode
+
+Embed presentations within documentation using `[slides]` blocks:
+
+[source,asciidoc]
+----
+= Technical Specification
+:doctype: book
+
+== Introduction
+Full documentation content here...
+
+[slides]
+--
+== Executive Summary
+Key points for stakeholders
+
+== Architecture Overview
+image::diagrams/architecture.png[]
+--
+
+== Detailed Requirements
+More documentation (DOCX only)...
+----
+
+**Semantics:**
+
+* Content inside `[slides]` blocks → PPTX output
+* Content outside `[slides]` blocks → DOCX only
+* Multiple `[slides]` blocks → Concatenated presentation
+
+=== Slide Syntax
+
+utf8dok uses Asciidoctor Reveal.js compatible syntax:
+
+[cols="1,2,2",options="header"]
+|===
+|Syntax |Slide Type |Description
+
+|`= Title`
+|Title Slide
+|Presentation title (centered, large)
+
+|`== Heading`
+|Content Slide
+|New slide with title
+
+|`=== Subheading`
+|Section/Vertical
+|Sub-slide or section header
+
+|`---`
+|Blank Break
+|Slide break without title
+|===
+
+=== Speaker Notes
+
+Add presenter notes with `[.notes]`:
+
+[source,asciidoc]
+----
+== Key Findings
+
+Our research revealed three insights.
+
+[.notes]
+--
+* Mention the methodology
+* Emphasize sample size (n=1000)
+* This slide: ~2 minutes
+--
+----
+
+=== SlideContract
+
+Like StyleContract for DOCX, SlideContract maps semantic types to PPTX layouts:
+
+[source,toml]
+----
+# slide-contract.toml
+
+[meta]
+template = "corporate.potx"
+locale = "it-IT"
+
+[layouts]
+title = 1      # Title Slide layout
+content = 2    # Title and Content layout
+section = 3    # Section Header layout
+image = 8      # Picture with Caption layout
+
+[notes]
+enabled = true
+font_size = 24
+font_family = "Arial"
+
+[code]
+font_family = "JetBrains Mono"
+background_color = "1E1E1E"
+----
+
+=== CLI Usage
+
+[source,bash]
+----
+# Generate PPTX from presentation document
+utf8dok render presentation.adoc --format pptx --output slides.pptx
+
+# Generate PPTX from dual-nature document
+utf8dok render document.adoc --format pptx --output slides.pptx
+
+# Generate both DOCX and PPTX
+utf8dok render document.adoc --output doc.docx --slides slides.pptx
+
+# Use custom template
+utf8dok render document.adoc --format pptx \
+  --template corporate.potx \
+  --contract slide-contract.toml \
+  --output presentation.pptx
+----
+
+=== Content Mapping
+
+[cols="1,2",options="header"]
+|===
+|AsciiDoc Element |Slide Rendering
+
+|`= Title`
+|Title slide (centered, large)
+
+|`== Heading`
+|Slide title
+
+|Paragraph
+|Body text
+
+|Unordered list (`*`)
+|Bullet points
+
+|Ordered list (`.`)
+|Numbered points
+
+|Image
+|Media placeholder
+
+|Table
+|Table shape
+
+|Code block
+|Monospace code box
+
+|`[.notes]`
+|Speaker notes pane
+|===
+
+For detailed specification, see `architecture/specs/PPTX-GENERATION-SPEC.md`.
+
 == Bidirectional Element Mapping
 
 For lossless round-trips, elements need stable identifiers.
@@ -678,6 +864,18 @@ Key architectural decisions documented as ADRs:
 
 *Rationale*: Italian style names validate locale-independence. Any template with proper StyleContract achieves identical round-trip fidelity.
 
+=== ADR-009: Cover Page Architecture
+
+*Decision*: Configurable cover pages via StyleContract with Asciidoctor PDF attribute compatibility.
+
+*Rationale*: Cover pages should be template-driven, not hardcoded. Aligns with existing `:front-cover-image:` attributes.
+
+=== ADR-010: PPTX Dual-Nature Documents
+
+*Decision*: Support PPTX generation with `[slides]` blocks for dual-nature documents.
+
+*Rationale*: Single-source documentation with embedded presentations eliminates duplication. No existing AsciiDoc → PPTX tool exists.
+
 == CLI Reference
 
 === Core Commands
@@ -790,10 +988,11 @@ rules = ["weasel-words", "passive-voice", "cross-references"]
 * Full LSP implementation
 * Round-trip fidelity improvements
 * StyleContract reverse lookup
+* PPTX generation Phase 1 (basic slides)
 
 === Planned
 
-* PPTX generation (dual-nature documents)
+* PPTX generation Phase 2-3 (dual-nature, images, diagrams)
 * PDF output
 * Confluence integration
 * Full TCK compliance
