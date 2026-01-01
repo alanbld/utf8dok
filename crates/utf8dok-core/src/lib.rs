@@ -36,6 +36,7 @@
 pub mod diagnostics;
 pub mod dual_nature;
 pub mod generator;
+pub mod include;
 pub mod parser;
 
 // Re-export main types and functions
@@ -45,7 +46,8 @@ pub use dual_nature::{
     DualNatureBlock, DualNatureDocument, OutputFormat,
 };
 pub use generator::{generate, generate_with_config, AsciiDocGenerator, GeneratorConfig};
-pub use parser::parse;
+pub use include::{resolve_data_include, IncludeDirective};
+pub use parser::{parse, parse_with_config, ParserConfig};
 
 /// Crate version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

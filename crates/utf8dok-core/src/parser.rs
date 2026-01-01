@@ -37,6 +37,30 @@ use utf8dok_ast::{
     ListType, LiteralBlock, Paragraph, Table, TableCell, TableRow,
 };
 
+use crate::include::{resolve_data_include, IncludeDirective};
+
+/// Configuration for the parser
+#[derive(Debug, Clone, Default)]
+pub struct ParserConfig {
+    /// Base path for resolving relative include paths
+    pub base_path: Option<String>,
+    /// Whether to resolve data includes (Excel, CSV) to tables
+    pub resolve_data_includes: bool,
+    /// Whether to emit warnings for unresolved includes
+    pub warn_unresolved: bool,
+}
+
+impl ParserConfig {
+    /// Create a new parser config with data includes enabled
+    pub fn with_data_includes(base_path: impl Into<String>) -> Self {
+        Self {
+            base_path: Some(base_path.into()),
+            resolve_data_includes: true,
+            warn_unresolved: true,
+        }
+    }
+}
+
 /// Parser state for tracking what kind of block we're currently building
 #[derive(Debug, Clone, PartialEq)]
 enum ParserState {
@@ -69,16 +93,26 @@ struct Parser {
     header_done: bool,
     /// Pending block attributes (e.g., [source,rust], [mermaid])
     pending_attributes: Vec<String>,
+    /// Parser configuration
+    config: ParserConfig,
+    /// Warnings accumulated during parsing
+    warnings: Vec<String>,
 }
 
 impl Parser {
     fn new() -> Self {
+        Self::with_config(ParserConfig::default())
+    }
+
+    fn with_config(config: ParserConfig) -> Self {
         Self {
             metadata: DocumentMeta::default(),
             blocks: Vec::new(),
             state: ParserState::Root,
             header_done: false,
             pending_attributes: Vec::new(),
+            config,
+            warnings: Vec::new(),
         }
     }
 
@@ -301,6 +335,13 @@ impl Parser {
             return;
         }
 
+        // Check for include directive (include::path[attrs])
+        if let Some(block) = self.try_parse_include(line) {
+            self.flush_state();
+            self.blocks.push(block);
+            return;
+        }
+
         // Otherwise, it's paragraph content
         self.handle_paragraph_line(line);
     }
@@ -456,6 +497,65 @@ impl Parser {
             style_id: None,
             attributes: HashMap::new(),
         })
+    }
+
+    /// Try to parse an include directive: include::path[attrs]
+    ///
+    /// For data files (xlsx, csv, tsv), resolves to a Table block.
+    /// For other files, returns a placeholder paragraph (or could be extended).
+    fn try_parse_include(&mut self, line: &str) -> Option<Block> {
+        // Parse the include directive
+        let directive = IncludeDirective::parse(line)?;
+
+        // Only handle data file includes
+        if !directive.is_data_file() {
+            // For non-data includes, we could expand this later
+            // For now, emit a warning and skip
+            if self.config.warn_unresolved {
+                self.warnings
+                    .push(format!("Non-data include not resolved: {}", directive.path));
+            }
+            return None;
+        }
+
+        // Check if we should resolve includes
+        if !self.config.resolve_data_includes {
+            if self.config.warn_unresolved {
+                self.warnings.push(format!(
+                    "Data include not resolved (disabled): {}",
+                    directive.path
+                ));
+            }
+            // Return a placeholder paragraph
+            return Some(Block::Paragraph(Paragraph {
+                inlines: vec![Inline::Text(format!("[Include: {}]", directive.path))],
+                style_id: None,
+                attributes: HashMap::new(),
+            }));
+        }
+
+        // Get base path
+        let base_path = self.config.base_path.as_deref().unwrap_or(".");
+
+        // Resolve the include to a table
+        match resolve_data_include(&directive, base_path) {
+            Ok(table) => Some(Block::Table(table)),
+            Err(err) => {
+                self.warnings.push(format!(
+                    "Failed to resolve include '{}': {}",
+                    directive.path, err
+                ));
+                // Return error placeholder
+                Some(Block::Paragraph(Paragraph {
+                    inlines: vec![Inline::Text(format!(
+                        "[Include error: {} - {}]",
+                        directive.path, err
+                    ))],
+                    style_id: None,
+                    attributes: HashMap::new(),
+                }))
+            }
+        }
     }
 
     /// Handle a list item
@@ -770,6 +870,31 @@ fn parse_inlines(text: &str) -> Vec<Inline> {
 /// Unknown constructs are treated as plain paragraph text.
 pub fn parse(text: &str) -> Result<Document> {
     let parser = Parser::new();
+    parser.parse(text)
+}
+
+/// Parse AsciiDoc text with configuration options
+///
+/// # Arguments
+///
+/// * `text` - The AsciiDoc source text
+/// * `config` - Parser configuration (includes, base path, etc.)
+///
+/// # Returns
+///
+/// * `Ok(Document)` - The parsed document AST
+/// * `Err(anyhow::Error)` - If parsing fails
+///
+/// # Example
+///
+/// ```ignore
+/// use utf8dok_core::{parse_with_config, ParserConfig};
+///
+/// let config = ParserConfig::with_data_includes("./data");
+/// let doc = parse_with_config(input, config)?;
+/// ```
+pub fn parse_with_config(text: &str, config: ParserConfig) -> Result<Document> {
+    let parser = Parser::with_config(config);
     parser.parse(text)
 }
 
