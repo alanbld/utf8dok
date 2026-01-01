@@ -73,7 +73,38 @@ cargo build --release
 | `utf8dok dashboard [dir]` | Generate HTML compliance report |
 | `utf8dok check <file>` | Validate a single file |
 | `utf8dok extract <docx>` | Extract AsciiDoc from DOCX |
-| `utf8dok render <adoc>` | Render AsciiDoc to DOCX |
+| `utf8dok render <adoc>` | Render AsciiDoc to DOCX/PPTX |
+| `utf8dok list-includes <file>` | List data includes in a document |
+
+## Data Includes (Excel/CSV)
+
+Embed data from Excel or CSV files directly in your documents:
+
+```asciidoc
+= Sales Report
+
+== Quarterly Data
+
+include::data/sales.xlsx[sheet=Q1,range=A1:D10,header]
+
+== Regional Breakdown
+
+include::data/regions.csv[header,delimiter=;]
+```
+
+Render with data resolution:
+
+```bash
+utf8dok render report.adoc --data-dir data/
+```
+
+Supported formats: `.xlsx`, `.xls`, `.csv`, `.tsv`
+
+Attributes:
+- `sheet=NAME` - Excel sheet name (defaults to first sheet)
+- `range=A1:D10` - Cell range (supports `A:C`, `1:10`, `*`)
+- `header` - Treat first row as header
+- `delimiter=;` - Field delimiter (CSV only)
 
 ## Configuration
 
@@ -102,6 +133,8 @@ crates/
 ├── utf8dok-lsp/       # Language Server Protocol
 ├── utf8dok-cli/       # Command-line interface
 ├── utf8dok-ooxml/     # DOCX reading/writing
+├── utf8dok-pptx/      # PPTX reading/writing
+├── utf8dok-data/      # Data includes (Excel, CSV)
 ├── utf8dok-diagrams/  # Diagram rendering
 ├── utf8dok-validate/  # Validation engine
 ├── utf8dok-plugins/   # Rhai plugin system
@@ -143,6 +176,8 @@ cargo run -p utf8dok-cli -- audit docs/
 - [x] HTML compliance dashboard
 - [x] Project scaffolding (`init` command)
 - [x] DOCX round-trip (extract/render)
+- [x] PPTX generation
+- [x] Data includes (Excel, CSV, TSV)
 
 ## License
 

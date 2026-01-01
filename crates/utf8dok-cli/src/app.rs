@@ -14,7 +14,7 @@ use utf8dok_core::dual_nature::{
     parse_dual_nature, transform_for_format, validate_dual_nature, ContentSelector,
     OutputFormat as DualNatureFormat,
 };
-use utf8dok_core::parse;
+use utf8dok_core::{parse, parse_with_config, IncludeDirective, ParserConfig};
 use utf8dok_lsp::compliance::dashboard::ComplianceDashboard;
 use utf8dok_lsp::compliance::ComplianceEngine;
 use utf8dok_lsp::config::Settings;
@@ -134,6 +134,10 @@ enum Commands {
         /// Cover image file (PNG, JPG) for title page (DOCX only)
         #[arg(long)]
         cover: Option<PathBuf>,
+
+        /// Enable data includes (Excel/CSV/TSV) with base directory for resolving paths
+        #[arg(long)]
+        data_dir: Option<PathBuf>,
     },
 
     /// Check an AsciiDoc file for issues (validation)
@@ -201,6 +205,20 @@ enum Commands {
         #[arg(long)]
         validate_only: bool,
     },
+
+    /// List include directives in an AsciiDoc file
+    ListIncludes {
+        /// Input AsciiDoc file
+        input: PathBuf,
+
+        /// Output format (text or json)
+        #[arg(short, long, value_enum, default_value = "text")]
+        format: OutputFormat,
+
+        /// Only show data file includes (Excel, CSV, TSV)
+        #[arg(long)]
+        data_only: bool,
+    },
 }
 
 /// Run the CLI application
@@ -227,8 +245,16 @@ pub fn run_cli() -> Result<()> {
             format,
             template,
             cover,
+            data_dir,
         } => {
-            render_command(&input, output.as_deref(), format, template.as_deref(), cover.as_deref())?;
+            render_command(
+                &input,
+                output.as_deref(),
+                format,
+                template.as_deref(),
+                cover.as_deref(),
+                data_dir.as_deref(),
+            )?;
         }
         Commands::Check {
             input,
@@ -259,6 +285,13 @@ pub fn run_cli() -> Result<()> {
             validate_only,
         } => {
             dual_nature_command(&input, target, format, validate_only)?;
+        }
+        Commands::ListIncludes {
+            input,
+            format,
+            data_only,
+        } => {
+            list_includes_command(&input, format, data_only)?;
         }
     }
 
@@ -677,6 +710,7 @@ pub fn render_command(
     format: RenderFormat,
     template: Option<&std::path::Path>,
     cover: Option<&std::path::Path>,
+    data_dir: Option<&std::path::Path>,
 ) -> Result<()> {
     println!("utf8dok v{}", utf8dok_core::VERSION);
     println!("Rendering: {}", input.display());
@@ -687,8 +721,8 @@ pub fn render_command(
     }
 
     match format {
-        RenderFormat::Docx => render_docx(input, output, template, cover),
-        RenderFormat::Pptx => render_pptx(input, output, template),
+        RenderFormat::Docx => render_docx(input, output, template, cover, data_dir),
+        RenderFormat::Pptx => render_pptx(input, output, template, data_dir),
     }
 }
 
@@ -698,6 +732,7 @@ fn render_docx(
     output: Option<&std::path::Path>,
     template: Option<&std::path::Path>,
     cover: Option<&std::path::Path>,
+    data_dir: Option<&std::path::Path>,
 ) -> Result<()> {
     println!("  Format: DOCX");
 
@@ -731,9 +766,15 @@ fn render_docx(
     let source_content = fs::read_to_string(input)
         .with_context(|| format!("Failed to read input file: {}", input.display()))?;
 
-    // Step 2: Parse AsciiDoc to AST
+    // Step 2: Parse AsciiDoc to AST (with optional data includes)
     println!("  Parsing AsciiDoc...");
-    let ast = parse(&source_content).context("Failed to parse AsciiDoc content")?;
+    let ast = if let Some(base_path) = data_dir {
+        println!("    Data includes enabled: {}", base_path.display());
+        let config = ParserConfig::with_data_includes(base_path.to_string_lossy());
+        parse_with_config(&source_content, config).context("Failed to parse AsciiDoc content")?
+    } else {
+        parse(&source_content).context("Failed to parse AsciiDoc content")?
+    };
     println!("    {} blocks parsed", ast.blocks.len());
 
     // Step 3: Load template using Template API
@@ -807,6 +848,7 @@ fn render_pptx(
     input: &std::path::Path,
     output: Option<&std::path::Path>,
     template: Option<&std::path::Path>,
+    data_dir: Option<&std::path::Path>,
 ) -> Result<()> {
     println!("  Format: PPTX");
 
@@ -821,9 +863,15 @@ fn render_pptx(
     let source_content = fs::read_to_string(input)
         .with_context(|| format!("Failed to read input file: {}", input.display()))?;
 
-    // Step 2: Parse AsciiDoc to AST
+    // Step 2: Parse AsciiDoc to AST (with optional data includes)
     println!("  Parsing AsciiDoc...");
-    let ast = parse(&source_content).context("Failed to parse AsciiDoc content")?;
+    let ast = if let Some(base_path) = data_dir {
+        println!("    Data includes enabled: {}", base_path.display());
+        let config = ParserConfig::with_data_includes(base_path.to_string_lossy());
+        parse_with_config(&source_content, config).context("Failed to parse AsciiDoc content")?
+    } else {
+        parse(&source_content).context("Failed to parse AsciiDoc content")?
+    };
     println!("    {} blocks parsed", ast.blocks.len());
 
     // Step 3: Extract slides from AST using SlideExtractor
@@ -842,8 +890,9 @@ fn render_pptx(
     if let Some(template_path) = template {
         if template_path.exists() {
             println!("  Loading template: {}", template_path.display());
-            let potx = PotxTemplate::from_file(template_path)
-                .with_context(|| format!("Failed to parse template: {}", template_path.display()))?;
+            let potx = PotxTemplate::from_file(template_path).with_context(|| {
+                format!("Failed to parse template: {}", template_path.display())
+            })?;
             writer = writer.with_template(potx);
         } else {
             eprintln!("  Warning: Template not found: {}", template_path.display());
@@ -1382,6 +1431,136 @@ fn print_blocks_text(blocks: &[utf8dok_core::dual_nature::DualNatureBlock]) {
     }
 }
 
+/// Execute the list-includes command (show include directives in a file)
+pub fn list_includes_command(
+    input: &std::path::Path,
+    format: OutputFormat,
+    data_only: bool,
+) -> Result<()> {
+    // Check input file exists
+    if !input.exists() {
+        anyhow::bail!("Input file not found: {}", input.display());
+    }
+
+    // Read the file
+    let content = fs::read_to_string(input)
+        .with_context(|| format!("Failed to read input file: {}", input.display()))?;
+
+    // Find all include directives
+    let mut includes: Vec<(usize, IncludeDirective)> = Vec::new();
+
+    for (line_num, line) in content.lines().enumerate() {
+        if let Some(directive) = IncludeDirective::parse(line) {
+            if !data_only || directive.is_data_file() {
+                includes.push((line_num + 1, directive));
+            }
+        }
+    }
+
+    // Output based on format
+    match format {
+        OutputFormat::Json => {
+            let json_output: Vec<serde_json::Value> = includes
+                .iter()
+                .map(|(line, d)| {
+                    let mut obj = serde_json::json!({
+                        "line": line,
+                        "path": d.path,
+                        "is_data_file": d.is_data_file(),
+                    });
+                    if let Some(ref sheet) = d.sheet {
+                        obj["sheet"] = serde_json::Value::String(sheet.clone());
+                    }
+                    if let Some(ref range) = d.range {
+                        obj["range"] = serde_json::Value::String(range.clone());
+                    }
+                    if d.header {
+                        obj["header"] = serde_json::Value::Bool(true);
+                    }
+                    if let Some(delim) = d.delimiter {
+                        obj["delimiter"] = serde_json::Value::String(delim.to_string());
+                    }
+                    if let Some(ext) = d.extension() {
+                        obj["extension"] = serde_json::Value::String(ext.to_string());
+                    }
+                    obj
+                })
+                .collect();
+            let json = serde_json::to_string_pretty(&json_output)
+                .context("Failed to serialize includes to JSON")?;
+            println!("{}", json);
+        }
+        OutputFormat::Text => {
+            println!("utf8dok v{}", utf8dok_core::VERSION);
+            println!("Include directives in: {}", input.display());
+            println!();
+
+            if includes.is_empty() {
+                if data_only {
+                    println!("No data file includes found (Excel, CSV, TSV)");
+                } else {
+                    println!("No include directives found");
+                }
+            } else {
+                let data_count = includes.iter().filter(|(_, d)| d.is_data_file()).count();
+                let other_count = includes.len() - data_count;
+
+                println!(
+                    "Found {} include(s): {} data files, {} other",
+                    includes.len(),
+                    data_count,
+                    other_count
+                );
+                println!();
+
+                for (line, directive) in &includes {
+                    let file_type = if directive.is_data_file() {
+                        "[DATA]"
+                    } else {
+                        "[FILE]"
+                    };
+
+                    print!("  Line {}: {} {}", line, file_type, directive.path);
+
+                    // Show attributes
+                    let mut attrs = Vec::new();
+                    if let Some(ref sheet) = directive.sheet {
+                        attrs.push(format!("sheet={}", sheet));
+                    }
+                    if let Some(ref range) = directive.range {
+                        attrs.push(format!("range={}", range));
+                    }
+                    if directive.header {
+                        attrs.push("header".to_string());
+                    }
+                    if let Some(delim) = directive.delimiter {
+                        attrs.push(format!("delimiter={}", delim));
+                    }
+
+                    if !attrs.is_empty() {
+                        print!(" [{}]", attrs.join(", "));
+                    }
+                    println!();
+
+                    // Check if file exists
+                    let base_dir = input.parent().unwrap_or(std::path::Path::new("."));
+                    let full_path = if std::path::Path::new(&directive.path).is_absolute() {
+                        std::path::PathBuf::from(&directive.path)
+                    } else {
+                        base_dir.join(&directive.path)
+                    };
+
+                    if !full_path.exists() {
+                        println!("         ⚠ File not found: {}", full_path.display());
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// Load settings from a config file or use defaults
 fn load_settings(config_path: Option<&std::path::Path>) -> Result<Settings> {
     match config_path {
@@ -1525,12 +1704,14 @@ mod tests {
                 format,
                 template,
                 cover,
+                data_dir,
             } => {
                 assert_eq!(input, PathBuf::from("doc.adoc"));
                 assert_eq!(output, Some(PathBuf::from("out.docx")));
                 assert!(matches!(format, RenderFormat::Docx)); // default
                 assert_eq!(template, Some(PathBuf::from("tmpl.dotx")));
                 assert_eq!(cover, None);
+                assert_eq!(data_dir, None);
             }
             _ => panic!("Expected Render command"),
         }
@@ -1556,11 +1737,13 @@ mod tests {
                 format,
                 template,
                 cover: _,
+                data_dir,
             } => {
                 assert_eq!(input, PathBuf::from("slides.adoc"));
                 assert_eq!(output, Some(PathBuf::from("slides.pptx")));
                 assert!(matches!(format, RenderFormat::Pptx));
                 assert_eq!(template, None);
+                assert_eq!(data_dir, None);
             }
             _ => panic!("Expected Render command"),
         }
@@ -1586,11 +1769,37 @@ mod tests {
                 format,
                 template,
                 cover: _,
+                data_dir,
             } => {
                 assert_eq!(input, PathBuf::from("slides.adoc"));
                 assert_eq!(output, None);
                 assert!(matches!(format, RenderFormat::Pptx));
                 assert_eq!(template, Some(PathBuf::from("corporate.potx")));
+                assert_eq!(data_dir, None);
+            }
+            _ => panic!("Expected Render command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_render_with_data_dir() {
+        let args = vec!["utf8dok", "render", "report.adoc", "--data-dir", "data/"];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Commands::Render {
+                input,
+                output,
+                format,
+                template,
+                cover: _,
+                data_dir,
+            } => {
+                assert_eq!(input, PathBuf::from("report.adoc"));
+                assert_eq!(output, None);
+                assert!(matches!(format, RenderFormat::Docx));
+                assert_eq!(template, None);
+                assert_eq!(data_dir, Some(PathBuf::from("data/")));
             }
             _ => panic!("Expected Render command"),
         }
@@ -2078,6 +2287,145 @@ This section appears only in the document.
             OutputFormat::Text,
             true,
         );
+        assert!(result.is_ok());
+    }
+
+    // ==================== LIST-INCLUDES COMMAND TESTS ====================
+
+    #[test]
+    fn test_cli_parse_list_includes() {
+        let args = vec!["utf8dok", "list-includes", "doc.adoc"];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Commands::ListIncludes {
+                input,
+                format,
+                data_only,
+            } => {
+                assert_eq!(input, PathBuf::from("doc.adoc"));
+                assert!(matches!(format, OutputFormat::Text)); // default
+                assert!(!data_only);
+            }
+            _ => panic!("Expected ListIncludes command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_list_includes_json() {
+        let args = vec!["utf8dok", "list-includes", "doc.adoc", "--format", "json"];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Commands::ListIncludes {
+                input,
+                format,
+                data_only,
+            } => {
+                assert_eq!(input, PathBuf::from("doc.adoc"));
+                assert!(matches!(format, OutputFormat::Json));
+                assert!(!data_only);
+            }
+            _ => panic!("Expected ListIncludes command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parse_list_includes_data_only() {
+        let args = vec!["utf8dok", "list-includes", "doc.adoc", "--data-only"];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Commands::ListIncludes {
+                input,
+                format,
+                data_only,
+            } => {
+                assert_eq!(input, PathBuf::from("doc.adoc"));
+                assert!(matches!(format, OutputFormat::Text));
+                assert!(data_only);
+            }
+            _ => panic!("Expected ListIncludes command"),
+        }
+    }
+
+    #[test]
+    fn test_list_includes_command_with_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let adoc_path = temp.path().join("includes.adoc");
+
+        let content = r#"= Report with Data
+
+== Sales Data
+
+include::sales.xlsx[sheet=Q1,range=A1:D10,header]
+
+== Revenue Summary
+
+include::revenue.csv[header,delimiter=;]
+
+== Appendix
+
+include::appendix.adoc[]
+"#;
+
+        fs::write(&adoc_path, content).unwrap();
+
+        // Run list-includes command
+        let result = list_includes_command(&adoc_path, OutputFormat::Text, false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_list_includes_command_data_only() {
+        let temp = tempfile::tempdir().unwrap();
+        let adoc_path = temp.path().join("mixed.adoc");
+
+        let content = r#"= Mixed Document
+
+include::data.xlsx[header]
+include::chapter.adoc[]
+include::stats.csv[range=1:50]
+"#;
+
+        fs::write(&adoc_path, content).unwrap();
+
+        // Run list-includes command with data-only
+        let result = list_includes_command(&adoc_path, OutputFormat::Text, true);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_list_includes_command_json_output() {
+        let temp = tempfile::tempdir().unwrap();
+        let adoc_path = temp.path().join("json.adoc");
+
+        let content = r#"= JSON Test
+
+include::data.xlsx[sheet=Sheet1,range=A1:C5,header]
+"#;
+
+        fs::write(&adoc_path, content).unwrap();
+
+        // Run list-includes command with JSON format
+        let result = list_includes_command(&adoc_path, OutputFormat::Json, false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_list_includes_command_no_includes() {
+        let temp = tempfile::tempdir().unwrap();
+        let adoc_path = temp.path().join("no_includes.adoc");
+
+        let content = r#"= Simple Document
+
+Just some regular content without any includes.
+"#;
+
+        fs::write(&adoc_path, content).unwrap();
+
+        // Run list-includes command
+        let result = list_includes_command(&adoc_path, OutputFormat::Text, false);
         assert!(result.is_ok());
     }
 }
