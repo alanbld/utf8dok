@@ -68,6 +68,8 @@ pub enum RenderFormat {
     Docx,
     /// PowerPoint presentation (.pptx)
     Pptx,
+    /// Portable Document Format (.pdf) via Typst
+    Pdf,
 }
 
 #[derive(Parser)]
@@ -723,6 +725,7 @@ pub fn render_command(
     match format {
         RenderFormat::Docx => render_docx(input, output, template, cover, data_dir),
         RenderFormat::Pptx => render_pptx(input, output, template, data_dir),
+        RenderFormat::Pdf => render_pdf(input, output, template, data_dir),
     }
 }
 
@@ -919,6 +922,72 @@ fn render_pptx(
     println!("  Output: {}", output_path.display());
     println!("  Size: {} bytes", pptx_bytes.len());
     println!("  Slides: {}", deck.slides.len());
+
+    Ok(())
+}
+
+/// Render AsciiDoc to PDF via Typst
+fn render_pdf(
+    input: &std::path::Path,
+    output: Option<&std::path::Path>,
+    template: Option<&std::path::Path>,
+    data_dir: Option<&std::path::Path>,
+) -> Result<()> {
+    println!("  Format: PDF (via Typst)");
+
+    // Determine output path (default: input with .pdf extension)
+    let output_path = match output {
+        Some(p) => p.to_path_buf(),
+        None => input.with_extension("pdf"),
+    };
+
+    // Step 1: Read input AsciiDoc file
+    println!("  Reading: {}", input.display());
+    let source_content = fs::read_to_string(input)
+        .with_context(|| format!("Failed to read input file: {}", input.display()))?;
+
+    // Step 2: Parse AsciiDoc to AST (with optional data includes)
+    println!("  Parsing AsciiDoc...");
+    let ast = if let Some(base_path) = data_dir {
+        println!("    Data includes enabled: {}", base_path.display());
+        let config = ParserConfig::with_data_includes(base_path.to_string_lossy());
+        parse_with_config(&source_content, config).context("Failed to parse AsciiDoc content")?
+    } else {
+        parse(&source_content).context("Failed to parse AsciiDoc content")?
+    };
+    println!("    {} blocks parsed", ast.blocks.len());
+
+    // Step 3: Transpile AST to Typst markup
+    println!("  Transpiling to Typst...");
+    let typst_markup = if let Some(template_path) = template {
+        if template_path.exists() {
+            println!("    Using template: {}", template_path.display());
+            utf8dok_pdf::Transpiler::transpile_with_template(
+                &ast,
+                &template_path.display().to_string(),
+            )
+        } else {
+            eprintln!("  Warning: Template not found: {}", template_path.display());
+            utf8dok_pdf::Transpiler::transpile(&ast)
+        }
+    } else {
+        utf8dok_pdf::Transpiler::transpile(&ast)
+    };
+
+    // Step 4: Compile Typst to PDF
+    println!("  Compiling PDF...");
+    let pdf_bytes = utf8dok_pdf::Compiler::compile(&typst_markup)
+        .with_context(|| "Failed to compile Typst to PDF")?;
+
+    // Step 5: Write output
+    println!("  Writing: {}", output_path.display());
+    fs::write(&output_path, &pdf_bytes)
+        .with_context(|| format!("Failed to write output file: {}", output_path.display()))?;
+
+    println!();
+    println!("Render complete!");
+    println!("  Output: {}", output_path.display());
+    println!("  Size: {} bytes", pdf_bytes.len());
 
     Ok(())
 }

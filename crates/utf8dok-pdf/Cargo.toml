@@ -1,0 +1,20 @@
+[package]
+name = "utf8dok-pdf"
+description = "PDF generation for utf8dok via Typst"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["pdf", "typst", "document", "generation"]
+categories = ["text-processing", "rendering"]
+
+[dependencies]
+utf8dok-ast = { path = "../utf8dok-ast" }
+typst-as-lib = "0.15"
+typst-pdf = "0.14"
+thiserror.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

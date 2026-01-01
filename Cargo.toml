@@ -7,7 +7,7 @@ members = [
     "crates/utf8dok-wasm",
     "crates/utf8dok-ooxml",
     "crates/utf8dok-pptx",
-    "crates/utf8dok-diagrams", "crates/utf8dok-validate", "crates/utf8dok-plugins", "crates/utf8dok-lsp", "crates/utf8dok-data",
+    "crates/utf8dok-diagrams", "crates/utf8dok-validate", "crates/utf8dok-plugins", "crates/utf8dok-lsp", "crates/utf8dok-data", "crates/utf8dok-pdf",
 ]
 
 [workspace.package]
