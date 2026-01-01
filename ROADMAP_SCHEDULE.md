@@ -3,7 +3,7 @@
 > This file tracks the 90-day roadmap for post-PPTX development.
 > **Last Updated:** 2026-01-01
 
-## Current Phase: 24 - Data Engine (Week 2)
+## Current Phase: 24 - Data Engine (Week 3)
 
 ## Completed Phases
 
@@ -14,19 +14,30 @@
 | 22 | PPTX Generation Crate | ✅ Complete | 2025-12 |
 | 23 | Presentation Bridge | ✅ Complete | 2026-01-01 |
 | 24.1 | Data Engine (Week 1) | ✅ Complete | 2026-01-01 |
+| 24.2 | Data Engine (Week 2) | ✅ Complete | 2026-01-01 |
 
 ## In Progress
 
-### Phase 24: Data Engine - Week 2
-**Goal:** Range parsing refinement, cell type handling, error recovery
+### Phase 24: Data Engine - Week 3
+**Goal:** Include directive integration in parser
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Extended range syntax | ⬜ Pending | Named ranges, full column (A:A) |
-| Date/time formatting | ⬜ Pending | Excel serial dates → ISO strings |
-| Formula result extraction | ⬜ Pending | Read calculated values |
-| CSV data source | ⬜ Pending | Alternative to Excel |
-| Error recovery | ⬜ Pending | Graceful handling of corrupt cells |
+| Parse include::file.xlsx[...] | ⬜ Pending | Attribute parsing |
+| Wire data engine to parser | ⬜ Pending | Resolve during parse |
+| Table insertion in AST | ⬜ Pending | Replace include with Table |
+| Error handling/diagnostics | ⬜ Pending | Report missing files |
+| Integration tests | ⬜ Pending | End-to-end tests |
+
+### Week 2 Completed ✅
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Extended range syntax | ✅ Done | RangeSpec enum (A:C, 1:10, *, A1) |
+| Date/time formatting | ✅ Done | Excel serial → ISO 8601 |
+| CSV data source | ✅ Done | CsvSource + TSV/semicolon |
+| Auto-detect file type | ✅ Done | DataEngine.read_table_auto() |
+| Test coverage | ✅ Done | 40 tests (30 unit + 10 integration) |
 
 ### Week 1 Completed ✅
 
