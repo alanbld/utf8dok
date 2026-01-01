@@ -3,7 +3,7 @@
 > This file tracks the 90-day roadmap for post-PPTX development.
 > **Last Updated:** 2026-01-01
 
-## Current Phase: 24 - Data Engine (Week 3)
+## Current Phase: 24 - Data Engine (Week 4)
 
 ## Completed Phases
 
@@ -15,19 +15,30 @@
 | 23 | Presentation Bridge | ✅ Complete | 2026-01-01 |
 | 24.1 | Data Engine (Week 1) | ✅ Complete | 2026-01-01 |
 | 24.2 | Data Engine (Week 2) | ✅ Complete | 2026-01-01 |
+| 24.3 | Data Engine (Week 3) | ✅ Complete | 2026-01-01 |
 
 ## In Progress
 
-### Phase 24: Data Engine - Week 3
-**Goal:** Include directive integration in parser
+### Phase 24: Data Engine - Week 4
+**Goal:** CLI integration, documentation, testing
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Parse include::file.xlsx[...] | ⬜ Pending | Attribute parsing |
-| Wire data engine to parser | ⬜ Pending | Resolve during parse |
-| Table insertion in AST | ⬜ Pending | Replace include with Table |
-| Error handling/diagnostics | ⬜ Pending | Report missing files |
-| Integration tests | ⬜ Pending | End-to-end tests |
+| CLI render --include-data flag | ⬜ Pending | Enable data includes |
+| CLI extract data sources | ⬜ Pending | Show include directives |
+| Documentation (README, examples) | ⬜ Pending | User guide for data includes |
+| Edge case testing | ⬜ Pending | Large files, unicode, errors |
+| Performance benchmarks | ⬜ Pending | Large Excel files |
+
+### Week 3 Completed ✅
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Parse include::file.xlsx[...] | ✅ Done | IncludeDirective parser |
+| Wire data engine to parser | ✅ Done | resolve_data_include() |
+| Table insertion in AST | ✅ Done | Block::Table from data |
+| Error handling/diagnostics | ✅ Done | Placeholder paragraphs |
+| Integration tests | ✅ Done | 8 tests in include_tests.rs |
 
 ### Week 2 Completed ✅
 
