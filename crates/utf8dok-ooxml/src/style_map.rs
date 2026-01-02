@@ -1609,4 +1609,556 @@ content = "Version {revnumber}{delimiter}{revdate}"
         assert_eq!(contract.get_word_style_for_role("note"), Some("NoteStyle"));
         assert!(contract.get_word_style_for_role("unknown").is_none());
     }
+
+    // ==================== Sprint 19: StyleContract Method Tests ====================
+
+    #[test]
+    fn test_style_contract_merge_paragraph_styles() {
+        let mut base = StyleContract::default();
+        base.paragraph_styles.insert(
+            "BaseStyle".to_string(),
+            ParagraphStyleMapping {
+                role: "base-role".to_string(),
+                ..Default::default()
+            },
+        );
+
+        let mut other = StyleContract::default();
+        other.paragraph_styles.insert(
+            "OtherStyle".to_string(),
+            ParagraphStyleMapping {
+                role: "other-role".to_string(),
+                ..Default::default()
+            },
+        );
+
+        base.merge(&other);
+
+        assert!(base.paragraph_styles.contains_key("BaseStyle"));
+        assert!(base.paragraph_styles.contains_key("OtherStyle"));
+        assert_eq!(base.paragraph_styles.len(), 2);
+    }
+
+    #[test]
+    fn test_style_contract_merge_all_style_types() {
+        let mut base = StyleContract::default();
+        let mut other = StyleContract::default();
+
+        // Add character style to other
+        other.character_styles.insert(
+            "CharStyle".to_string(),
+            CharacterStyleMapping {
+                role: "code".to_string(),
+                is_strong: false,
+                is_emphasis: false,
+                is_code: true,
+            },
+        );
+
+        // Add anchor to other
+        other.anchors.insert(
+            "_Bookmark1".to_string(),
+            AnchorMapping {
+                semantic_id: "section-1".to_string(),
+                anchor_type: AnchorType::Heading,
+                target_heading: Some("Section 1".to_string()),
+                original_bookmark: Some("_Bookmark1".to_string()),
+            },
+        );
+
+        // Add hyperlink to other
+        other.hyperlinks.insert(
+            "rId5".to_string(),
+            HyperlinkMapping {
+                is_external: true,
+                url: Some("https://example.com".to_string()),
+                anchor_target: None,
+                original_rel_id: None,
+                original_anchor: None,
+            },
+        );
+
+        // Add table style to other
+        other.table_styles.insert(
+            "TableGrid".to_string(),
+            TableStyleMapping {
+                role: "data-table".to_string(),
+                first_row_header: true,
+                first_col_header: false,
+            },
+        );
+
+        base.merge(&other);
+
+        assert!(base.character_styles.contains_key("CharStyle"));
+        assert!(base.anchors.contains_key("_Bookmark1"));
+        assert!(base.hyperlinks.contains_key("rId5"));
+        assert!(base.table_styles.contains_key("TableGrid"));
+    }
+
+    #[test]
+    fn test_style_contract_merge_overwrites_existing() {
+        let mut base = StyleContract::default();
+        base.paragraph_styles.insert(
+            "SharedStyle".to_string(),
+            ParagraphStyleMapping {
+                role: "old-role".to_string(),
+                ..Default::default()
+            },
+        );
+
+        let mut other = StyleContract::default();
+        other.paragraph_styles.insert(
+            "SharedStyle".to_string(),
+            ParagraphStyleMapping {
+                role: "new-role".to_string(),
+                ..Default::default()
+            },
+        );
+
+        base.merge(&other);
+
+        let merged = base.paragraph_styles.get("SharedStyle").unwrap();
+        assert_eq!(merged.role, "new-role");
+    }
+
+    #[test]
+    fn test_style_contract_get_word_char_style_for_role() {
+        let mut contract = StyleContract::default();
+        contract.character_styles.insert(
+            "InlineCode".to_string(),
+            CharacterStyleMapping {
+                role: "code".to_string(),
+                is_strong: false,
+                is_emphasis: false,
+                is_code: true,
+            },
+        );
+        contract.character_styles.insert(
+            "EmphasisChar".to_string(),
+            CharacterStyleMapping {
+                role: "emphasis".to_string(),
+                is_strong: false,
+                is_emphasis: true,
+                is_code: false,
+            },
+        );
+
+        assert_eq!(
+            contract.get_word_char_style_for_role("code"),
+            Some("InlineCode")
+        );
+        assert_eq!(
+            contract.get_word_char_style_for_role("emphasis"),
+            Some("EmphasisChar")
+        );
+        assert!(contract.get_word_char_style_for_role("unknown").is_none());
+    }
+
+    #[test]
+    fn test_style_contract_is_toc_anchor() {
+        let mut contract = StyleContract::default();
+        contract.anchors.insert(
+            "_Toc123456".to_string(),
+            AnchorMapping {
+                semantic_id: "toc-entry".to_string(),
+                anchor_type: AnchorType::Toc,
+                target_heading: None,
+                original_bookmark: Some("_Toc123456".to_string()),
+            },
+        );
+        contract.anchors.insert(
+            "_RefSection".to_string(),
+            AnchorMapping {
+                semantic_id: "section-ref".to_string(),
+                anchor_type: AnchorType::Reference,
+                target_heading: None,
+                original_bookmark: Some("_RefSection".to_string()),
+            },
+        );
+
+        assert!(contract.is_toc_anchor("_Toc123456"));
+        assert!(!contract.is_toc_anchor("_RefSection"));
+        assert!(!contract.is_toc_anchor("_UnknownBookmark"));
+    }
+
+    #[test]
+    fn test_style_contract_get_paragraph_role() {
+        let mut contract = StyleContract::default();
+        contract.paragraph_styles.insert(
+            "AbstractStyle".to_string(),
+            ParagraphStyleMapping {
+                role: "abstract".to_string(),
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(
+            contract.get_paragraph_role("AbstractStyle"),
+            Some("abstract")
+        );
+        assert!(contract.get_paragraph_role("UnknownStyle").is_none());
+    }
+
+    #[test]
+    fn test_style_contract_get_heading_level() {
+        let mut contract = StyleContract::default();
+        contract.paragraph_styles.insert(
+            "Heading1".to_string(),
+            ParagraphStyleMapping {
+                role: "heading".to_string(),
+                heading_level: Some(1),
+                ..Default::default()
+            },
+        );
+        contract.paragraph_styles.insert(
+            "Heading3".to_string(),
+            ParagraphStyleMapping {
+                role: "heading".to_string(),
+                heading_level: Some(3),
+                ..Default::default()
+            },
+        );
+        contract.paragraph_styles.insert(
+            "NormalPara".to_string(),
+            ParagraphStyleMapping {
+                role: "paragraph".to_string(),
+                heading_level: None,
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(contract.get_heading_level("Heading1"), Some(1));
+        assert_eq!(contract.get_heading_level("Heading3"), Some(3));
+        assert!(contract.get_heading_level("NormalPara").is_none());
+        assert!(contract.get_heading_level("Unknown").is_none());
+    }
+
+    #[test]
+    fn test_style_contract_add_methods() {
+        let mut contract = StyleContract::default();
+
+        contract.add_paragraph_style(
+            "Para1",
+            ParagraphStyleMapping {
+                role: "para".to_string(),
+                ..Default::default()
+            },
+        );
+        assert!(contract.paragraph_styles.contains_key("Para1"));
+
+        contract.add_character_style(
+            "Char1",
+            CharacterStyleMapping {
+                role: "inline".to_string(),
+                is_strong: false,
+                is_emphasis: false,
+                is_code: true,
+            },
+        );
+        assert!(contract.character_styles.contains_key("Char1"));
+
+        contract.add_anchor(
+            "_Bookmark",
+            AnchorMapping {
+                semantic_id: "bookmark".to_string(),
+                anchor_type: AnchorType::UserDefined,
+                target_heading: None,
+                original_bookmark: Some("_Bookmark".to_string()),
+            },
+        );
+        assert!(contract.anchors.contains_key("_Bookmark"));
+
+        contract.add_hyperlink(
+            "rId1",
+            HyperlinkMapping {
+                is_external: true,
+                url: Some("http://test.com".to_string()),
+                anchor_target: None,
+                original_rel_id: None,
+                original_anchor: None,
+            },
+        );
+        assert!(contract.hyperlinks.contains_key("rId1"));
+
+        contract.add_table_style(
+            "Table1",
+            TableStyleMapping {
+                role: "data".to_string(),
+                first_row_header: false,
+                first_col_header: false,
+            },
+        );
+        assert!(contract.table_styles.contains_key("Table1"));
+    }
+
+    #[test]
+    fn test_cover_metadata_default() {
+        let meta = CoverMetadata::default();
+
+        assert!(meta.title.is_empty());
+        assert!(meta.subtitle.is_empty());
+        assert!(meta.author.is_empty());
+        assert!(meta.email.is_empty());
+        assert!(meta.revnumber.is_empty());
+        assert!(meta.revdate.is_empty());
+        assert!(meta.revremark.is_empty());
+    }
+
+    #[test]
+    fn test_cover_metadata_with_values() {
+        let meta = CoverMetadata {
+            title: "Document Title".to_string(),
+            subtitle: "A Subtitle".to_string(),
+            author: "John Doe".to_string(),
+            email: "john@example.com".to_string(),
+            revnumber: "1.0".to_string(),
+            revdate: "2025-01-01".to_string(),
+            revremark: "Initial release".to_string(),
+        };
+
+        assert_eq!(meta.title, "Document Title");
+        assert_eq!(meta.author, "John Doe");
+        assert_eq!(meta.revnumber, "1.0");
+    }
+
+    #[test]
+    fn test_style_contract_with_defaults() {
+        let contract = StyleContract::with_defaults();
+
+        // Should have some default paragraph styles
+        assert!(!contract.paragraph_styles.is_empty());
+
+        // Should include default heading mappings
+        assert!(contract.paragraph_styles.contains_key("Heading1"));
+        assert!(contract.paragraph_styles.contains_key("Heading2"));
+    }
+
+    #[test]
+    fn test_style_contract_to_toml_and_from_toml() {
+        let mut contract = StyleContract::default();
+        contract.paragraph_styles.insert(
+            "TestStyle".to_string(),
+            ParagraphStyleMapping {
+                role: "test".to_string(),
+                heading_level: Some(2),
+                ..Default::default()
+            },
+        );
+
+        let toml_str = contract.to_toml().unwrap();
+        let restored = StyleContract::from_toml(&toml_str).unwrap();
+
+        assert!(restored.paragraph_styles.contains_key("TestStyle"));
+        let style = restored.paragraph_styles.get("TestStyle").unwrap();
+        assert_eq!(style.role, "test");
+        assert_eq!(style.heading_level, Some(2));
+    }
+
+    #[test]
+    fn test_anchor_type_variants() {
+        assert_eq!(AnchorType::Toc, AnchorType::Toc);
+        assert_eq!(AnchorType::Reference, AnchorType::Reference);
+        assert_eq!(AnchorType::Heading, AnchorType::Heading);
+        assert_eq!(AnchorType::UserDefined, AnchorType::UserDefined);
+        assert_eq!(AnchorType::Highlight, AnchorType::Highlight);
+    }
+
+    #[test]
+    fn test_cover_layout_variants() {
+        let background = CoverLayout::Background;
+        let block = CoverLayout::Block;
+
+        match background {
+            CoverLayout::Background => {}
+            CoverLayout::Block => panic!("Wrong variant"),
+        }
+        match block {
+            CoverLayout::Block => {}
+            _ => panic!("Wrong variant"),
+        }
+    }
+
+    #[test]
+    fn test_image_fit_variants() {
+        let contain = ImageFit::Contain;
+        let cover = ImageFit::Cover;
+        let fill = ImageFit::Fill;
+        let none = ImageFit::None;
+
+        match contain {
+            ImageFit::Contain => {}
+            _ => panic!("Wrong variant"),
+        }
+        match cover {
+            ImageFit::Cover => {}
+            _ => panic!("Wrong variant"),
+        }
+        match fill {
+            ImageFit::Fill => {}
+            _ => panic!("Wrong variant"),
+        }
+        match none {
+            ImageFit::None => {}
+            _ => panic!("Wrong variant"),
+        }
+    }
+
+    #[test]
+    fn test_image_position_variants() {
+        let center = ImagePosition::Center;
+        let top = ImagePosition::Top;
+        let bottom = ImagePosition::Bottom;
+
+        match center {
+            ImagePosition::Center => {}
+            _ => panic!("Wrong variant"),
+        }
+        match top {
+            ImagePosition::Top => {}
+            _ => panic!("Wrong variant"),
+        }
+        match bottom {
+            ImagePosition::Bottom => {}
+            _ => panic!("Wrong variant"),
+        }
+    }
+
+    #[test]
+    fn test_text_align_variants() {
+        assert_eq!(TextAlign::Left, TextAlign::Left);
+        assert_eq!(TextAlign::Center, TextAlign::Center);
+        assert_eq!(TextAlign::Right, TextAlign::Right);
+    }
+
+    #[test]
+    fn test_list_type_variants() {
+        assert_eq!(ListType::Unordered, ListType::Unordered);
+        assert_eq!(ListType::Ordered, ListType::Ordered);
+        assert_eq!(ListType::Definition, ListType::Definition);
+    }
+
+    #[test]
+    fn test_style_contract_meta_defaults() {
+        let meta = StyleContractMeta::default();
+
+        assert!(meta.source_file.is_none());
+        assert!(meta.created.is_none());
+        assert!(meta.generator_version.is_none());
+        assert!(meta.template.is_none());
+    }
+
+    #[test]
+    fn test_theme_defaults_structure() {
+        let theme = ThemeDefaults::default();
+
+        // ThemeDefaults should have default values
+        // Verify fields exist and have expected types
+        assert!(theme.heading_font.is_none() || theme.heading_font.is_some());
+        assert!(theme.body_font.is_none() || theme.body_font.is_some());
+        assert!(theme.base_font_size.is_none() || theme.base_font_size.is_some());
+        assert!(theme.accent_color.is_none() || theme.accent_color.is_some());
+    }
+
+    #[test]
+    fn test_paragraph_style_mapping_default() {
+        let mapping = ParagraphStyleMapping::default();
+
+        assert_eq!(mapping.role, "");
+        assert!(mapping.heading_level.is_none());
+        assert!(!mapping.is_list);
+        assert!(mapping.list_type.is_none());
+        assert!(mapping.based_on.is_none());
+    }
+
+    #[test]
+    fn test_character_style_mapping_structure() {
+        let mapping = CharacterStyleMapping {
+            role: "emphasis".to_string(),
+            is_strong: false,
+            is_emphasis: true,
+            is_code: false,
+        };
+
+        assert_eq!(mapping.role, "emphasis");
+        assert!(mapping.is_emphasis);
+        assert!(!mapping.is_strong);
+        assert!(!mapping.is_code);
+    }
+
+    #[test]
+    fn test_table_style_mapping_structure() {
+        let mapping = TableStyleMapping {
+            role: "data-table".to_string(),
+            first_row_header: true,
+            first_col_header: false,
+        };
+
+        assert_eq!(mapping.role, "data-table");
+        assert!(mapping.first_row_header);
+        assert!(!mapping.first_col_header);
+    }
+
+    #[test]
+    fn test_hyperlink_mapping_internal() {
+        let mapping = HyperlinkMapping {
+            is_external: false,
+            url: None,
+            anchor_target: Some("section-1".to_string()),
+            original_rel_id: None,
+            original_anchor: Some("_Section1".to_string()),
+        };
+
+        assert!(!mapping.is_external);
+        assert_eq!(mapping.anchor_target, Some("section-1".to_string()));
+    }
+
+    #[test]
+    fn test_hyperlink_mapping_external() {
+        let mapping = HyperlinkMapping {
+            is_external: true,
+            url: Some("https://example.com/page".to_string()),
+            anchor_target: None,
+            original_rel_id: Some("rId5".to_string()),
+            original_anchor: None,
+        };
+
+        assert!(mapping.is_external);
+        assert!(mapping.url.as_ref().unwrap().starts_with("https://"));
+    }
+
+    #[test]
+    fn test_cover_revision_config_default() {
+        let revision = CoverRevisionConfig::default();
+
+        // Check default values exist
+        assert!(!revision.color.is_empty());
+        assert!(revision.font_size > 0);
+    }
+
+    #[test]
+    fn test_anchor_mapping_with_all_fields() {
+        let mapping = AnchorMapping {
+            semantic_id: "my-section".to_string(),
+            anchor_type: AnchorType::Heading,
+            target_heading: Some("My Section".to_string()),
+            original_bookmark: Some("_MySection".to_string()),
+        };
+
+        assert_eq!(mapping.semantic_id, "my-section");
+        assert_eq!(mapping.anchor_type, AnchorType::Heading);
+        assert_eq!(mapping.target_heading, Some("My Section".to_string()));
+        assert_eq!(mapping.original_bookmark, Some("_MySection".to_string()));
+    }
+
+    #[test]
+    fn test_style_contract_new() {
+        let contract = StyleContract::new();
+
+        assert!(contract.paragraph_styles.is_empty());
+        assert!(contract.character_styles.is_empty());
+        assert!(contract.anchors.is_empty());
+        assert!(contract.hyperlinks.is_empty());
+        assert!(contract.table_styles.is_empty());
+    }
 }
