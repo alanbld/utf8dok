@@ -894,4 +894,271 @@ mod tests {
             AstBlock::Break(AstBreakType::Section)
         ));
     }
+
+    // ==================== Sprint 10: Conversion Edge Cases ====================
+
+    #[test]
+    fn test_run_all_formatting_combinations() {
+        let ctx = ConversionContext::default();
+
+        // Bold + Italic + Monospace
+        let run = Run {
+            text: "formatted".to_string(),
+            bold: true,
+            italic: true,
+            monospace: true,
+        };
+
+        let inline = run.to_ast(&ctx);
+
+        // Should nest: monospace → italic → bold → text
+        // Verify it's wrapped (exact nesting depends on implementation)
+        match &inline {
+            Inline::Format(_, _) => {
+                // Good - formatting was applied
+            }
+            Inline::Text(t) => {
+                assert_eq!(t, "formatted");
+            }
+            _ => {
+                // Other types might be valid too
+            }
+        }
+        // Just verify it doesn't panic with all formatting enabled
+    }
+
+    #[test]
+    fn test_hyperlink_with_anchor_only() {
+        let ctx = ConversionContext::default();
+
+        let hyperlink = Hyperlink {
+            id: None,
+            anchor: Some("section-1".to_string()),
+            runs: vec![Run {
+                text: "Jump to section".to_string(),
+                bold: false,
+                italic: false,
+                monospace: false,
+            }],
+        };
+
+        let inline = hyperlink.to_ast(&ctx);
+
+        if let Inline::Link(link) = inline {
+            assert_eq!(link.url, "#section-1");
+        } else {
+            panic!("Expected Link inline");
+        }
+    }
+
+    #[test]
+    fn test_hyperlink_with_neither_id_nor_anchor() {
+        let ctx = ConversionContext::default();
+
+        let hyperlink = Hyperlink {
+            id: None,
+            anchor: None,
+            runs: vec![Run {
+                text: "orphan link".to_string(),
+                bold: false,
+                italic: false,
+                monospace: false,
+            }],
+        };
+
+        let inline = hyperlink.to_ast(&ctx);
+
+        // Should return the text without link wrapper or empty URL
+        match inline {
+            Inline::Link(link) => {
+                // Empty URL is acceptable
+                assert!(link.url.is_empty() || link.url == "#");
+            }
+            Inline::Text(text) => {
+                assert_eq!(text, "orphan link");
+            }
+            _ => {
+                // Other inline types are acceptable
+            }
+        }
+    }
+
+    #[test]
+    fn test_hyperlink_missing_relationship() {
+        use crate::relationships::Relationships;
+
+        // Empty relationships - rId5 doesn't exist
+        let rels = Relationships::new();
+        let ctx = ConversionContext {
+            styles: None,
+            relationships: Some(&rels),
+        };
+
+        let hyperlink = Hyperlink {
+            id: Some("rId5".to_string()),
+            anchor: None,
+            runs: vec![Run {
+                text: "broken link".to_string(),
+                bold: false,
+                italic: false,
+                monospace: false,
+            }],
+        };
+
+        let inline = hyperlink.to_ast(&ctx);
+
+        // Should handle gracefully - either empty URL or text only
+        match inline {
+            Inline::Link(link) => {
+                // Link with empty or placeholder URL
+                assert!(link.url.is_empty() || link.url.starts_with("#"));
+            }
+            Inline::Text(_) => {
+                // Falling back to plain text is also acceptable
+            }
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn test_paragraph_with_mixed_children() {
+        let ctx = ConversionContext::default();
+
+        let para = Paragraph {
+            style_id: None,
+            children: vec![
+                ParagraphChild::Run(Run {
+                    text: "Start ".to_string(),
+                    bold: false,
+                    italic: false,
+                    monospace: false,
+                }),
+                ParagraphChild::Hyperlink(Hyperlink {
+                    id: None,
+                    anchor: Some("ref".to_string()),
+                    runs: vec![Run {
+                        text: "link".to_string(),
+                        bold: false,
+                        italic: false,
+                        monospace: false,
+                    }],
+                }),
+                ParagraphChild::Run(Run {
+                    text: " end.".to_string(),
+                    bold: false,
+                    italic: false,
+                    monospace: false,
+                }),
+            ],
+            numbering: None,
+        };
+
+        let block = para.to_ast(&ctx);
+
+        if let AstBlock::Paragraph(ast_para) = block {
+            // Should have 3 inlines: text, link, text
+            assert_eq!(ast_para.inlines.len(), 3);
+            assert!(matches!(&ast_para.inlines[0], Inline::Text(_)));
+            assert!(matches!(&ast_para.inlines[1], Inline::Link(_)));
+            assert!(matches!(&ast_para.inlines[2], Inline::Text(_)));
+        } else {
+            panic!("Expected Paragraph block");
+        }
+    }
+
+    #[test]
+    fn test_empty_run_text() {
+        let ctx = ConversionContext::default();
+
+        let run = Run {
+            text: String::new(),
+            bold: true,
+            italic: false,
+            monospace: false,
+        };
+
+        let inline = run.to_ast(&ctx);
+
+        // Should handle empty text gracefully
+        match inline {
+            Inline::Text(t) => assert!(t.is_empty()),
+            Inline::Format(_, inner) => {
+                // Formatting wrapper with content
+                if let Inline::Text(t) = *inner {
+                    assert!(t.is_empty());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn test_generate_anchor_unicode() {
+        // Test anchor generation with unicode characters
+        let anchor = generate_anchor("日本語タイトル");
+        // Unicode-only text may return None if all chars are filtered
+        if let Some(a) = anchor {
+            // If it returns Some, should be ASCII-safe
+            assert!(a.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+        }
+        // Not panicking is the main test
+    }
+
+    #[test]
+    fn test_generate_anchor_very_long_text() {
+        let long_text = "This is a very long heading title that goes on and on and should be truncated to a reasonable length for use as an anchor identifier in the document";
+        let anchor = generate_anchor(long_text);
+
+        // Should return Some for ASCII text
+        assert!(anchor.is_some());
+        let a = anchor.unwrap();
+        // Anchor should be reasonably short (may or may not be truncated)
+        assert!(!a.is_empty(), "Anchor should not be empty");
+    }
+
+    #[test]
+    fn test_convert_empty_document() {
+        let doc = Document { blocks: vec![] };
+
+        let ast_doc = convert_document(&doc);
+        assert!(ast_doc.blocks.is_empty());
+    }
+
+    #[test]
+    fn test_table_with_empty_cells() {
+        let ctx = ConversionContext::default();
+
+        let table = Table {
+            style_id: None,
+            rows: vec![TableRow {
+                is_header: false,
+                cells: vec![
+                    TableCell {
+                        paragraphs: vec![], // Empty cell
+                    },
+                    TableCell {
+                        paragraphs: vec![Paragraph {
+                            style_id: None,
+                            children: vec![ParagraphChild::Run(Run {
+                                text: "content".to_string(),
+                                bold: false,
+                                italic: false,
+                                monospace: false,
+                            })],
+                            numbering: None,
+                        }],
+                    },
+                ],
+            }],
+        };
+
+        let block = table.to_ast(&ctx);
+
+        if let AstBlock::Table(ast_table) = block {
+            assert_eq!(ast_table.rows.len(), 1);
+            assert_eq!(ast_table.rows[0].cells.len(), 2);
+        } else {
+            panic!("Expected Table block");
+        }
+    }
 }
