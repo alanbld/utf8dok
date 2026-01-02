@@ -1915,60 +1915,9 @@ fn escape_xml(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::create_minimal_template;
     use std::collections::HashMap;
     use std::io::{Cursor, Write};
-
-    /// Create a minimal valid DOCX template for testing
-    fn create_minimal_template() -> Vec<u8> {
-        use zip::write::SimpleFileOptions;
-        use zip::CompressionMethod;
-        use zip::ZipWriter;
-
-        let mut buffer = Cursor::new(Vec::new());
-        let mut zip = ZipWriter::new(&mut buffer);
-        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
-
-        // [Content_Types].xml
-        zip.start_file("[Content_Types].xml", options).unwrap();
-        zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-  <Default Extension="xml" ContentType="application/xml"/>
-  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
-</Types>"#).unwrap();
-
-        // _rels/.rels
-        zip.start_file("_rels/.rels", options).unwrap();
-        zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
-</Relationships>"#).unwrap();
-
-        // word/_rels/document.xml.rels
-        zip.start_file("word/_rels/document.xml.rels", options)
-            .unwrap();
-        zip.write_all(
-            br#"<?xml version="1.0" encoding="UTF-8"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-</Relationships>"#,
-        )
-        .unwrap();
-
-        // word/document.xml (placeholder, will be replaced)
-        zip.start_file("word/document.xml", options).unwrap();
-        zip.write_all(
-            br#"<?xml version="1.0" encoding="UTF-8"?>
-<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-  <w:body>
-    <w:p><w:r><w:t>Template</w:t></w:r></w:p>
-  </w:body>
-</w:document>"#,
-        )
-        .unwrap();
-
-        zip.finish().unwrap();
-        buffer.into_inner()
-    }
 
     #[test]
     fn test_write_basic_doc() {

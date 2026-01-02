@@ -36,6 +36,10 @@ pub mod styles;
 pub mod template;
 pub mod writer;
 
+/// Test utilities for creating DOCX fixtures. Available unconditionally for integration tests.
+#[doc(hidden)]
+pub mod test_utils;
+
 pub use archive::OoxmlArchive;
 pub use conversion::{convert_document, convert_document_with_styles, ConversionContext, ToAst};
 pub use document::{
