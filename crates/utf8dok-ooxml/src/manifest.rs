@@ -389,4 +389,122 @@ mod tests {
     fn test_manifest_path_constant() {
         assert_eq!(MANIFEST_PATH, "utf8dok/manifest.json");
     }
+
+    // ==================== Sprint 11: Manifest Edge Cases ====================
+
+    #[test]
+    fn test_manifest_with_all_element_meta_fields() {
+        let mut manifest = Manifest::new();
+
+        let meta = ElementMeta::new("diagram")
+            .with_source("diagrams/flow.mmd")
+            .with_hash("sha256:abc123def456")
+            .with_description("System architecture overview");
+
+        manifest.add_element("arch_diagram", meta);
+
+        let retrieved = manifest.get_element("arch_diagram").unwrap();
+        assert_eq!(retrieved.type_, "diagram");
+        assert_eq!(retrieved.source, Some("diagrams/flow.mmd".to_string()));
+        assert_eq!(retrieved.hash, Some("sha256:abc123def456".to_string()));
+        assert_eq!(retrieved.description, Some("System architecture overview".to_string()));
+    }
+
+    #[test]
+    fn test_manifest_element_iteration() {
+        let mut manifest = Manifest::new();
+
+        manifest.add_element("source", ElementMeta::new("asciidoc"));
+        manifest.add_element("config", ElementMeta::new("toml"));
+        manifest.add_element("diagram1", ElementMeta::new("mermaid"));
+
+        // Count elements by iteration
+        let count = manifest.elements.len();
+        assert_eq!(count, 3);
+
+        // Verify keys
+        assert!(manifest.elements.contains_key("source"));
+        assert!(manifest.elements.contains_key("config"));
+        assert!(manifest.elements.contains_key("diagram1"));
+    }
+
+    #[test]
+    fn test_manifest_json_pretty_format() {
+        let mut manifest = Manifest::new();
+        manifest.add_element("test", ElementMeta::new("test_type"));
+
+        let bytes = manifest.to_json_bytes().unwrap();
+        let json_str = String::from_utf8(bytes).unwrap();
+
+        // Should be valid JSON
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert!(parsed.is_object());
+        assert!(parsed.get("version").is_some());
+        assert!(parsed.get("elements").is_some());
+    }
+
+    #[test]
+    fn test_manifest_empty_elements_json() {
+        let manifest = Manifest::new();
+        let bytes = manifest.to_json_bytes().unwrap();
+        let json_str = String::from_utf8(bytes).unwrap();
+
+        // Empty manifest should have version and empty elements
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(parsed.get("version").unwrap(), "1.0");
+        assert!(parsed.get("elements").unwrap().as_object().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_element_meta_builder_chain() {
+        let meta = ElementMeta::new("source")
+            .with_source("doc.adoc")
+            .with_hash("hash1")
+            .with_description("desc1")
+            .with_source("updated.adoc")  // Can update
+            .with_hash("hash2");          // Can update again
+
+        assert_eq!(meta.type_, "source");
+        assert_eq!(meta.source, Some("updated.adoc".to_string()));
+        assert_eq!(meta.hash, Some("hash2".to_string()));
+        assert_eq!(meta.description, Some("desc1".to_string()));
+    }
+
+    #[test]
+    fn test_manifest_special_characters_in_keys() {
+        let mut manifest = Manifest::new();
+
+        // Keys with special characters
+        manifest.add_element("file-with-dashes", ElementMeta::new("test"));
+        manifest.add_element("file_with_underscores", ElementMeta::new("test"));
+        manifest.add_element("file.with.dots", ElementMeta::new("test"));
+
+        // Roundtrip
+        let bytes = manifest.to_json_bytes().unwrap();
+        let restored = Manifest::from_json_bytes(&bytes).unwrap();
+
+        assert!(restored.get_element("file-with-dashes").is_some());
+        assert!(restored.get_element("file_with_underscores").is_some());
+        assert!(restored.get_element("file.with.dots").is_some());
+    }
+
+    #[test]
+    fn test_manifest_unicode_values() {
+        let mut manifest = Manifest::new();
+
+        let meta = ElementMeta::new("document")
+            .with_description("文档说明 - Document with 日本語");
+
+        manifest.add_element("doc", meta);
+
+        // Roundtrip
+        let bytes = manifest.to_json_bytes().unwrap();
+        let restored = Manifest::from_json_bytes(&bytes).unwrap();
+
+        let retrieved = restored.get_element("doc").unwrap();
+        assert_eq!(
+            retrieved.description,
+            Some("文档说明 - Document with 日本語".to_string())
+        );
+    }
 }

@@ -544,4 +544,179 @@ mod tests {
         assert!(files.contains(&"file2.txt"));
         assert!(files.contains(&"subdir/file3.txt"));
     }
+
+    // ==================== Sprint 11: Archive Round-Trip Tests ====================
+
+    #[test]
+    fn test_manifest_roundtrip() {
+        use crate::manifest::Manifest;
+
+        let mut archive = OoxmlArchive {
+            files: HashMap::new(),
+        };
+
+        // Create a manifest with content
+        let mut manifest = Manifest::new();
+        manifest.add_element(
+            "source",
+            crate::manifest::ElementMeta::new("source.adoc")
+                .with_hash("abc123"),
+        );
+
+        // Set manifest
+        archive.set_manifest(&manifest).unwrap();
+
+        // Get manifest back
+        let retrieved = archive.get_manifest().unwrap();
+        assert!(retrieved.is_some());
+
+        let retrieved_manifest = retrieved.unwrap();
+        assert!(retrieved_manifest.get_element("source").is_some());
+    }
+
+    #[test]
+    fn test_has_utf8dok_content() {
+        let mut archive = OoxmlArchive {
+            files: HashMap::new(),
+        };
+
+        // Empty archive has no utf8dok content
+        assert!(!archive.has_utf8dok_content());
+
+        // Add utf8dok file
+        archive.write_utf8dok_string("source.adoc", "= Title");
+        assert!(archive.has_utf8dok_content());
+    }
+
+    #[test]
+    fn test_utf8dok_string_roundtrip_utf8() {
+        let mut archive = OoxmlArchive {
+            files: HashMap::new(),
+        };
+
+        // UTF-8 content with special characters
+        let content = "= Título con ñ y 日本語 and emoji 🎉";
+        archive.write_utf8dok_string("source.adoc", content);
+
+        let retrieved = archive.read_utf8dok_string("source.adoc").unwrap();
+        assert_eq!(retrieved, Some(content.to_string()));
+    }
+
+    #[test]
+    fn test_utf8dok_binary_roundtrip() {
+        let mut archive = OoxmlArchive {
+            files: HashMap::new(),
+        };
+
+        // Binary content (simulated image)
+        let binary = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        archive.write_utf8dok_file("image.png", binary.clone());
+
+        let retrieved = archive.read_utf8dok_file("image.png");
+        assert_eq!(retrieved, Some(binary.as_slice()));
+    }
+
+    #[test]
+    fn test_list_utf8dok_files_empty() {
+        let archive = OoxmlArchive {
+            files: HashMap::new(),
+        };
+
+        let files = archive.list_utf8dok_files();
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn test_full_self_contained_structure() {
+        use crate::manifest::Manifest;
+
+        let mut archive = OoxmlArchive {
+            files: HashMap::new(),
+        };
+
+        // Set up complete self-contained structure
+        archive.write_utf8dok_string("source.adoc", "= My Document\n\nContent here.");
+        archive.write_utf8dok_string("utf8dok.toml", "[template]\npath = \"t.dotx\"");
+
+        let mut manifest = Manifest::new();
+        manifest.add_element(
+            "source",
+            crate::manifest::ElementMeta::new("source.adoc"),
+        );
+        manifest.add_element(
+            "config",
+            crate::manifest::ElementMeta::new("utf8dok.toml"),
+        );
+        archive.set_manifest(&manifest).unwrap();
+
+        // Verify all parts exist
+        assert!(archive.has_utf8dok_content());
+        let files = archive.list_utf8dok_files();
+        assert!(files.contains(&"source.adoc"));
+        assert!(files.contains(&"utf8dok.toml"));
+        assert!(files.contains(&"manifest.json"));
+
+        // Verify manifest has correct entries
+        let retrieved_manifest = archive.get_manifest().unwrap().unwrap();
+        assert!(retrieved_manifest.get_element("source").is_some());
+        assert!(retrieved_manifest.get_element("config").is_some());
+    }
+
+    #[test]
+    fn test_overwrite_utf8dok_file() {
+        let mut archive = OoxmlArchive {
+            files: HashMap::new(),
+        };
+
+        archive.write_utf8dok_string("source.adoc", "version 1");
+        assert_eq!(
+            archive.read_utf8dok_string("source.adoc").unwrap(),
+            Some("version 1".to_string())
+        );
+
+        // Overwrite
+        archive.write_utf8dok_string("source.adoc", "version 2");
+        assert_eq!(
+            archive.read_utf8dok_string("source.adoc").unwrap(),
+            Some("version 2".to_string())
+        );
+    }
+
+    #[test]
+    fn test_archive_file_paths_case_sensitive() {
+        let mut archive = OoxmlArchive {
+            files: HashMap::new(),
+        };
+
+        archive.set_string("Word/Document.xml", "upper");
+        archive.set_string("word/document.xml", "lower");
+
+        // Both should exist as separate files
+        assert_eq!(
+            archive.get_string("Word/Document.xml").unwrap(),
+            Some("upper".to_string())
+        );
+        assert_eq!(
+            archive.get_string("word/document.xml").unwrap(),
+            Some("lower".to_string())
+        );
+    }
+
+    #[test]
+    fn test_get_string_invalid_utf8() {
+        let mut archive = OoxmlArchive {
+            files: HashMap::new(),
+        };
+
+        // Set invalid UTF-8 bytes
+        let invalid_utf8 = vec![0xFF, 0xFE, 0x00, 0x01];
+        archive.set("invalid.txt", invalid_utf8);
+
+        // get_string uses from_utf8_lossy, so invalid UTF-8 is replaced with replacement chars
+        let result = archive.get_string("invalid.txt").unwrap();
+        assert!(result.is_some());
+        // The lossy conversion replaces invalid bytes with the replacement character
+        let content = result.unwrap();
+        assert!(content.contains('\u{FFFD}')); // Unicode replacement character
+    }
 }
