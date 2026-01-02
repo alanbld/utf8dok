@@ -716,4 +716,125 @@ mod tests {
         assert_eq!(reparsed.get("rId1"), Some("path/with spaces/file.xml"));
         assert_eq!(reparsed.get("rId2"), Some("unicode/日本語/ファイル.xml"));
     }
+
+    // ==================== Sprint 9: Additional Edge Cases ====================
+
+    #[test]
+    fn test_add_hyperlink_various_protocols() {
+        let mut rels = Relationships::new();
+
+        // Standard HTTP
+        let http_id = rels.add_hyperlink("https://example.com/page");
+        assert!(rels.is_hyperlink(&http_id));
+
+        // FTP protocol
+        let ftp_id = rels.add_hyperlink("ftp://files.example.com/download.zip");
+        assert!(rels.is_hyperlink(&ftp_id));
+
+        // Mailto link
+        let mail_id = rels.add_hyperlink("mailto:user@example.com");
+        assert!(rels.is_hyperlink(&mail_id));
+
+        // Verify all are retrievable
+        assert_eq!(rels.get(&http_id), Some("https://example.com/page"));
+        assert_eq!(rels.get(&ftp_id), Some("ftp://files.example.com/download.zip"));
+        assert_eq!(rels.get(&mail_id), Some("mailto:user@example.com"));
+    }
+
+    #[test]
+    fn test_add_image_various_paths() {
+        let mut rels = Relationships::new();
+
+        // Standard media path
+        let id1 = rels.add_image("media/image1.png");
+        assert_eq!(rels.get(&id1), Some("media/image1.png"));
+
+        // Relative path with ..
+        let id2 = rels.add_image("../media/image2.jpg");
+        assert_eq!(rels.get(&id2), Some("../media/image2.jpg"));
+
+        // Path with spaces
+        let id3 = rels.add_image("media/my image.png");
+        assert_eq!(rels.get(&id3), Some("media/my image.png"));
+
+        // All should be images
+        assert!(rels.is_image(&id1));
+        assert!(rels.is_image(&id2));
+        assert!(rels.is_image(&id3));
+    }
+
+    #[test]
+    fn test_hyperlink_with_query_params() {
+        let mut rels = Relationships::new();
+
+        // URL with query parameters containing special chars
+        let url = "https://example.com/search?q=test&page=1&filter=a<b";
+        let id = rels.add_hyperlink(url);
+
+        // Should store the URL as-is
+        assert_eq!(rels.get(&id), Some(url));
+
+        // Should serialize and parse correctly
+        let xml = rels.to_xml();
+        let reparsed = Relationships::parse(xml.as_bytes()).unwrap();
+        assert_eq!(reparsed.get(&id), Some(url));
+    }
+
+    #[test]
+    fn test_relationship_type_constants() {
+        // Verify all type constants are valid URIs
+        assert!(Relationships::TYPE_STYLES.starts_with("http://"));
+        assert!(Relationships::TYPE_NUMBERING.starts_with("http://"));
+        assert!(Relationships::TYPE_SETTINGS.starts_with("http://"));
+        assert!(Relationships::TYPE_FONT_TABLE.starts_with("http://"));
+        assert!(Relationships::TYPE_IMAGE.starts_with("http://"));
+        assert!(Relationships::TYPE_HYPERLINK.starts_with("http://"));
+
+        // Verify constants are unique
+        let types = [
+            Relationships::TYPE_STYLES,
+            Relationships::TYPE_NUMBERING,
+            Relationships::TYPE_SETTINGS,
+            Relationships::TYPE_FONT_TABLE,
+            Relationships::TYPE_IMAGE,
+            Relationships::TYPE_HYPERLINK,
+        ];
+        let unique: std::collections::HashSet<_> = types.iter().collect();
+        assert_eq!(unique.len(), types.len(), "All type constants should be unique");
+    }
+
+    #[test]
+    fn test_iter_with_type_filter() {
+        let mut rels = Relationships::new();
+
+        rels.add_image("media/img1.png");
+        rels.add_image("media/img2.jpg");
+        rels.add_hyperlink("https://example.com");
+        rels.add("styles.xml".to_string(), Relationships::TYPE_STYLES.to_string());
+
+        // Count by type
+        let image_count = rels.iter()
+            .filter(|(_, rel)| rel.rel_type == Relationships::TYPE_IMAGE)
+            .count();
+        let link_count = rels.iter()
+            .filter(|(_, rel)| rel.rel_type == Relationships::TYPE_HYPERLINK)
+            .count();
+
+        assert_eq!(image_count, 2);
+        assert_eq!(link_count, 1);
+    }
+
+    #[test]
+    fn test_empty_target_handling() {
+        let mut rels = Relationships::new();
+
+        // Add relationship with empty target (edge case)
+        let id = rels.add(String::new(), "type".to_string());
+        assert_eq!(rels.get(&id), Some(""));
+
+        // Should serialize and parse correctly
+        let xml = rels.to_xml();
+        let reparsed = Relationships::parse(xml.as_bytes()).unwrap();
+        assert_eq!(reparsed.get(&id), Some(""));
+    }
 }

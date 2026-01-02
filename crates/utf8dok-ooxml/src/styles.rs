@@ -751,4 +751,188 @@ mod tests {
         assert!(!styles.get("CompanyHeader").unwrap().builtin);
         assert!(!styles.get("LegalDisclaimer").unwrap().builtin);
     }
+
+    // ==================== Sprint 9: StyleSheet Edge Cases ====================
+
+    #[test]
+    fn test_resolve_chain_circular_reference() {
+        // Create styles with circular inheritance: A→B→A
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="StyleA">
+                <w:name w:val="Style A"/>
+                <w:basedOn w:val="StyleB"/>
+            </w:style>
+            <w:style w:type="paragraph" w:styleId="StyleB">
+                <w:name w:val="Style B"/>
+                <w:basedOn w:val="StyleA"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+
+        // Should not panic or loop forever - breaks at cycle detection
+        let chain = styles.resolve_chain("StyleA");
+
+        // Chain should contain at most both styles (breaks at seen check)
+        assert!(chain.len() <= 2);
+        assert_eq!(chain[0].id, "StyleA");
+    }
+
+    #[test]
+    fn test_resolve_chain_self_reference() {
+        // Create a style that references itself
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="SelfRef">
+                <w:name w:val="Self Reference"/>
+                <w:basedOn w:val="SelfRef"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+
+        // Should not loop - breaks immediately on self-reference
+        let chain = styles.resolve_chain("SelfRef");
+
+        assert_eq!(chain.len(), 1);
+        assert_eq!(chain[0].id, "SelfRef");
+    }
+
+    #[test]
+    fn test_resolve_chain_deep_inheritance() {
+        // Create a deep inheritance chain: A→B→C→D→E
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="StyleA">
+                <w:name w:val="Style A"/>
+                <w:basedOn w:val="StyleB"/>
+            </w:style>
+            <w:style w:type="paragraph" w:styleId="StyleB">
+                <w:name w:val="Style B"/>
+                <w:basedOn w:val="StyleC"/>
+            </w:style>
+            <w:style w:type="paragraph" w:styleId="StyleC">
+                <w:name w:val="Style C"/>
+                <w:basedOn w:val="StyleD"/>
+            </w:style>
+            <w:style w:type="paragraph" w:styleId="StyleD">
+                <w:name w:val="Style D"/>
+                <w:basedOn w:val="StyleE"/>
+            </w:style>
+            <w:style w:type="paragraph" w:styleId="StyleE">
+                <w:name w:val="Style E"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+
+        let chain = styles.resolve_chain("StyleA");
+
+        // Should resolve entire chain
+        assert_eq!(chain.len(), 5);
+        assert_eq!(chain[0].id, "StyleA");
+        assert_eq!(chain[1].id, "StyleB");
+        assert_eq!(chain[2].id, "StyleC");
+        assert_eq!(chain[3].id, "StyleD");
+        assert_eq!(chain[4].id, "StyleE");
+    }
+
+    #[test]
+    fn test_resolve_chain_missing_base() {
+        // Style references a base that doesn't exist
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Orphan">
+                <w:name w:val="Orphan Style"/>
+                <w:basedOn w:val="NonExistent"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+
+        let chain = styles.resolve_chain("Orphan");
+
+        // Should only contain the orphan style (base not found)
+        assert_eq!(chain.len(), 1);
+        assert_eq!(chain[0].id, "Orphan");
+        assert_eq!(chain[0].based_on, Some("NonExistent".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_chain_empty_for_unknown() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Normal">
+                <w:name w:val="Normal"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+
+        // Unknown style returns empty chain
+        let chain = styles.resolve_chain("DoesNotExist");
+        assert!(chain.is_empty());
+    }
+
+    #[test]
+    fn test_is_heading_and_level() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Heading1">
+                <w:name w:val="Heading 1"/>
+                <w:pPr>
+                    <w:outlineLvl w:val="0"/>
+                </w:pPr>
+            </w:style>
+            <w:style w:type="paragraph" w:styleId="Heading3">
+                <w:name w:val="Heading 3"/>
+                <w:pPr>
+                    <w:outlineLvl w:val="2"/>
+                </w:pPr>
+            </w:style>
+            <w:style w:type="paragraph" w:styleId="Normal">
+                <w:name w:val="Normal"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+
+        assert!(styles.is_heading("Heading1"));
+        assert!(styles.is_heading("Heading3"));
+        assert!(!styles.is_heading("Normal"));
+        assert!(!styles.is_heading("Unknown"));
+
+        assert_eq!(styles.heading_level("Heading1"), Some(1));
+        assert_eq!(styles.heading_level("Heading3"), Some(3));
+        assert_eq!(styles.heading_level("Normal"), None);
+        assert_eq!(styles.heading_level("Unknown"), None);
+    }
+
+    #[test]
+    fn test_stylesheet_iteration() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Para1">
+                <w:name w:val="Paragraph 1"/>
+            </w:style>
+            <w:style w:type="table" w:styleId="Table1">
+                <w:name w:val="Table 1"/>
+            </w:style>
+            <w:style w:type="paragraph" w:styleId="Para2">
+                <w:name w:val="Paragraph 2"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+
+        // Test paragraph iteration
+        let para_styles: Vec<_> = styles.paragraph_styles().collect();
+        assert_eq!(para_styles.len(), 2);
+
+        // Test table iteration
+        let table_styles: Vec<_> = styles.table_styles().collect();
+        assert_eq!(table_styles.len(), 1);
+        assert_eq!(table_styles[0].id, "Table1");
+    }
 }
