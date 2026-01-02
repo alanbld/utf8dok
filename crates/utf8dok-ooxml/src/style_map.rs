@@ -1283,4 +1283,173 @@ content = "Version {revnumber}{delimiter}{revdate}"
             "Version {revnumber}{delimiter}{revdate}"
         );
     }
+
+    // ==================== Sprint 5: Position Parsing Edge Cases ====================
+
+    #[test]
+    fn test_parse_position_empty_string() {
+        let page_height = 10_000_000;
+        // Empty string should use default 35%
+        let result = CoverConfig::parse_position_to_emu("", page_height);
+        assert_eq!(result, (page_height as f64 * 35.0 / 100.0) as i64);
+    }
+
+    #[test]
+    fn test_parse_position_whitespace_only() {
+        let page_height = 10_000_000;
+        // Whitespace-only should use default 35%
+        let result = CoverConfig::parse_position_to_emu("   ", page_height);
+        assert_eq!(result, (page_height as f64 * 35.0 / 100.0) as i64);
+    }
+
+    #[test]
+    fn test_parse_position_percent_sign_only() {
+        let page_height = 10_000_000;
+        // Just "%" should default to 35%
+        let result = CoverConfig::parse_position_to_emu("%", page_height);
+        assert_eq!(result, (page_height as f64 * 35.0 / 100.0) as i64);
+    }
+
+    #[test]
+    fn test_parse_position_negative_percentage() {
+        let page_height = 10_000_000;
+        // Negative percentage should work (positions above top of page)
+        let result = CoverConfig::parse_position_to_emu("-10%", page_height);
+        assert_eq!(result, -1_000_000);
+    }
+
+    #[test]
+    fn test_parse_position_zero() {
+        let page_height = 10_000_000;
+        // Zero should produce 0 EMU
+        assert_eq!(CoverConfig::parse_position_to_emu("0%", page_height), 0);
+        assert_eq!(CoverConfig::parse_position_to_emu("0pt", page_height), 0);
+        assert_eq!(CoverConfig::parse_position_to_emu("0in", page_height), 0);
+        assert_eq!(CoverConfig::parse_position_to_emu("0cm", page_height), 0);
+        assert_eq!(CoverConfig::parse_position_to_emu("0emu", page_height), 0);
+    }
+
+    #[test]
+    fn test_parse_position_invalid_unit() {
+        let page_height = 10_000_000;
+        // Unknown unit "xyz" - should fall back to treating as percentage (default 35%)
+        let result = CoverConfig::parse_position_to_emu("50xyz", page_height);
+        // "50xyz" won't parse as f64, so falls back to 35%
+        assert_eq!(result, (page_height as f64 * 35.0 / 100.0) as i64);
+    }
+
+    #[test]
+    fn test_parse_position_with_spaces() {
+        let page_height = 10_000_000;
+        // Leading/trailing spaces should be trimmed
+        assert_eq!(
+            CoverConfig::parse_position_to_emu("  50%  ", page_height),
+            5_000_000
+        );
+        assert_eq!(
+            CoverConfig::parse_position_to_emu("  1in  ", page_height),
+            914_400
+        );
+    }
+
+    #[test]
+    fn test_parse_position_large_value() {
+        let page_height = 10_000_000;
+        // 200% - beyond page height is valid
+        let result = CoverConfig::parse_position_to_emu("200%", page_height);
+        assert_eq!(result, 20_000_000);
+    }
+
+    #[test]
+    fn test_parse_position_zero_page_height() {
+        // Edge case: page height of 0 should handle gracefully
+        let result = CoverConfig::parse_position_to_emu("50%", 0);
+        assert_eq!(result, 0);
+    }
+
+    #[test]
+    fn test_parse_position_negative_page_height() {
+        // Edge case: negative page height (unusual but should not crash)
+        let result = CoverConfig::parse_position_to_emu("50%", -10_000_000);
+        assert_eq!(result, -5_000_000);
+    }
+
+    #[test]
+    fn test_parse_position_decimal_values() {
+        let page_height = 10_000_000;
+        // Decimal percentages
+        assert_eq!(
+            CoverConfig::parse_position_to_emu("33.33%", page_height),
+            3_333_000
+        );
+        // Decimal points
+        assert_eq!(
+            CoverConfig::parse_position_to_emu("1.5in", page_height),
+            1_371_600
+        );
+    }
+
+    #[test]
+    fn test_template_expansion_unknown_placeholder() {
+        let metadata = CoverMetadata {
+            title: "Title".to_string(),
+            subtitle: "".to_string(),
+            author: "".to_string(),
+            email: "".to_string(),
+            revnumber: "".to_string(),
+            revdate: "".to_string(),
+            revremark: "".to_string(),
+        };
+
+        // Unknown placeholder should remain unchanged
+        let result = CoverConfig::expand_template("{unknown}", &metadata, "");
+        assert_eq!(result, "{unknown}");
+    }
+
+    #[test]
+    fn test_template_expansion_empty_values() {
+        let metadata = CoverMetadata {
+            title: "".to_string(),
+            subtitle: "".to_string(),
+            author: "".to_string(),
+            email: "".to_string(),
+            revnumber: "".to_string(),
+            revdate: "".to_string(),
+            revremark: "".to_string(),
+        };
+
+        // Empty values should be substituted as empty strings
+        let result = CoverConfig::expand_template("{title} by {author}", &metadata, "");
+        assert_eq!(result, " by ");
+    }
+
+    #[test]
+    fn test_cover_config_default_values() {
+        // Test that CoverConfig::default() produces valid defaults
+        let config = CoverConfig::default();
+        assert_eq!(config.layout, CoverLayout::Background);
+        assert_eq!(config.image_fit, ImageFit::Cover);
+        assert!(!config.title.color.is_empty());
+        assert!(config.title.font_size > 0);
+    }
+
+    #[test]
+    fn test_cover_element_config_default() {
+        // Test CoverElementConfig defaults
+        let elem = CoverElementConfig::default();
+        assert_eq!(elem.color, "FFFFFF"); // White (for dark backgrounds)
+        assert_eq!(elem.font_size, 72); // 36pt in half-points
+        assert!(!elem.bold);
+        assert!(!elem.italic);
+        assert_eq!(elem.top, "35%");
+        assert_eq!(elem.align, TextAlign::Center);
+    }
+
+    #[test]
+    fn test_cover_for_dark_background() {
+        // Test the dark background preset
+        let config = CoverConfig::for_dark_background();
+        assert_eq!(config.title.color, "FFFFFF"); // White text
+        assert!(config.title.bold);
+    }
 }

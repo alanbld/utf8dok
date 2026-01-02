@@ -1396,4 +1396,388 @@ mod tests {
         // Third paragraph (index 2) has no comment
         assert!(ranges.get_comment_ids(2).is_none());
     }
+
+    // ==================== Sprint 5: Edge Case Tests ====================
+
+    #[test]
+    fn test_comments_empty_xml() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        </w:comments>"#;
+
+        let comments = Comments::parse(xml);
+        assert!(comments.get(0).is_none());
+        assert!(comments.get_language(0).is_none());
+    }
+
+    #[test]
+    fn test_comments_no_language_prefix() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:comment w:id="0">
+                <w:p><w:r><w:t>Just a regular comment</w:t></w:r></w:p>
+            </w:comment>
+        </w:comments>"#;
+
+        let comments = Comments::parse(xml);
+        assert_eq!(comments.get(0), Some("Just a regular comment"));
+        assert_eq!(comments.get_language(0), None); // No "Language:" prefix
+    }
+
+    #[test]
+    fn test_comments_malformed_id() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:comment w:id="not_a_number">
+                <w:p><w:r><w:t>Bad ID</w:t></w:r></w:p>
+            </w:comment>
+        </w:comments>"#;
+
+        let comments = Comments::parse(xml);
+        // Malformed ID should be skipped gracefully
+        assert!(comments.get(0).is_none());
+    }
+
+    #[test]
+    fn test_comment_ranges_empty_document() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body></w:body>
+        </w:document>"#;
+
+        let ranges = CommentRanges::parse(xml);
+        assert!(ranges.get_comment_ids(0).is_none());
+    }
+
+    #[test]
+    fn test_comment_ranges_with_table() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p><w:r><w:t>Before table</w:t></w:r></w:p>
+                <w:tbl>
+                    <w:tr><w:tc><w:p><w:r><w:t>Cell</w:t></w:r></w:p></w:tc></w:tr>
+                </w:tbl>
+                <w:p><w:r><w:t>After table</w:t></w:r></w:p>
+            </w:body>
+        </w:document>"#;
+
+        let ranges = CommentRanges::parse(xml);
+        // Block indices: 0=para, 1=table, 2=para
+        assert!(ranges.get_comment_ids(0).is_none());
+        assert!(ranges.get_comment_ids(1).is_none());
+        assert!(ranges.get_comment_ids(2).is_none());
+    }
+
+    #[test]
+    fn test_metadata_parse_empty() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties">
+        </cp:coreProperties>"#;
+
+        let metadata = DocumentMetadata::parse(xml);
+        assert!(metadata.title.is_none());
+        assert!(metadata.author.is_none());
+        assert!(metadata.created.is_none());
+    }
+
+    #[test]
+    fn test_metadata_parse_partial() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+                          xmlns:dc="http://purl.org/dc/elements/1.1/"
+                          xmlns:dcterms="http://purl.org/dc/terms/">
+            <dc:title>Test Document</dc:title>
+            <dc:creator>Test Author</dc:creator>
+        </cp:coreProperties>"#;
+
+        let metadata = DocumentMetadata::parse(xml);
+        assert_eq!(metadata.title, Some("Test Document".to_string()));
+        assert_eq!(metadata.author, Some("Test Author".to_string()));
+        assert!(metadata.subject.is_none());
+        assert!(metadata.modified.is_none());
+    }
+
+    #[test]
+    fn test_metadata_to_asciidoc_header_empty() {
+        let metadata = DocumentMetadata::default();
+        let header = metadata.to_asciidoc_header();
+        assert!(header.is_empty());
+    }
+
+    #[test]
+    fn test_metadata_to_asciidoc_header_with_author() {
+        let metadata = DocumentMetadata {
+            author: Some("John Doe".to_string()),
+            modified: Some("2025-01-15T10:30:00Z".to_string()),
+            ..Default::default()
+        };
+        let header = metadata.to_asciidoc_header();
+        assert!(header.contains(":author: John Doe"));
+        assert!(header.contains(":revdate: 2025-01-15"));
+    }
+
+    #[test]
+    fn test_metadata_to_asciidoc_header_empty_author() {
+        let metadata = DocumentMetadata {
+            author: Some("".to_string()), // Empty string
+            ..Default::default()
+        };
+        let header = metadata.to_asciidoc_header();
+        // Empty author should not produce :author: line
+        assert!(!header.contains(":author:"));
+    }
+
+    #[test]
+    fn test_extractor_with_force_parse() {
+        let extractor = AsciiDocExtractor::new().with_force_parse(true);
+        assert!(extractor.force_parse);
+
+        let extractor2 = AsciiDocExtractor::new().with_force_parse(false);
+        assert!(!extractor2.force_parse);
+    }
+
+    #[test]
+    fn test_style_mappings_to_toml_empty() {
+        let mappings = StyleMappings::default();
+        let toml = mappings.to_toml();
+        assert!(toml.contains("[styles]"));
+        // Should not have any style mappings
+        assert!(!toml.contains("heading"));
+        assert!(!toml.contains("paragraph"));
+    }
+
+    #[test]
+    fn test_style_mappings_to_toml_with_tables() {
+        let mappings = StyleMappings {
+            tables: vec!["TableGrid".to_string(), "TableSimple".to_string()],
+            ..Default::default()
+        };
+        let toml = mappings.to_toml();
+        // Only first table should be included
+        assert!(toml.contains("table = \"TableGrid\""));
+    }
+
+    #[test]
+    fn test_convert_empty_table() {
+        let extractor = AsciiDocExtractor::new();
+        let table = Table {
+            rows: vec![],
+            style_id: None,
+        };
+
+        let result = extractor.convert_table(&table);
+        // Empty table should produce empty output
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_is_numbered_list_heuristic() {
+        let extractor = AsciiDocExtractor::new();
+        let styles = StyleSheet::default();
+
+        // numId 2 is ordered list by convention
+        assert!(extractor.is_numbered_list(2, &styles));
+        // numId 1 is unordered list
+        assert!(!extractor.is_numbered_list(1, &styles));
+        // Other numIds default to unordered
+        assert!(!extractor.is_numbered_list(0, &styles));
+        assert!(!extractor.is_numbered_list(3, &styles));
+    }
+
+    #[test]
+    fn test_is_code_block_paragraph_mixed_formatting() {
+        let extractor = AsciiDocExtractor::new();
+
+        // Mixed monospace and non-monospace - NOT a code block
+        let para = Paragraph {
+            style_id: None,
+            numbering: None,
+            children: vec![
+                ParagraphChild::Run(Run {
+                    text: "regular ".to_string(),
+                    bold: false,
+                    italic: false,
+                    monospace: false,
+                }),
+                ParagraphChild::Run(Run {
+                    text: "code\nmore".to_string(),
+                    bold: false,
+                    italic: false,
+                    monospace: true,
+                }),
+            ],
+        };
+
+        assert!(!extractor.is_code_block_paragraph(&para));
+    }
+
+    #[test]
+    fn test_is_code_block_paragraph_all_monospace_with_newline() {
+        let extractor = AsciiDocExtractor::new();
+
+        // All monospace with newline - IS a code block
+        let para = Paragraph {
+            style_id: None,
+            numbering: None,
+            children: vec![ParagraphChild::Run(Run {
+                text: "fn main() {\n    println!(\"Hello\");\n}".to_string(),
+                bold: false,
+                italic: false,
+                monospace: true,
+            })],
+        };
+
+        assert!(extractor.is_code_block_paragraph(&para));
+    }
+
+    #[test]
+    fn test_is_code_block_paragraph_monospace_no_newline() {
+        let extractor = AsciiDocExtractor::new();
+
+        // Monospace but no newline - NOT a code block (inline code)
+        let para = Paragraph {
+            style_id: None,
+            numbering: None,
+            children: vec![ParagraphChild::Run(Run {
+                text: "inline_code".to_string(),
+                bold: false,
+                italic: false,
+                monospace: true,
+            })],
+        };
+
+        assert!(!extractor.is_code_block_paragraph(&para));
+    }
+
+    #[test]
+    fn test_get_raw_paragraph_text_with_hyperlink() {
+        let extractor = AsciiDocExtractor::new();
+
+        let para = Paragraph {
+            style_id: None,
+            numbering: None,
+            children: vec![
+                ParagraphChild::Run(Run {
+                    text: "Click ".to_string(),
+                    bold: false,
+                    italic: false,
+                    monospace: false,
+                }),
+                ParagraphChild::Hyperlink(Hyperlink {
+                    id: None,
+                    anchor: Some("target".to_string()),
+                    runs: vec![Run {
+                        text: "here".to_string(),
+                        bold: false,
+                        italic: false,
+                        monospace: false,
+                    }],
+                }),
+                ParagraphChild::Run(Run {
+                    text: " for more.".to_string(),
+                    bold: false,
+                    italic: false,
+                    monospace: false,
+                }),
+            ],
+        };
+
+        let text = extractor.get_raw_paragraph_text(&para);
+        assert_eq!(text, "Click here for more.");
+    }
+
+    #[test]
+    fn test_get_raw_paragraph_text_with_image() {
+        let extractor = AsciiDocExtractor::new();
+
+        let para = Paragraph {
+            style_id: None,
+            numbering: None,
+            children: vec![
+                ParagraphChild::Run(Run {
+                    text: "See ".to_string(),
+                    bold: false,
+                    italic: false,
+                    monospace: false,
+                }),
+                ParagraphChild::Image(crate::image::Image {
+                    id: 1,
+                    rel_id: "rId1".to_string(),
+                    target: "image.png".to_string(),
+                    alt: Some("diagram".to_string()),
+                    name: None,
+                    width_emu: None,
+                    height_emu: None,
+                    position: crate::image::ImagePosition::Inline,
+                }),
+            ],
+        };
+
+        let text = extractor.get_raw_paragraph_text(&para);
+        assert_eq!(text, "See diagram");
+    }
+
+    #[test]
+    fn test_convert_hyperlink_no_target() {
+        let extractor = AsciiDocExtractor::new();
+
+        // Hyperlink with no id and no anchor
+        let hyperlink = Hyperlink {
+            id: None,
+            anchor: None,
+            runs: vec![Run {
+                text: "orphan link".to_string(),
+                bold: false,
+                italic: false,
+                monospace: false,
+            }],
+        };
+
+        let result = extractor.convert_hyperlink(&hyperlink, None);
+        // Should produce <<,orphan link>> with empty anchor
+        assert!(result.contains("orphan link"));
+    }
+
+    #[test]
+    fn test_source_origin_variants() {
+        assert_eq!(SourceOrigin::Embedded, SourceOrigin::Embedded);
+        assert_eq!(SourceOrigin::Parsed, SourceOrigin::Parsed);
+        assert_ne!(SourceOrigin::Embedded, SourceOrigin::Parsed);
+    }
+
+    #[test]
+    fn test_convert_run_preserve_formatting_disabled() {
+        let mut extractor = AsciiDocExtractor::new();
+        extractor.preserve_formatting = false;
+
+        let run = Run {
+            text: "bold text".to_string(),
+            bold: true,
+            italic: false,
+            monospace: false,
+        };
+
+        let result = extractor.convert_run(&run);
+        // Should NOT have formatting markers
+        assert_eq!(result, "bold text");
+        assert!(!result.contains('*'));
+    }
+
+    #[test]
+    fn test_convert_run_bold_italic_combined() {
+        let extractor = AsciiDocExtractor::new();
+
+        let run = Run {
+            text: "emphasis".to_string(),
+            bold: true,
+            italic: true,
+            monospace: false,
+        };
+
+        let result = extractor.convert_run(&run);
+        // Should have both bold and italic markers
+        assert!(result.contains('*'));
+        assert!(result.contains('_'));
+    }
 }
