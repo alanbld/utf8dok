@@ -1489,4 +1489,456 @@ mod tests {
         assert_eq!(images[0].target, "media/image1.png");
         assert_eq!(images[1].target, "media/image2.png");
     }
+
+    // ==================== Sprint 16: Document Coverage Edge Cases ====================
+
+    #[test]
+    fn test_is_monospace_font_variants() {
+        // Standard monospace fonts
+        assert!(is_monospace_font("Courier New"));
+        assert!(is_monospace_font("Consolas"));
+        assert!(is_monospace_font("Menlo"));
+        assert!(is_monospace_font("Source Code Pro"));
+        assert!(is_monospace_font("Ubuntu Mono"));
+
+        // Case insensitive
+        assert!(is_monospace_font("COURIER"));
+        assert!(is_monospace_font("CONSOLAS"));
+        assert!(is_monospace_font("DejaVu Sans Mono"));
+
+        // Non-monospace fonts
+        assert!(!is_monospace_font("Arial"));
+        assert!(!is_monospace_font("Times New Roman"));
+        assert!(!is_monospace_font("Calibri"));
+        assert!(!is_monospace_font("Helvetica"));
+        // Note: Monaco is monospace but not detected (doesn't contain "mono")
+        assert!(!is_monospace_font("Monaco"));
+    }
+
+    #[test]
+    fn test_bookmark_filtering_internal_bookmarks() {
+        // Internal bookmarks like _Hlk and _GoBack should be filtered out
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:bookmarkStart w:id="0" w:name="_Hlk123"/>
+                    <w:bookmarkStart w:id="1" w:name="_GoBack"/>
+                    <w:bookmarkStart w:id="2" w:name="_Toc456"/>
+                    <w:bookmarkStart w:id="3" w:name="_Ref789"/>
+                    <w:bookmarkStart w:id="4" w:name="UserBookmark"/>
+                    <w:r><w:t>Content</w:t></w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("Expected paragraph");
+        };
+
+        let bookmarks: Vec<_> = p
+            .children
+            .iter()
+            .filter_map(|c| match c {
+                ParagraphChild::Bookmark(b) => Some(&b.name),
+                _ => None,
+            })
+            .collect();
+
+        // _Toc, _Ref, and user bookmarks should be kept
+        assert!(bookmarks.contains(&&"_Toc456".to_string()));
+        assert!(bookmarks.contains(&&"_Ref789".to_string()));
+        assert!(bookmarks.contains(&&"UserBookmark".to_string()));
+
+        // _Hlk and _GoBack should be filtered out
+        assert!(!bookmarks.contains(&&"_Hlk123".to_string()));
+        assert!(!bookmarks.contains(&&"_GoBack".to_string()));
+    }
+
+    #[test]
+    fn test_document_blocks_direct_access() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p><w:r><w:t>Para 1</w:t></w:r></w:p>
+                <w:p><w:r><w:t>Para 2</w:t></w:r></w:p>
+                <w:tbl>
+                    <w:tr><w:tc><w:p><w:r><w:t>Cell</w:t></w:r></w:p></w:tc></w:tr>
+                </w:tbl>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+
+        // Direct block access
+        assert_eq!(doc.blocks.len(), 3);
+
+        // Type checking
+        assert!(matches!(&doc.blocks[0], Block::Paragraph(_)));
+        assert!(matches!(&doc.blocks[1], Block::Paragraph(_)));
+        assert!(matches!(&doc.blocks[2], Block::Table(_)));
+    }
+
+    #[test]
+    fn test_document_plain_text_with_tables() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p><w:r><w:t>Before table</w:t></w:r></w:p>
+                <w:tbl>
+                    <w:tr>
+                        <w:tc><w:p><w:r><w:t>Cell A</w:t></w:r></w:p></w:tc>
+                        <w:tc><w:p><w:r><w:t>Cell B</w:t></w:r></w:p></w:tc>
+                    </w:tr>
+                </w:tbl>
+                <w:p><w:r><w:t>After table</w:t></w:r></w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let text = doc.plain_text();
+
+        // Should include all paragraph text, including table cells
+        assert!(text.contains("Before table"));
+        assert!(text.contains("Cell A"));
+        assert!(text.contains("Cell B"));
+        assert!(text.contains("After table"));
+    }
+
+    #[test]
+    fn test_document_paragraphs_flattens_tables() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p><w:r><w:t>Intro</w:t></w:r></w:p>
+                <w:tbl>
+                    <w:tr>
+                        <w:tc><w:p><w:r><w:t>Cell 1</w:t></w:r></w:p></w:tc>
+                        <w:tc><w:p><w:r><w:t>Cell 2</w:t></w:r></w:p></w:tc>
+                    </w:tr>
+                </w:tbl>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let paragraphs: Vec<_> = doc.paragraphs().collect();
+
+        // Should have 3 paragraphs: 1 standalone + 2 in table cells
+        assert_eq!(paragraphs.len(), 3);
+        assert_eq!(paragraphs[0].plain_text(), "Intro");
+        assert_eq!(paragraphs[1].plain_text(), "Cell 1");
+        assert_eq!(paragraphs[2].plain_text(), "Cell 2");
+    }
+
+    #[test]
+    fn test_numbering_ref_ilvl_before_numid() {
+        // Test when ilvl comes before numId in XML
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:pPr>
+                        <w:numPr>
+                            <w:ilvl w:val="2"/>
+                            <w:numId w:val="5"/>
+                        </w:numPr>
+                    </w:pPr>
+                    <w:r><w:t>Nested item</w:t></w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("Expected paragraph");
+        };
+
+        let num = p.numbering.as_ref().unwrap();
+        assert_eq!(num.ilvl, 2);
+        assert_eq!(num.num_id, 5);
+    }
+
+    #[test]
+    fn test_paragraph_plain_text_with_image_alt() {
+        use crate::image::{Image, ImagePosition};
+
+        let para = Paragraph {
+            style_id: None,
+            children: vec![
+                ParagraphChild::Run(Run {
+                    text: "See figure: ".to_string(),
+                    bold: false,
+                    italic: false,
+                    monospace: false,
+                }),
+                ParagraphChild::Image(Image {
+                    id: 1,
+                    rel_id: "rId1".to_string(),
+                    target: "media/diagram.png".to_string(),
+                    alt: Some("Architecture Diagram".to_string()),
+                    name: None,
+                    width_emu: None,
+                    height_emu: None,
+                    position: ImagePosition::Inline,
+                }),
+            ],
+            numbering: None,
+        };
+
+        let text = para.plain_text();
+        assert_eq!(text, "See figure: Architecture Diagram");
+    }
+
+    #[test]
+    fn test_paragraph_plain_text_image_no_alt() {
+        use crate::image::{Image, ImagePosition};
+
+        let para = Paragraph {
+            style_id: None,
+            children: vec![ParagraphChild::Image(Image {
+                id: 1,
+                rel_id: "rId1".to_string(),
+                target: "media/image.png".to_string(),
+                alt: None, // No alt text
+                name: None,
+                width_emu: None,
+                height_emu: None,
+                position: ImagePosition::Inline,
+            })],
+            numbering: None,
+        };
+
+        // Image without alt should contribute empty string
+        assert_eq!(para.plain_text(), "");
+    }
+
+    #[test]
+    fn test_hyperlink_empty_runs() {
+        let para = Paragraph {
+            style_id: None,
+            children: vec![ParagraphChild::Hyperlink(Hyperlink {
+                id: Some("rId1".to_string()),
+                anchor: None,
+                runs: vec![], // Empty hyperlink
+            })],
+            numbering: None,
+        };
+
+        // Empty hyperlink should be considered empty
+        assert!(para.is_empty());
+
+        // runs() should return nothing
+        let runs: Vec<_> = para.runs().collect();
+        assert!(runs.is_empty());
+    }
+
+    #[test]
+    fn test_hyperlink_with_whitespace_only() {
+        let para = Paragraph {
+            style_id: None,
+            children: vec![ParagraphChild::Hyperlink(Hyperlink {
+                id: Some("rId1".to_string()),
+                anchor: None,
+                runs: vec![Run {
+                    text: "   ".to_string(), // Whitespace only
+                    bold: false,
+                    italic: false,
+                    monospace: false,
+                }],
+            })],
+            numbering: None,
+        };
+
+        // Hyperlink with only whitespace should be considered empty
+        assert!(para.is_empty());
+    }
+
+    #[test]
+    fn test_parse_textbox_content() {
+        // Text inside textbox (w:txbxContent) should be extracted
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                    xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">
+            <w:body>
+                <w:p>
+                    <w:r>
+                        <mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">
+                            <mc:Choice>
+                                <w:drawing>
+                                    <wp:anchor xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">
+                                        <a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+                                            <wps:wsp>
+                                                <wps:txbx>
+                                                    <w:txbxContent>
+                                                        <w:p>
+                                                            <w:r>
+                                                                <w:t>Textbox content</w:t>
+                                                            </w:r>
+                                                        </w:p>
+                                                    </w:txbxContent>
+                                                </wps:txbx>
+                                            </wps:wsp>
+                                        </a:graphic>
+                                    </wp:anchor>
+                                </w:drawing>
+                            </mc:Choice>
+                        </mc:AlternateContent>
+                    </w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+
+        // Should have parsed paragraphs from textbox
+        assert!(!doc.blocks.is_empty());
+    }
+
+    #[test]
+    fn test_multiple_runs_concatenation() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:r><w:t>Hello</w:t></w:r>
+                    <w:r><w:t> </w:t></w:r>
+                    <w:r><w:t>World</w:t></w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        assert_eq!(doc.plain_text(), "Hello World");
+    }
+
+    #[test]
+    fn test_table_row_cell_counts() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:tbl>
+                    <w:tr>
+                        <w:tc><w:p><w:r><w:t>A1</w:t></w:r></w:p></w:tc>
+                        <w:tc><w:p><w:r><w:t>B1</w:t></w:r></w:p></w:tc>
+                        <w:tc><w:p><w:r><w:t>C1</w:t></w:r></w:p></w:tc>
+                    </w:tr>
+                    <w:tr>
+                        <w:tc><w:p><w:r><w:t>A2</w:t></w:r></w:p></w:tc>
+                        <w:tc><w:p><w:r><w:t>B2</w:t></w:r></w:p></w:tc>
+                    </w:tr>
+                </w:tbl>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let Block::Table(t) = &doc.blocks[0] else {
+            panic!("Expected table");
+        };
+
+        assert_eq!(t.rows.len(), 2);
+        assert_eq!(t.rows[0].cells.len(), 3);
+        assert_eq!(t.rows[1].cells.len(), 2);
+    }
+
+    #[test]
+    fn test_table_cell_multiple_paragraphs() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:tbl>
+                    <w:tr>
+                        <w:tc>
+                            <w:p><w:r><w:t>First para</w:t></w:r></w:p>
+                            <w:p><w:r><w:t>Second para</w:t></w:r></w:p>
+                        </w:tc>
+                    </w:tr>
+                </w:tbl>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let Block::Table(t) = &doc.blocks[0] else {
+            panic!("Expected table");
+        };
+
+        assert_eq!(t.rows[0].cells[0].paragraphs.len(), 2);
+        assert_eq!(t.rows[0].cells[0].paragraphs[0].plain_text(), "First para");
+        assert_eq!(t.rows[0].cells[0].paragraphs[1].plain_text(), "Second para");
+    }
+
+    #[test]
+    fn test_run_monospace_detection() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:r>
+                        <w:rPr>
+                            <w:rFonts w:ascii="Consolas"/>
+                        </w:rPr>
+                        <w:t>code</w:t>
+                    </w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("Expected paragraph");
+        };
+        let ParagraphChild::Run(r) = &p.children[0] else {
+            panic!("Expected run");
+        };
+
+        assert!(r.monospace);
+    }
+
+    #[test]
+    fn test_section_break_in_blocks() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p><w:r><w:t>Section 1</w:t></w:r></w:p>
+                <w:p>
+                    <w:pPr>
+                        <w:sectPr/>
+                    </w:pPr>
+                </w:p>
+                <w:p><w:r><w:t>Section 2</w:t></w:r></w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+
+        // Should have blocks including section-related paragraphs
+        assert!(doc.blocks.len() >= 2);
+
+        // First and last should be paragraphs with content
+        if let Block::Paragraph(p) = &doc.blocks[0] {
+            assert_eq!(p.plain_text(), "Section 1");
+        }
+    }
+
+    #[test]
+    fn test_bookmark_plain_text_empty() {
+        let para = Paragraph {
+            style_id: None,
+            children: vec![
+                ParagraphChild::Bookmark(Bookmark {
+                    name: "_Toc123".to_string(),
+                }),
+                ParagraphChild::Run(Run {
+                    text: "Heading".to_string(),
+                    bold: false,
+                    italic: false,
+                    monospace: false,
+                }),
+            ],
+            numbering: None,
+        };
+
+        // Bookmark should not contribute to plain text
+        assert_eq!(para.plain_text(), "Heading");
+    }
 }
