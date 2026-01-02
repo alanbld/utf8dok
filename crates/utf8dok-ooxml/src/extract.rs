@@ -1780,4 +1780,140 @@ mod tests {
         assert!(result.contains('*'));
         assert!(result.contains('_'));
     }
+
+    // ==================== Sprint 13: Comments Language Edge Cases ====================
+
+    #[test]
+    fn test_comments_language_with_whitespace() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:comment w:id="0" w:author="utf8dok">
+                <w:p><w:r><w:t>Language:   rust  </w:t></w:r></w:p>
+            </w:comment>
+        </w:comments>"#;
+
+        let comments = Comments::parse(xml);
+        // Should trim whitespace around the language
+        assert_eq!(comments.get_language(0), Some("rust".to_string()));
+    }
+
+    #[test]
+    fn test_comments_language_case_sensitive_prefix() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:comment w:id="0" w:author="utf8dok">
+                <w:p><w:r><w:t>language: python</w:t></w:r></w:p>
+            </w:comment>
+            <w:comment w:id="1" w:author="utf8dok">
+                <w:p><w:r><w:t>LANGUAGE: java</w:t></w:r></w:p>
+            </w:comment>
+        </w:comments>"#;
+
+        let comments = Comments::parse(xml);
+        // Current implementation is case-sensitive, lowercase won't match
+        assert_eq!(comments.get_language(0), None);
+        assert_eq!(comments.get_language(1), None);
+    }
+
+    #[test]
+    fn test_comments_language_with_special_chars() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:comment w:id="0" w:author="utf8dok">
+                <w:p><w:r><w:t>Language: c++</w:t></w:r></w:p>
+            </w:comment>
+            <w:comment w:id="1" w:author="utf8dok">
+                <w:p><w:r><w:t>Language: c#</w:t></w:r></w:p>
+            </w:comment>
+            <w:comment w:id="2" w:author="utf8dok">
+                <w:p><w:r><w:t>Language: objective-c</w:t></w:r></w:p>
+            </w:comment>
+        </w:comments>"#;
+
+        let comments = Comments::parse(xml);
+        assert_eq!(comments.get_language(0), Some("c++".to_string()));
+        assert_eq!(comments.get_language(1), Some("c#".to_string()));
+        assert_eq!(comments.get_language(2), Some("objective-c".to_string()));
+    }
+
+    #[test]
+    fn test_comments_language_empty_after_prefix() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:comment w:id="0" w:author="utf8dok">
+                <w:p><w:r><w:t>Language:</w:t></w:r></w:p>
+            </w:comment>
+            <w:comment w:id="1" w:author="utf8dok">
+                <w:p><w:r><w:t>Language:   </w:t></w:r></w:p>
+            </w:comment>
+        </w:comments>"#;
+
+        let comments = Comments::parse(xml);
+        // Empty language after trimming
+        assert_eq!(comments.get_language(0), Some("".to_string()));
+        assert_eq!(comments.get_language(1), Some("".to_string()));
+    }
+
+    #[test]
+    fn test_comments_get_nonexistent_id() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:comment w:id="5" w:author="utf8dok">
+                <w:p><w:r><w:t>Language: go</w:t></w:r></w:p>
+            </w:comment>
+        </w:comments>"#;
+
+        let comments = Comments::parse(xml);
+        assert_eq!(comments.get(0), None);
+        assert_eq!(comments.get(1), None);
+        assert_eq!(comments.get(5), Some("Language: go"));
+        assert_eq!(comments.get_language(5), Some("go".to_string()));
+    }
+
+    #[test]
+    fn test_comments_multiple_paragraphs_in_comment() {
+        // Only first paragraph text should be captured
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:comment w:id="0" w:author="utf8dok">
+                <w:p><w:r><w:t>Language: typescript</w:t></w:r></w:p>
+                <w:p><w:r><w:t>Additional info ignored</w:t></w:r></w:p>
+            </w:comment>
+        </w:comments>"#;
+
+        let comments = Comments::parse(xml);
+        // Current parser concatenates all text in a comment
+        let text = comments.get(0).unwrap();
+        assert!(text.contains("Language: typescript"));
+    }
+
+    #[test]
+    fn test_comment_ranges_empty_block_list() {
+        let ranges = CommentRanges::default();
+        assert!(ranges.get_comment_ids(0).is_none());
+        assert!(ranges.get_comment_ids(100).is_none());
+    }
+
+    #[test]
+    fn test_comment_ranges_multiple_comments_on_same_block() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:commentRangeStart w:id="0"/>
+                    <w:commentRangeStart w:id="1"/>
+                    <w:r><w:t>Doubly commented</w:t></w:r>
+                    <w:commentRangeEnd w:id="0"/>
+                    <w:commentRangeEnd w:id="1"/>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let ranges = CommentRanges::parse(xml);
+        let ids = ranges.get_comment_ids(0);
+        assert!(ids.is_some());
+        let ids = ids.unwrap();
+        assert!(ids.contains(&0));
+        assert!(ids.contains(&1));
+    }
 }

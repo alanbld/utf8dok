@@ -383,4 +383,216 @@ mod tests {
         // Should have Heading1, Heading2, Heading3 from test template
         assert_eq!(heading_ids.len(), 3);
     }
+
+    // ==================== Sprint 13: Header/Footer + Manifest Tests ====================
+
+    /// Create a template with headers and footers for testing
+    fn create_template_with_headers_footers() -> Vec<u8> {
+        let mut buffer = Cursor::new(Vec::new());
+        let mut zip = ZipWriter::new(&mut buffer);
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+
+        // [Content_Types].xml with header/footer content types
+        zip.start_file("[Content_Types].xml", options).unwrap();
+        zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.template.main+xml"/>
+  <Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>
+  <Override PartName="/word/header2.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>
+  <Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>
+</Types>"#).unwrap();
+
+        // _rels/.rels
+        zip.start_file("_rels/.rels", options).unwrap();
+        zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>"#).unwrap();
+
+        // word/_rels/document.xml.rels
+        zip.start_file("word/_rels/document.xml.rels", options).unwrap();
+        zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header2.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>
+</Relationships>"#).unwrap();
+
+        // word/document.xml
+        zip.start_file("word/document.xml", options).unwrap();
+        zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p><w:r><w:t>Template content</w:t></w:r></w:p>
+  </w:body>
+</w:document>"#).unwrap();
+
+        // word/header1.xml
+        zip.start_file("word/header1.xml", options).unwrap();
+        zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:p><w:r><w:t>Header 1 Content</w:t></w:r></w:p>
+</w:hdr>"#).unwrap();
+
+        // word/header2.xml
+        zip.start_file("word/header2.xml", options).unwrap();
+        zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:p><w:r><w:t>Header 2 Content</w:t></w:r></w:p>
+</w:hdr>"#).unwrap();
+
+        // word/footer1.xml
+        zip.start_file("word/footer1.xml", options).unwrap();
+        zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+<w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:p><w:r><w:t>Footer 1 Content</w:t></w:r></w:p>
+</w:ftr>"#).unwrap();
+
+        zip.finish().unwrap();
+        buffer.into_inner()
+    }
+
+    #[test]
+    fn test_header_returns_content() {
+        let template_bytes = create_template_with_headers_footers();
+        let template = Template::from_bytes(&template_bytes).unwrap();
+
+        let header1 = template.header(1);
+        assert!(header1.is_some());
+        let content = std::str::from_utf8(header1.unwrap()).unwrap();
+        assert!(content.contains("Header 1 Content"));
+    }
+
+    #[test]
+    fn test_header_multiple_indices() {
+        let template_bytes = create_template_with_headers_footers();
+        let template = Template::from_bytes(&template_bytes).unwrap();
+
+        // Header 1 exists
+        let header1 = template.header(1);
+        assert!(header1.is_some());
+
+        // Header 2 exists
+        let header2 = template.header(2);
+        assert!(header2.is_some());
+        let content = std::str::from_utf8(header2.unwrap()).unwrap();
+        assert!(content.contains("Header 2 Content"));
+
+        // Header 3 does not exist
+        let header3 = template.header(3);
+        assert!(header3.is_none());
+    }
+
+    #[test]
+    fn test_header_index_zero() {
+        let template_bytes = create_template_with_headers_footers();
+        let template = Template::from_bytes(&template_bytes).unwrap();
+
+        // Index 0 should return None (OOXML headers start at 1)
+        let header0 = template.header(0);
+        assert!(header0.is_none());
+    }
+
+    #[test]
+    fn test_footer_returns_content() {
+        let template_bytes = create_template_with_headers_footers();
+        let template = Template::from_bytes(&template_bytes).unwrap();
+
+        let footer1 = template.footer(1);
+        assert!(footer1.is_some());
+        let content = std::str::from_utf8(footer1.unwrap()).unwrap();
+        assert!(content.contains("Footer 1 Content"));
+    }
+
+    #[test]
+    fn test_footer_missing_index() {
+        let template_bytes = create_template_with_headers_footers();
+        let template = Template::from_bytes(&template_bytes).unwrap();
+
+        // Footer 2 does not exist in our test template
+        let footer2 = template.footer(2);
+        assert!(footer2.is_none());
+    }
+
+    #[test]
+    fn test_header_footer_on_template_without_them() {
+        // Use the standard test template which has no headers/footers
+        let template_bytes = create_test_template();
+        let template = Template::from_bytes(&template_bytes).unwrap();
+
+        assert!(template.header(1).is_none());
+        assert!(template.header(2).is_none());
+        assert!(template.footer(1).is_none());
+        assert!(template.footer(2).is_none());
+    }
+
+    #[test]
+    fn test_has_manifest_false() {
+        let template_bytes = create_test_template();
+        let template = Template::from_bytes(&template_bytes).unwrap();
+
+        // Standard test template has no manifest
+        assert!(!template.has_manifest());
+    }
+
+    #[test]
+    fn test_has_manifest_true() {
+        let mut buffer = Cursor::new(Vec::new());
+        let mut zip = ZipWriter::new(&mut buffer);
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+
+        // Minimal content types
+        zip.start_file("[Content_Types].xml", options).unwrap();
+        zip.write_all(br#"<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="xml" ContentType="application/xml"/>
+</Types>"#).unwrap();
+
+        // Required rels
+        zip.start_file("_rels/.rels", options).unwrap();
+        zip.write_all(br#"<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>"#).unwrap();
+
+        // Minimal document
+        zip.start_file("word/document.xml", options).unwrap();
+        zip.write_all(br#"<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body/></w:document>"#).unwrap();
+
+        // UTF8dok manifest
+        zip.start_file("utf8dok/manifest.json", options).unwrap();
+        zip.write_all(br#"{"version":"1.0","generator":"utf8dok","generated_at":"2025-01-01","elements":{}}"#).unwrap();
+
+        zip.finish().unwrap();
+        let template_bytes = buffer.into_inner();
+
+        let template = Template::from_bytes(&template_bytes).unwrap();
+        assert!(template.has_manifest());
+    }
+
+    #[test]
+    fn test_document_xml_returns_content() {
+        let template_bytes = create_test_template();
+        let template = Template::from_bytes(&template_bytes).unwrap();
+
+        let doc_xml = template.document_xml();
+        assert!(doc_xml.is_ok());
+
+        let content = std::str::from_utf8(doc_xml.unwrap()).unwrap();
+        assert!(content.contains("w:document"));
+        assert!(content.contains("w:body"));
+    }
+
+    #[test]
+    fn test_archive_mut_access() {
+        let template_bytes = create_test_template();
+        let mut template = Template::from_bytes(&template_bytes).unwrap();
+
+        // archive_mut should provide mutable access
+        let archive = template.archive_mut();
+
+        // Can check files exist
+        assert!(archive.contains("word/document.xml"));
+        assert!(archive.contains("[Content_Types].xml"));
+    }
 }
