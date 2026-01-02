@@ -186,11 +186,15 @@ impl ToAst for Paragraph {
         // Check if this is a heading
         if let Some(ref style_id) = self.style_id {
             if let Some(level) = ctx.heading_level(style_id) {
+                // Generate anchor from heading text
+                let plain_text = extract_plain_text(&inlines);
+                let anchor = generate_anchor(&plain_text);
+
                 return AstBlock::Heading(Heading {
                     level,
                     text: inlines,
                     style_id: Some(style_id.clone()),
-                    anchor: None, // TODO: generate from text
+                    anchor,
                 });
             }
         }
@@ -280,6 +284,83 @@ impl ToAst for Document {
 // =============================================================================
 // Convenience functions
 // =============================================================================
+
+/// Generate a slug/anchor ID from text
+///
+/// Converts text to a URL-friendly anchor:
+/// - Lowercase
+/// - Spaces become hyphens
+/// - Remove non-alphanumeric (except hyphens)
+/// - Collapse multiple hyphens
+/// - Trim leading/trailing hyphens
+fn generate_anchor(text: &str) -> Option<String> {
+    if text.is_empty() {
+        return None;
+    }
+
+    let slug: String = text
+        .to_lowercase()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c
+            } else if c.is_whitespace() || c == '-' || c == '_' {
+                '-'
+            } else {
+                // Skip other characters
+                '\0'
+            }
+        })
+        .filter(|&c| c != '\0')
+        .collect();
+
+    // Collapse multiple hyphens and trim
+    let mut result = String::new();
+    let mut prev_hyphen = true; // Start true to skip leading hyphens
+    for c in slug.chars() {
+        if c == '-' {
+            if !prev_hyphen {
+                result.push('-');
+                prev_hyphen = true;
+            }
+        } else {
+            result.push(c);
+            prev_hyphen = false;
+        }
+    }
+
+    // Trim trailing hyphen
+    if result.ends_with('-') {
+        result.pop();
+    }
+
+    if result.is_empty() {
+        None
+    } else {
+        Some(result)
+    }
+}
+
+/// Extract plain text from inlines for anchor generation
+fn extract_plain_text(inlines: &[Inline]) -> String {
+    let mut text = String::new();
+    for inline in inlines {
+        match inline {
+            Inline::Text(t) => text.push_str(t),
+            Inline::Format(_, inner) => {
+                text.push_str(&extract_plain_text(&[(**inner).clone()]));
+            }
+            Inline::Span(inner) => {
+                text.push_str(&extract_plain_text(inner));
+            }
+            Inline::Link(link) => {
+                text.push_str(&extract_plain_text(&link.text));
+            }
+            _ => {} // Skip images, breaks, anchors
+        }
+    }
+    text
+}
 
 /// Convert an OOXML document to AST without style information
 pub fn convert_document(doc: &Document) -> utf8dok_ast::Document {
@@ -540,6 +621,83 @@ mod tests {
             &ast_doc.blocks[2],
             AstBlock::Break(AstBreakType::Section)
         ));
+    }
+
+    #[test]
+    fn test_generate_anchor_simple() {
+        assert_eq!(generate_anchor("Hello World"), Some("hello-world".into()));
+        assert_eq!(generate_anchor("Introduction"), Some("introduction".into()));
+        assert_eq!(
+            generate_anchor("Chapter 1: Getting Started"),
+            Some("chapter-1-getting-started".into())
+        );
+    }
+
+    #[test]
+    fn test_generate_anchor_special_chars() {
+        assert_eq!(
+            generate_anchor("What's New?"),
+            Some("whats-new".into())
+        );
+        assert_eq!(
+            generate_anchor("C++ Programming"),
+            Some("c-programming".into())
+        );
+        assert_eq!(
+            generate_anchor("  Multiple   Spaces  "),
+            Some("multiple-spaces".into())
+        );
+    }
+
+    #[test]
+    fn test_generate_anchor_edge_cases() {
+        assert_eq!(generate_anchor(""), None);
+        assert_eq!(generate_anchor("   "), None);
+        assert_eq!(generate_anchor("???"), None);
+        assert_eq!(generate_anchor("123"), Some("123".into()));
+        assert_eq!(generate_anchor("a"), Some("a".into()));
+    }
+
+    #[test]
+    fn test_extract_plain_text_simple() {
+        let inlines = vec![Inline::Text("Hello World".to_string())];
+        assert_eq!(extract_plain_text(&inlines), "Hello World");
+    }
+
+    #[test]
+    fn test_extract_plain_text_formatted() {
+        let inlines = vec![
+            Inline::Text("Plain ".to_string()),
+            Inline::Format(
+                FormatType::Bold,
+                Box::new(Inline::Text("bold".to_string())),
+            ),
+            Inline::Text(" text".to_string()),
+        ];
+        assert_eq!(extract_plain_text(&inlines), "Plain bold text");
+    }
+
+    #[test]
+    fn test_heading_anchor_generation() {
+        let para = Paragraph {
+            style_id: Some("Heading1".to_string()),
+            children: vec![ParagraphChild::Run(Run {
+                text: "Introduction to Rust".to_string(),
+                bold: false,
+                italic: false,
+                monospace: false,
+            })],
+            numbering: None,
+        };
+        let ctx = ConversionContext::new();
+        let block = para.to_ast(&ctx);
+
+        if let AstBlock::Heading(h) = block {
+            assert_eq!(h.level, 1);
+            assert_eq!(h.anchor, Some("introduction-to-rust".to_string()));
+        } else {
+            panic!("Expected Heading block");
+        }
     }
 
     #[test]

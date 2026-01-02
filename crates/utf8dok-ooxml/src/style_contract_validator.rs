@@ -795,4 +795,336 @@ mod tests {
         assert!(result.has_errors());
         assert!(result.errors()[0].message.contains("must have a URL"));
     }
+
+    // ==================== Additional Coverage Tests ====================
+
+    #[test]
+    fn test_validation_result_methods() {
+        let mut result = ValidationResult::new();
+        assert!(!result.has_errors());
+        assert!(!result.has_warnings());
+        assert!(result.is_valid());
+
+        result.warning(ValidationCategory::Completeness, "A warning");
+        assert!(!result.has_errors());
+        assert!(result.has_warnings());
+        assert!(result.is_valid()); // Warnings don't fail validation
+
+        result.error(ValidationCategory::Schema, "An error");
+        assert!(result.has_errors());
+        assert!(!result.is_valid());
+
+        assert_eq!(result.errors().len(), 1);
+        assert_eq!(result.warnings().len(), 1);
+    }
+
+    #[test]
+    fn test_validation_result_with_field() {
+        let mut result = ValidationResult::new();
+        result.error_at(ValidationCategory::Schema, "field.path", "Error at field");
+        result.warning_at(
+            ValidationCategory::Invariant,
+            "other.field",
+            "Warning at field",
+        );
+
+        assert_eq!(result.issues.len(), 2);
+        assert_eq!(result.issues[0].field, Some("field.path".to_string()));
+        assert_eq!(result.issues[1].field, Some("other.field".to_string()));
+    }
+
+    #[test]
+    fn test_validation_result_merge() {
+        let mut result1 = ValidationResult::new();
+        result1.error(ValidationCategory::Schema, "Error 1");
+
+        let mut result2 = ValidationResult::new();
+        result2.warning(ValidationCategory::Completeness, "Warning 1");
+        result2.error(ValidationCategory::Invariant, "Error 2");
+
+        result1.merge(result2);
+
+        assert_eq!(result1.issues.len(), 3);
+        assert_eq!(result1.errors().len(), 2);
+        assert_eq!(result1.warnings().len(), 1);
+    }
+
+    #[test]
+    fn test_completeness_basic_empty_contract() {
+        let contract = StyleContract::new();
+        let result = StyleContractValidator::validate_completeness_basic(&contract);
+
+        // Should warn about no paragraph styles and no headings
+        assert!(result.has_warnings());
+        assert!(result.warnings().len() >= 1);
+    }
+
+    #[test]
+    fn test_completeness_basic_with_styles_no_headings() {
+        let mut contract = StyleContract::new();
+        contract.add_paragraph_style(
+            "Normal",
+            ParagraphStyleMapping {
+                role: "paragraph".into(),
+                heading_level: None, // Not a heading
+                ..Default::default()
+            },
+        );
+
+        let result = StyleContractValidator::validate_completeness_basic(&contract);
+        // Should warn about no headings
+        assert!(result.has_warnings());
+        assert!(result
+            .warnings()
+            .iter()
+            .any(|w| w.message.contains("No heading")));
+    }
+
+    #[test]
+    fn test_completeness_basic_with_headings() {
+        let mut contract = StyleContract::new();
+        contract.add_paragraph_style(
+            "Heading1",
+            ParagraphStyleMapping {
+                role: "h1".into(),
+                heading_level: Some(1),
+                ..Default::default()
+            },
+        );
+
+        let result = StyleContractValidator::validate_completeness_basic(&contract);
+        // Should have no warnings about missing headings
+        assert!(!result
+            .warnings()
+            .iter()
+            .any(|w| w.message.contains("No heading")));
+    }
+
+    #[test]
+    fn test_completeness_extraction_unmapped_styles() {
+        let contract = StyleContract::new(); // Empty
+
+        let mut found_styles = HashSet::new();
+        found_styles.insert("UnmappedStyle".to_string());
+        found_styles.insert("AnotherUnmapped".to_string());
+
+        let found_bookmarks = HashSet::new();
+
+        let result = StyleContractValidator::validate_completeness_extraction(
+            &contract,
+            &found_styles,
+            &found_bookmarks,
+        );
+
+        assert!(result.has_warnings());
+        assert_eq!(result.warnings().len(), 2);
+        assert!(result
+            .warnings()
+            .iter()
+            .any(|w| w.message.contains("UnmappedStyle")));
+    }
+
+    #[test]
+    fn test_completeness_extraction_unmapped_bookmarks() {
+        let contract = StyleContract::new();
+
+        let found_styles = HashSet::new();
+        let mut found_bookmarks = HashSet::new();
+        found_bookmarks.insert("_Toc999".to_string());
+        found_bookmarks.insert("_Hlk123".to_string()); // Should be skipped
+
+        let result = StyleContractValidator::validate_completeness_extraction(
+            &contract,
+            &found_styles,
+            &found_bookmarks,
+        );
+
+        // Only _Toc999 should produce a warning, _Hlk is skipped
+        assert!(result.has_warnings());
+        assert_eq!(result.warnings().len(), 1);
+        assert!(result.warnings()[0].message.contains("_Toc999"));
+    }
+
+    #[test]
+    fn test_invariant_invalid_bookmark_ncname() {
+        let mut contract = StyleContract::new();
+        contract.add_anchor(
+            "123invalid", // Starts with digit - invalid NCName
+            AnchorMapping {
+                semantic_id: "test".into(),
+                anchor_type: AnchorType::UserDefined,
+                target_heading: None,
+                original_bookmark: None,
+            },
+        );
+
+        let result = StyleContractValidator::validate_invariants(&contract);
+        assert!(result.has_errors());
+        assert!(result.errors()[0].message.contains("not a valid XML NCName"));
+    }
+
+    #[test]
+    fn test_invariant_duplicate_original_bookmark() {
+        let mut contract = StyleContract::new();
+
+        // Two anchors referencing the same original bookmark
+        contract.add_anchor(
+            "_Toc123",
+            AnchorMapping {
+                semantic_id: "section1".into(),
+                anchor_type: AnchorType::Toc,
+                target_heading: None,
+                original_bookmark: Some("OriginalBM".into()),
+            },
+        );
+        contract.add_anchor(
+            "_Toc456",
+            AnchorMapping {
+                semantic_id: "section2".into(),
+                anchor_type: AnchorType::Toc,
+                target_heading: None,
+                original_bookmark: Some("OriginalBM".into()), // Duplicate!
+            },
+        );
+
+        let result = StyleContractValidator::validate_invariants(&contract);
+        assert!(result.has_errors());
+        assert!(result.errors()[0]
+            .message
+            .contains("referenced by multiple anchors"));
+    }
+
+    #[test]
+    fn test_schema_invalid_semantic_id_in_anchor() {
+        let mut contract = StyleContract::new();
+        contract.add_anchor(
+            "_Toc123",
+            AnchorMapping {
+                semantic_id: "UPPERCASE".into(), // Invalid - uppercase
+                anchor_type: AnchorType::Toc,
+                target_heading: None,
+                original_bookmark: None,
+            },
+        );
+
+        let result = StyleContractValidator::validate_schema(&contract);
+        assert!(result.has_errors());
+        assert!(result.errors()[0].message.contains("must match pattern"));
+    }
+
+    #[test]
+    fn test_schema_internal_hyperlink_no_anchor() {
+        let mut contract = StyleContract::new();
+        contract.add_hyperlink(
+            "link1",
+            HyperlinkMapping {
+                is_external: false,
+                url: None,
+                anchor_target: None, // Missing for internal link
+                original_rel_id: None,
+                original_anchor: None,
+            },
+        );
+
+        let result = StyleContractValidator::validate_schema(&contract);
+        // Should produce a warning (not error) for missing anchor_target
+        assert!(result.has_warnings());
+        assert!(result.warnings()[0].message.contains("no anchor target"));
+    }
+
+    #[test]
+    fn test_roundtrip_toml_serialization() {
+        let mut contract = StyleContract::with_source("roundtrip.docx");
+        contract.add_paragraph_style(
+            "Heading1",
+            ParagraphStyleMapping {
+                role: "h1".into(),
+                heading_level: Some(1),
+                ..Default::default()
+            },
+        );
+        contract.add_paragraph_style(
+            "Normal",
+            ParagraphStyleMapping {
+                role: "paragraph".into(),
+                heading_level: None,
+                ..Default::default()
+            },
+        );
+        contract.add_anchor(
+            "_Toc123",
+            AnchorMapping {
+                semantic_id: "introduction".into(),
+                anchor_type: AnchorType::Toc,
+                target_heading: Some("Introduction".into()),
+                original_bookmark: Some("_Toc123".into()),
+            },
+        );
+
+        let result = StyleContractValidator::validate_roundtrip_properties(&contract);
+        assert!(
+            result.is_valid(),
+            "TOML round-trip should succeed: {:?}",
+            result.errors()
+        );
+    }
+
+    #[test]
+    fn test_full_validation_complex_contract() {
+        let mut contract = StyleContract::with_source("complex.docx");
+
+        // Add multiple heading styles
+        for level in 1..=3 {
+            contract.add_paragraph_style(
+                &format!("Heading{}", level),
+                ParagraphStyleMapping {
+                    role: format!("h{}", level),
+                    heading_level: Some(level),
+                    ..Default::default()
+                },
+            );
+        }
+
+        // Add paragraph style
+        contract.add_paragraph_style(
+            "Normal",
+            ParagraphStyleMapping {
+                role: "paragraph".into(),
+                heading_level: None,
+                ..Default::default()
+            },
+        );
+
+        // Add multiple anchors
+        for i in 1..=3 {
+            contract.add_anchor(
+                &format!("_Toc{:03}", i),
+                AnchorMapping {
+                    semantic_id: format!("section-{}", i),
+                    anchor_type: AnchorType::Toc,
+                    target_heading: Some(format!("Section {}", i)),
+                    original_bookmark: Some(format!("_Toc{:03}", i)),
+                },
+            );
+        }
+
+        // Add hyperlinks
+        contract.add_hyperlink(
+            "rId1",
+            HyperlinkMapping {
+                is_external: true,
+                url: Some("https://example.com".into()),
+                anchor_target: None,
+                original_rel_id: Some("rId1".into()),
+                original_anchor: None,
+            },
+        );
+
+        let result = StyleContractValidator::validate(&contract);
+        assert!(
+            result.is_valid(),
+            "Complex contract should be valid: {:?}",
+            result.errors()
+        );
+    }
 }
