@@ -478,4 +478,188 @@ mod tests {
         assert!(img.width_px().is_none());
         assert!(img.height_px().is_none());
     }
+
+    // ==================== Sprint 17: Image Edge Cases ====================
+
+    #[test]
+    fn test_image_is_inline_and_is_anchor() {
+        let inline = Image::new_inline(1, "rId1".to_string(), "img.png".to_string());
+        assert!(inline.is_inline());
+        assert!(!inline.is_anchor());
+
+        let anchor = Image::new_anchor(
+            2,
+            "rId2".to_string(),
+            "img2.png".to_string(),
+            0,
+            0,
+            WrapType::Square,
+        );
+        assert!(!anchor.is_inline());
+        assert!(anchor.is_anchor());
+    }
+
+    #[test]
+    fn test_image_with_dimensions_emu_direct() {
+        let img = Image::new_inline(1, "rId1".to_string(), "img.png".to_string())
+            .with_dimensions_emu(914400, 457200); // 1 inch x 0.5 inch
+
+        assert_eq!(img.width_emu, Some(914400));
+        assert_eq!(img.height_emu, Some(457200));
+        assert_eq!(img.width_px(), Some(96)); // 1 inch at 96 DPI
+        assert_eq!(img.height_px(), Some(48)); // 0.5 inch at 96 DPI
+    }
+
+    #[test]
+    fn test_image_default_position() {
+        // ImagePosition::default() should be Inline
+        let default_pos = ImagePosition::default();
+        assert_eq!(default_pos, ImagePosition::Inline);
+    }
+
+    #[test]
+    fn test_wrap_type_default() {
+        // WrapType::default() should be None
+        let default_wrap = WrapType::default();
+        assert_eq!(default_wrap, WrapType::None);
+    }
+
+    #[test]
+    fn test_image_clone() {
+        let original = Image::new_inline(1, "rId1".to_string(), "img.png".to_string())
+            .with_alt("Alt text")
+            .with_name("Image name")
+            .with_dimensions_px(100, 200);
+
+        let cloned = original.clone();
+
+        assert_eq!(cloned.id, original.id);
+        assert_eq!(cloned.rel_id, original.rel_id);
+        assert_eq!(cloned.target, original.target);
+        assert_eq!(cloned.alt, original.alt);
+        assert_eq!(cloned.name, original.name);
+        assert_eq!(cloned.width_emu, original.width_emu);
+        assert_eq!(cloned.height_emu, original.height_emu);
+    }
+
+    #[test]
+    fn test_image_position_clone_and_eq() {
+        let pos1 = ImagePosition::Anchor {
+            horizontal: 100,
+            vertical: 200,
+            wrap: WrapType::Tight,
+        };
+        let pos2 = pos1.clone();
+        assert_eq!(pos1, pos2);
+
+        let pos3 = ImagePosition::Inline;
+        assert_ne!(pos1, pos3);
+    }
+
+    #[test]
+    fn test_wrap_type_copy() {
+        let wrap = WrapType::Square;
+        let copied = wrap; // Copy
+        assert_eq!(wrap, copied);
+        assert_eq!(copied, WrapType::Square);
+    }
+
+    #[test]
+    fn test_emu_constants() {
+        assert_eq!(EMU_PER_INCH, 914400);
+        assert_eq!(EMU_PER_PIXEL, 9525);
+        // Verify relationship: 914400 / 9525 = 96 (DPI)
+        assert_eq!(EMU_PER_INCH / EMU_PER_PIXEL, 96);
+    }
+
+    #[test]
+    fn test_inches_to_emu_fractional() {
+        // Test with fractional inches
+        assert_eq!(inches_to_emu(0.25), 228600); // 0.25 * 914400
+        assert_eq!(inches_to_emu(2.5), 2286000); // 2.5 * 914400
+    }
+
+    #[test]
+    fn test_emu_to_inches_fractional() {
+        // Test reverse conversion
+        let emu = inches_to_emu(1.5);
+        let inches = emu_to_inches(emu);
+        assert!((inches - 1.5).abs() < 0.0001);
+    }
+
+    #[test]
+    fn test_pixels_to_emu_zero() {
+        assert_eq!(pixels_to_emu(0), 0);
+    }
+
+    #[test]
+    fn test_image_anchor_with_all_wrap_types() {
+        let wrap_types = [
+            WrapType::None,
+            WrapType::Square,
+            WrapType::Tight,
+            WrapType::Through,
+            WrapType::TopAndBottom,
+        ];
+
+        for wrap in &wrap_types {
+            let img = Image::new_anchor(1, "rId1".to_string(), "img.png".to_string(), 0, 0, *wrap);
+            if let ImagePosition::Anchor { wrap: w, .. } = img.position {
+                assert_eq!(w, *wrap);
+            } else {
+                panic!("Expected anchor position");
+            }
+        }
+    }
+
+    #[test]
+    fn test_image_filename_empty_target() {
+        let img = Image::new_inline(1, "rId1".to_string(), "".to_string());
+        assert_eq!(img.filename(), "");
+    }
+
+    #[test]
+    fn test_content_type_case_insensitive() {
+        // Upper case extensions
+        assert_eq!(content_type_for_extension("PNG"), "image/png");
+        assert_eq!(content_type_for_extension("JPG"), "image/jpeg");
+        assert_eq!(content_type_for_extension("JPEG"), "image/jpeg");
+        assert_eq!(content_type_for_extension("GIF"), "image/gif");
+        assert_eq!(content_type_for_extension("SVG"), "image/svg+xml");
+        assert_eq!(content_type_for_extension("BMP"), "image/bmp");
+
+        // Mixed case
+        assert_eq!(content_type_for_extension("Png"), "image/png");
+        assert_eq!(content_type_for_extension("JpEg"), "image/jpeg");
+    }
+
+    #[test]
+    fn test_image_debug_format() {
+        let img = Image::new_inline(1, "rId1".to_string(), "img.png".to_string());
+        let debug = format!("{:?}", img);
+        assert!(debug.contains("Image"));
+        assert!(debug.contains("rId1"));
+        assert!(debug.contains("img.png"));
+    }
+
+    #[test]
+    fn test_wrap_type_debug_format() {
+        let wrap = WrapType::Square;
+        let debug = format!("{:?}", wrap);
+        assert_eq!(debug, "Square");
+    }
+
+    #[test]
+    fn test_image_position_debug_format() {
+        let pos = ImagePosition::Anchor {
+            horizontal: 100,
+            vertical: 200,
+            wrap: WrapType::Tight,
+        };
+        let debug = format!("{:?}", pos);
+        assert!(debug.contains("Anchor"));
+        assert!(debug.contains("100"));
+        assert!(debug.contains("200"));
+        assert!(debug.contains("Tight"));
+    }
 }

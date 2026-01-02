@@ -1161,4 +1161,328 @@ mod tests {
             panic!("Expected Table block");
         }
     }
+
+    // ==================== Sprint 17: Conversion Edge Cases ====================
+
+    #[test]
+    fn test_block_section_break_conversion() {
+        let ctx = ConversionContext::default();
+
+        let section_break = Block::SectionBreak;
+        let ast_block = section_break.to_ast(&ctx);
+
+        // Section break should convert to a Break block
+        assert!(matches!(ast_block, AstBlock::Break(_)));
+    }
+
+    #[test]
+    fn test_document_with_section_breaks() {
+        let doc = Document {
+            blocks: vec![
+                Block::Paragraph(Paragraph {
+                    style_id: None,
+                    children: vec![ParagraphChild::Run(Run {
+                        text: "Before".to_string(),
+                        bold: false,
+                        italic: false,
+                        monospace: false,
+                    })],
+                    numbering: None,
+                }),
+                Block::SectionBreak,
+                Block::Paragraph(Paragraph {
+                    style_id: None,
+                    children: vec![ParagraphChild::Run(Run {
+                        text: "After".to_string(),
+                        bold: false,
+                        italic: false,
+                        monospace: false,
+                    })],
+                    numbering: None,
+                }),
+            ],
+        };
+
+        let ast_doc = convert_document(&doc);
+        assert_eq!(ast_doc.blocks.len(), 3);
+        assert!(matches!(&ast_doc.blocks[0], AstBlock::Paragraph(_)));
+        assert!(matches!(&ast_doc.blocks[1], AstBlock::Break(_)));
+        assert!(matches!(&ast_doc.blocks[2], AstBlock::Paragraph(_)));
+    }
+
+    #[test]
+    fn test_table_row_header_flag() {
+        let ctx = ConversionContext::default();
+
+        let table = Table {
+            style_id: None,
+            rows: vec![
+                TableRow {
+                    is_header: true,
+                    cells: vec![TableCell {
+                        paragraphs: vec![Paragraph {
+                            style_id: None,
+                            children: vec![ParagraphChild::Run(Run {
+                                text: "Header".to_string(),
+                                bold: false,
+                                italic: false,
+                                monospace: false,
+                            })],
+                            numbering: None,
+                        }],
+                    }],
+                },
+                TableRow {
+                    is_header: false,
+                    cells: vec![TableCell {
+                        paragraphs: vec![Paragraph {
+                            style_id: None,
+                            children: vec![ParagraphChild::Run(Run {
+                                text: "Data".to_string(),
+                                bold: false,
+                                italic: false,
+                                monospace: false,
+                            })],
+                            numbering: None,
+                        }],
+                    }],
+                },
+            ],
+        };
+
+        let block = table.to_ast(&ctx);
+
+        if let AstBlock::Table(ast_table) = block {
+            assert_eq!(ast_table.rows.len(), 2);
+            // Header flag should be preserved
+            assert!(ast_table.rows[0].is_header);
+            assert!(!ast_table.rows[1].is_header);
+        } else {
+            panic!("Expected Table block");
+        }
+    }
+
+    #[test]
+    fn test_table_cell_multiple_paragraphs() {
+        let ctx = ConversionContext::default();
+
+        let table = Table {
+            style_id: None,
+            rows: vec![TableRow {
+                is_header: false,
+                cells: vec![TableCell {
+                    paragraphs: vec![
+                        Paragraph {
+                            style_id: None,
+                            children: vec![ParagraphChild::Run(Run {
+                                text: "Line 1".to_string(),
+                                bold: false,
+                                italic: false,
+                                monospace: false,
+                            })],
+                            numbering: None,
+                        },
+                        Paragraph {
+                            style_id: None,
+                            children: vec![ParagraphChild::Run(Run {
+                                text: "Line 2".to_string(),
+                                bold: false,
+                                italic: false,
+                                monospace: false,
+                            })],
+                            numbering: None,
+                        },
+                    ],
+                }],
+            }],
+        };
+
+        let block = table.to_ast(&ctx);
+
+        if let AstBlock::Table(ast_table) = block {
+            // Cell should have content for each paragraph
+            assert!(!ast_table.rows[0].cells[0].content.is_empty());
+        } else {
+            panic!("Expected Table block");
+        }
+    }
+
+    #[test]
+    fn test_run_with_only_monospace() {
+        let ctx = ConversionContext::default();
+
+        let run = Run {
+            text: "code".to_string(),
+            bold: false,
+            italic: false,
+            monospace: true,
+        };
+
+        let inline = run.to_ast(&ctx);
+
+        // Should be wrapped in Monospace format
+        if let Inline::Format(FormatType::Monospace, inner) = inline {
+            if let Inline::Text(text) = *inner {
+                assert_eq!(text, "code");
+            } else {
+                panic!("Expected inner Text");
+            }
+        } else {
+            panic!("Expected Monospace format");
+        }
+    }
+
+    #[test]
+    fn test_run_with_all_formatting_nested() {
+        let ctx = ConversionContext::default();
+
+        let run = Run {
+            text: "formatted".to_string(),
+            bold: true,
+            italic: true,
+            monospace: true,
+        };
+
+        let inline = run.to_ast(&ctx);
+
+        // Should have nested formatting (order: bold > italic > monospace)
+        fn count_nesting(inline: &Inline) -> u32 {
+            match inline {
+                Inline::Format(_, inner) => 1 + count_nesting(inner),
+                _ => 0,
+            }
+        }
+
+        assert_eq!(count_nesting(&inline), 3);
+    }
+
+    #[test]
+    fn test_hyperlink_internal_anchor() {
+        let ctx = ConversionContext::default();
+
+        let hyperlink = Hyperlink {
+            id: None,
+            anchor: Some("section-1".to_string()),
+            runs: vec![Run {
+                text: "Go to section".to_string(),
+                bold: false,
+                italic: false,
+                monospace: false,
+            }],
+        };
+
+        let inline = hyperlink.to_ast(&ctx);
+
+        if let Inline::Link(link) = inline {
+            assert!(link.url.starts_with('#'));
+            assert!(link.url.contains("section-1"));
+        } else {
+            panic!("Expected Link inline");
+        }
+    }
+
+    #[test]
+    fn test_paragraph_child_image_conversion() {
+        let ctx = ConversionContext::default();
+
+        let para = Paragraph {
+            style_id: None,
+            children: vec![ParagraphChild::Image(crate::image::Image::new_inline(
+                1,
+                "rId1".to_string(),
+                "media/image.png".to_string(),
+            ))],
+            numbering: None,
+        };
+
+        let block = para.to_ast(&ctx);
+
+        // Image in paragraph should create some inline content
+        if let AstBlock::Paragraph(ast_para) = block {
+            assert!(!ast_para.inlines.is_empty());
+        } else {
+            panic!("Expected Paragraph block");
+        }
+    }
+
+    #[test]
+    fn test_paragraph_child_bookmark_ignored() {
+        let ctx = ConversionContext::default();
+
+        let para = Paragraph {
+            style_id: None,
+            children: vec![
+                ParagraphChild::Bookmark(crate::document::Bookmark {
+                    name: "_Toc123".to_string(),
+                }),
+                ParagraphChild::Run(Run {
+                    text: "Visible".to_string(),
+                    bold: false,
+                    italic: false,
+                    monospace: false,
+                }),
+            ],
+            numbering: None,
+        };
+
+        let block = para.to_ast(&ctx);
+
+        if let AstBlock::Paragraph(ast_para) = block {
+            // Bookmark should not create visible inline, only the run text
+            let text_count = ast_para
+                .inlines
+                .iter()
+                .filter(|i| matches!(i, Inline::Text(_)))
+                .count();
+            assert_eq!(text_count, 1);
+        } else {
+            panic!("Expected Paragraph block");
+        }
+    }
+
+    #[test]
+    fn test_convert_document_with_styles_preserves_headings() {
+        use crate::styles::StyleSheet;
+
+        let style_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Heading1">
+                <w:name w:val="Heading 1"/>
+                <w:pPr><w:outlineLvl w:val="0"/></w:pPr>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(style_xml).unwrap();
+
+        let doc = Document {
+            blocks: vec![Block::Paragraph(Paragraph {
+                style_id: Some("Heading1".to_string()),
+                children: vec![ParagraphChild::Run(Run {
+                    text: "Title".to_string(),
+                    bold: false,
+                    italic: false,
+                    monospace: false,
+                })],
+                numbering: None,
+            })],
+        };
+
+        let ast_doc = convert_document_with_styles(&doc, &styles);
+        assert_eq!(ast_doc.blocks.len(), 1);
+
+        // Should be converted to a heading
+        if let AstBlock::Heading(heading) = &ast_doc.blocks[0] {
+            assert_eq!(heading.level, 1);
+        } else {
+            panic!("Expected Heading block for heading style");
+        }
+    }
+
+    #[test]
+    fn test_context_heading_level_unknown_style() {
+        let ctx = ConversionContext::default();
+
+        // Unknown style should return None
+        assert!(ctx.heading_level("NonExistentStyle").is_none());
+    }
 }
