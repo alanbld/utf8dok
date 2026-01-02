@@ -3716,4 +3716,397 @@ paragraph = "Normal"
         assert!(archive.contains("utf8dok/source.adoc"));
         assert!(archive.contains("utf8dok/utf8dok.toml"));
     }
+
+    // ==================== Sprint 21: Comments and Content Types Tests ====================
+
+    #[test]
+    fn test_generate_comments_xml_empty() {
+        let writer = DocxWriter::new();
+        assert!(writer.generate_comments_xml().is_none());
+    }
+
+    #[test]
+    fn test_generate_comments_xml_with_comments() {
+        let mut writer = DocxWriter::new();
+        writer.comments.push(Comment {
+            id: 1,
+            text: "rust".to_string(),
+            author: "utf8dok".to_string(),
+        });
+
+        let xml = writer.generate_comments_xml();
+        assert!(xml.is_some());
+
+        let content = xml.unwrap();
+        assert!(content.contains("w:comments"));
+        assert!(content.contains("w:id=\"1\""));
+        assert!(content.contains("w:author=\"utf8dok\""));
+        assert!(content.contains("rust"));
+    }
+
+    #[test]
+    fn test_generate_comments_xml_escapes_special_chars() {
+        let mut writer = DocxWriter::new();
+        writer.comments.push(Comment {
+            id: 1,
+            text: "code with <tags> & \"quotes\"".to_string(),
+            author: "Test <Author>".to_string(),
+        });
+
+        let xml = writer.generate_comments_xml().unwrap();
+        assert!(xml.contains("&lt;tags&gt;"));
+        assert!(xml.contains("&amp;"));
+        assert!(xml.contains("&quot;quotes&quot;"));
+        assert!(xml.contains("Test &lt;Author&gt;"));
+    }
+
+    #[test]
+    fn test_generate_comments_xml_multiple_comments() {
+        let mut writer = DocxWriter::new();
+        writer.comments.push(Comment {
+            id: 1,
+            text: "First".to_string(),
+            author: "Author1".to_string(),
+        });
+        writer.comments.push(Comment {
+            id: 2,
+            text: "Second".to_string(),
+            author: "Author2".to_string(),
+        });
+
+        let xml = writer.generate_comments_xml().unwrap();
+        assert!(xml.contains("w:id=\"1\""));
+        assert!(xml.contains("w:id=\"2\""));
+        assert!(xml.contains("First"));
+        assert!(xml.contains("Second"));
+    }
+
+    #[test]
+    fn test_write_comments_adds_to_archive() {
+        use crate::archive::OoxmlArchive;
+        use crate::test_utils::create_minimal_template;
+
+        let template = create_minimal_template();
+        let cursor = Cursor::new(&template);
+        let mut archive = OoxmlArchive::from_reader(cursor).unwrap();
+
+        let mut writer = DocxWriter::new();
+        writer.comments.push(Comment {
+            id: 1,
+            text: "test language".to_string(),
+            author: "utf8dok".to_string(),
+        });
+
+        let result = writer.write_comments(&mut archive);
+        assert!(result.is_ok());
+
+        // Check comments.xml was created
+        let comments = archive.get_string("word/comments.xml").unwrap();
+        assert!(comments.is_some());
+        assert!(comments.unwrap().contains("test language"));
+    }
+
+    #[test]
+    fn test_write_comments_updates_relationships() {
+        use crate::archive::OoxmlArchive;
+        use crate::test_utils::create_minimal_template;
+
+        let template = create_minimal_template();
+        let cursor = Cursor::new(&template);
+        let mut archive = OoxmlArchive::from_reader(cursor).unwrap();
+
+        let mut writer = DocxWriter::new();
+        writer.comments.push(Comment {
+            id: 1,
+            text: "test".to_string(),
+            author: "utf8dok".to_string(),
+        });
+
+        writer.write_comments(&mut archive).unwrap();
+
+        // Check relationships were updated
+        let rels = archive
+            .get_string("word/_rels/document.xml.rels")
+            .unwrap()
+            .unwrap();
+        assert!(rels.contains("comments.xml"));
+        assert!(rels.contains("relationships/comments"));
+    }
+
+    #[test]
+    fn test_write_comments_updates_content_types() {
+        use crate::archive::OoxmlArchive;
+        use crate::test_utils::create_minimal_template;
+
+        let template = create_minimal_template();
+        let cursor = Cursor::new(&template);
+        let mut archive = OoxmlArchive::from_reader(cursor).unwrap();
+
+        let mut writer = DocxWriter::new();
+        writer.comments.push(Comment {
+            id: 1,
+            text: "test".to_string(),
+            author: "utf8dok".to_string(),
+        });
+
+        writer.write_comments(&mut archive).unwrap();
+
+        // Check content types were updated
+        let content_types = archive.get_string("[Content_Types].xml").unwrap().unwrap();
+        assert!(content_types.contains("/word/comments.xml"));
+    }
+
+    #[test]
+    fn test_write_comments_empty_does_nothing() {
+        use crate::archive::OoxmlArchive;
+        use crate::test_utils::create_minimal_template;
+
+        let template = create_minimal_template();
+        let cursor = Cursor::new(&template);
+        let mut archive = OoxmlArchive::from_reader(cursor).unwrap();
+
+        let writer = DocxWriter::new();
+        let result = writer.write_comments(&mut archive);
+        assert!(result.is_ok());
+
+        // Should not have created comments.xml
+        assert!(archive.get("word/comments.xml").is_none());
+    }
+
+    #[test]
+    fn test_update_content_types_adds_png() {
+        use crate::archive::OoxmlArchive;
+        use crate::test_utils::create_minimal_template;
+
+        let template = create_minimal_template();
+        let cursor = Cursor::new(&template);
+        let mut archive = OoxmlArchive::from_reader(cursor).unwrap();
+
+        // Simulate having media files
+        let mut writer = DocxWriter::new();
+        writer.media_files.push(("word/media/image1.png".to_string(), vec![0x89, 0x50]));
+
+        let result = writer.update_content_types(&mut archive);
+        assert!(result.is_ok());
+
+        let content_types = archive.get_string("[Content_Types].xml").unwrap().unwrap();
+        assert!(content_types.contains("Extension=\"png\""));
+        assert!(content_types.contains("image/png"));
+    }
+
+    #[test]
+    fn test_update_content_types_does_not_duplicate() {
+        use crate::archive::OoxmlArchive;
+        use crate::test_utils::create_minimal_template;
+
+        let template = create_minimal_template();
+        let cursor = Cursor::new(&template);
+        let mut archive = OoxmlArchive::from_reader(cursor).unwrap();
+
+        // Pre-add PNG extension
+        let existing = archive.get_string("[Content_Types].xml").unwrap().unwrap();
+        let with_png = existing.replace(
+            "</Types>",
+            "<Default Extension=\"png\" ContentType=\"image/png\"/></Types>",
+        );
+        archive.set_string("[Content_Types].xml", with_png);
+
+        let mut writer = DocxWriter::new();
+        writer.media_files.push(("word/media/image1.png".to_string(), vec![]));
+
+        writer.update_content_types(&mut archive).unwrap();
+
+        // Should not have duplicated
+        let content = archive.get_string("[Content_Types].xml").unwrap().unwrap();
+        let count = content.matches("Extension=\"png\"").count();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_literal_block_with_language_creates_comment() {
+        use crate::test_utils::create_minimal_template;
+        use utf8dok_ast::LiteralBlock;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::Literal(LiteralBlock {
+                content: "fn main() {}".to_string(),
+                language: Some("rust".to_string()),
+                title: None,
+                style_id: None,
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        // Extract and check comments
+        let cursor = Cursor::new(&result);
+        let archive = OoxmlArchive::from_reader(cursor).unwrap();
+
+        let comments = archive.get_string("word/comments.xml").unwrap();
+        assert!(comments.is_some());
+        assert!(comments.unwrap().contains("rust"));
+    }
+
+    #[test]
+    fn test_literal_block_without_language_no_comment() {
+        use crate::test_utils::create_minimal_template;
+        use utf8dok_ast::LiteralBlock;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::Literal(LiteralBlock {
+                content: "plain text".to_string(),
+                language: None,
+                title: None,
+                style_id: None,
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let cursor = Cursor::new(&result);
+        let archive = OoxmlArchive::from_reader(cursor).unwrap();
+
+        // Should not have comments.xml
+        assert!(archive.get("word/comments.xml").is_none());
+    }
+
+    #[test]
+    fn test_cover_page_with_full_metadata() {
+        use crate::test_utils::create_template_with_styles;
+
+        let mut meta = utf8dok_ast::DocumentMeta::default();
+        meta.title = Some("Corporate Report".to_string());
+        meta.authors = vec!["John Doe".to_string()];
+        meta.revision = Some("1.0".to_string());
+        meta.attributes
+            .insert("revdate".to_string(), "2025-01-15".to_string());
+
+        let doc = Document {
+            metadata: meta,
+            intent: None,
+            blocks: vec![Block::Paragraph(Paragraph {
+                inlines: vec![Inline::Text("Content".to_string())],
+                ..Default::default()
+            })],
+        };
+
+        let mut writer = DocxWriter::new();
+        // Create a minimal cover image (1x1 PNG)
+        let cover_png = vec![
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00,
+            0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08,
+            0xD7, 0x63, 0xF8, 0xFF, 0xFF, 0x3F, 0x00, 0x05, 0xFE, 0x02, 0xFE, 0xDC, 0xCC, 0x59,
+            0xE7, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        ];
+        writer.set_cover_image("cover.png", cover_png);
+
+        let template = create_template_with_styles();
+        let template_obj = Template::from_bytes(&template).unwrap();
+        let result = writer.generate_with_template(&doc, template_obj).unwrap();
+
+        let cursor = Cursor::new(&result);
+        let archive = OoxmlArchive::from_reader(cursor).unwrap();
+
+        // Should have cover image in media
+        assert!(archive.contains("word/media/cover_cover.png"));
+
+        // Document should contain the metadata text
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("Corporate Report"));
+        assert!(doc_xml.contains("John Doe"));
+    }
+
+    #[test]
+    fn test_cover_page_generates_page_break() {
+        use crate::test_utils::create_template_with_styles;
+
+        let mut meta = utf8dok_ast::DocumentMeta::default();
+        meta.title = Some("Title".to_string());
+
+        let doc = Document {
+            metadata: meta,
+            intent: None,
+            blocks: vec![Block::Paragraph(Paragraph {
+                inlines: vec![Inline::Text("Body content".to_string())],
+                ..Default::default()
+            })],
+        };
+
+        let mut writer = DocxWriter::new();
+        writer.set_cover_image("cover.png", vec![0x89, 0x50, 0x4E, 0x47]);
+
+        let template = create_template_with_styles();
+        let template_obj = Template::from_bytes(&template).unwrap();
+        let result = writer.generate_with_template(&doc, template_obj).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        // After cover page, should have page break before content
+        assert!(doc_xml.contains("<w:br w:type=\"page\"/>"));
+    }
+
+    #[test]
+    fn test_next_comment_id_increments() {
+        let mut writer = DocxWriter::new();
+
+        assert_eq!(writer.next_comment_id, 1);
+        writer.next_comment_id += 1;
+        assert_eq!(writer.next_comment_id, 2);
+        writer.next_comment_id += 1;
+        assert_eq!(writer.next_comment_id, 3);
+    }
+
+    #[test]
+    fn test_next_image_id_increments() {
+        let mut writer = DocxWriter::new();
+
+        assert_eq!(writer.next_image_id, 1);
+        writer.next_image_id += 1;
+        assert_eq!(writer.next_image_id, 2);
+    }
+
+    #[test]
+    fn test_next_drawing_id_increments() {
+        let mut writer = DocxWriter::new();
+
+        assert_eq!(writer.next_drawing_id, 1);
+        writer.next_drawing_id += 1;
+        assert_eq!(writer.next_drawing_id, 2);
+    }
+
+    #[test]
+    fn test_media_files_collection() {
+        let mut writer = DocxWriter::new();
+        assert!(writer.media_files.is_empty());
+
+        writer
+            .media_files
+            .push(("word/media/image1.png".to_string(), vec![1, 2, 3]));
+        writer
+            .media_files
+            .push(("word/media/image2.png".to_string(), vec![4, 5, 6]));
+
+        assert_eq!(writer.media_files.len(), 2);
+        assert_eq!(writer.media_files[0].0, "word/media/image1.png");
+        assert_eq!(writer.media_files[1].0, "word/media/image2.png");
+    }
+
+    #[test]
+    fn test_diagram_sources_collection() {
+        let mut writer = DocxWriter::new();
+        assert!(writer.diagram_sources.is_empty());
+
+        writer
+            .diagram_sources
+            .push(("utf8dok/diagrams/d1.mmd".to_string(), "graph TD".to_string()));
+
+        assert_eq!(writer.diagram_sources.len(), 1);
+        assert!(writer.diagram_sources[0].1.contains("graph TD"));
+    }
 }
