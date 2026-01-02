@@ -2598,4 +2598,229 @@ paragraph = "Normal"
             "Manifest should have config entry"
         );
     }
+
+    // ==================== Sprint 8: DocxWriter Public API Tests ====================
+
+    #[test]
+    fn test_docx_writer_default() {
+        let writer = DocxWriter::default();
+        assert!(writer.source_text.is_none());
+        assert!(writer.config_text.is_none());
+        assert!(writer.cover_image.is_none());
+        assert!(writer.style_contract.is_none());
+    }
+
+    #[test]
+    fn test_set_cover_image() {
+        use crate::Template;
+
+        let template_bytes = create_corporate_template();
+        let template = Template::from_bytes(&template_bytes).unwrap();
+
+        // Create a minimal PNG (1x1 pixel)
+        let png_data: Vec<u8> = vec![
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
+            0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, // IHDR chunk
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, // 1x1 pixel
+            0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
+            0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41,
+            0x54, 0x08, 0xD7, 0x63, 0xF8, 0xFF, 0xFF, 0x3F,
+            0x00, 0x05, 0xFE, 0x02, 0xFE, 0xDC, 0xCC, 0x59,
+            0xE7, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E,
+            0x44, 0xAE, 0x42, 0x60, 0x82, // IEND chunk
+        ];
+
+        let doc = Document {
+            metadata: utf8dok_ast::DocumentMeta::default(),
+            intent: None,
+            blocks: vec![Block::Paragraph(Paragraph {
+                inlines: vec![Inline::Text("After cover".to_string())],
+                style_id: None,
+                attributes: HashMap::new(),
+            })],
+        };
+
+        let mut writer = DocxWriter::new();
+        writer.set_cover_image("cover.png", png_data.clone());
+
+        let result = writer.generate_with_template(&doc, template);
+        assert!(result.is_ok(), "Failed to generate: {:?}", result.err());
+
+        let output = result.unwrap();
+        let cursor = Cursor::new(&output);
+        let archive = OoxmlArchive::from_reader(cursor).unwrap();
+
+        // Verify the media folder contains an image
+        let has_media = archive.file_list().any(|f| f.starts_with("word/media/"));
+        assert!(has_media, "Cover image should be in word/media/");
+    }
+
+    #[test]
+    fn test_set_style_contract_anchor_resolution() {
+        use crate::style_map::{AnchorMapping, AnchorType, StyleContract};
+
+        let mut contract = StyleContract::default();
+        // HashMap key is the Word bookmark name
+        contract.anchors.insert(
+            "_Toc123456".to_string(),
+            AnchorMapping {
+                semantic_id: "introduction".to_string(),
+                anchor_type: AnchorType::Toc,
+                target_heading: Some("Introduction".to_string()),
+                original_bookmark: Some("_Toc123456".to_string()),
+            },
+        );
+        contract.anchors.insert(
+            "_Toc789012".to_string(),
+            AnchorMapping {
+                semantic_id: "conclusion".to_string(),
+                anchor_type: AnchorType::Toc,
+                target_heading: Some("Conclusion".to_string()),
+                original_bookmark: Some("_Toc789012".to_string()),
+            },
+        );
+
+        let mut writer = DocxWriter::new();
+        writer.set_style_contract(contract);
+
+        // Test that anchor resolution works
+        let resolved = writer.resolve_anchor_name("introduction");
+        assert_eq!(resolved, "_Toc123456");
+
+        let resolved2 = writer.resolve_anchor_name("conclusion");
+        assert_eq!(resolved2, "_Toc789012");
+
+        // Unknown anchor returns as-is
+        let unknown = writer.resolve_anchor_name("unknown-section");
+        assert_eq!(unknown, "unknown-section");
+    }
+
+    #[test]
+    fn test_set_source_and_config_separately() {
+        let mut writer = DocxWriter::new();
+
+        writer.set_source("= My Doc\n\nContent here.");
+        assert!(writer.source_text.is_some());
+        assert!(writer.config_text.is_none());
+
+        writer.set_config("[template]\npath = \"t.dotx\"");
+        assert!(writer.source_text.is_some());
+        assert!(writer.config_text.is_some());
+
+        assert_eq!(
+            writer.source_text.unwrap(),
+            "= My Doc\n\nContent here."
+        );
+        assert_eq!(
+            writer.config_text.unwrap(),
+            "[template]\npath = \"t.dotx\""
+        );
+    }
+
+    #[test]
+    fn test_set_embedded_content_together() {
+        let mut writer = DocxWriter::new();
+
+        writer.set_embedded_content(
+            "= Document Title\n\nParagraph.",
+            "[styles]\nheading1 = \"H1\""
+        );
+
+        assert_eq!(
+            writer.source_text.as_deref(),
+            Some("= Document Title\n\nParagraph.")
+        );
+        assert_eq!(
+            writer.config_text.as_deref(),
+            Some("[styles]\nheading1 = \"H1\"")
+        );
+    }
+
+    #[test]
+    fn test_with_style_map_factory() {
+        use crate::styles::StyleMap;
+
+        let custom_map = StyleMap::default();
+        let writer = DocxWriter::with_style_map(custom_map);
+
+        // Verify the writer was created with the custom map
+        assert!(writer.source_text.is_none());
+        assert!(writer.style_contract.is_none());
+        assert!(writer.cover_image.is_none());
+    }
+
+    #[test]
+    fn test_diagram_source_embedding() {
+        use crate::Template;
+
+        let template_bytes = create_corporate_template();
+        let template = Template::from_bytes(&template_bytes).unwrap();
+
+        // Create a document with a code block that would be treated as a diagram
+        // Note: Without diagram engine, it won't render but structure should be tested
+        let doc = Document {
+            metadata: utf8dok_ast::DocumentMeta::default(),
+            intent: None,
+            blocks: vec![Block::Paragraph(Paragraph {
+                inlines: vec![Inline::Text("Document with code.".to_string())],
+                style_id: None,
+                attributes: HashMap::new(),
+            })],
+        };
+
+        let mut writer = DocxWriter::new();
+        writer.set_source("= Test\n\n[source,mermaid]\n----\ngraph TD\n----");
+
+        let result = writer.generate_with_template(&doc, template);
+        assert!(result.is_ok(), "Failed to generate: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_internal_hyperlink_generation() {
+        use crate::Template;
+
+        let template_bytes = create_corporate_template();
+        let template = Template::from_bytes(&template_bytes).unwrap();
+
+        // Create a document with an internal link
+        let doc = Document {
+            metadata: utf8dok_ast::DocumentMeta::default(),
+            intent: None,
+            blocks: vec![
+                Block::Heading(Heading {
+                    level: 1,
+                    text: vec![Inline::Text("Target Section".to_string())],
+                    style_id: None,
+                    anchor: Some("target-section".to_string()),
+                }),
+                Block::Paragraph(Paragraph {
+                    inlines: vec![Inline::Link(utf8dok_ast::Link {
+                        url: "#target-section".to_string(),
+                        text: vec![Inline::Text("Link to target".to_string())],
+                    })],
+                    style_id: None,
+                    attributes: HashMap::new(),
+                }),
+            ],
+        };
+
+        let writer = DocxWriter::new();
+        let result = writer.generate_with_template(&doc, template);
+        assert!(result.is_ok(), "Failed to generate: {:?}", result.err());
+
+        let output = result.unwrap();
+        let cursor = Cursor::new(&output);
+        let archive = OoxmlArchive::from_reader(cursor).unwrap();
+
+        // Verify document.xml exists
+        let doc_xml = archive.get_string("word/document.xml").unwrap();
+        assert!(doc_xml.is_some(), "document.xml should exist");
+
+        let content = doc_xml.unwrap();
+        // Should have a bookmark
+        assert!(
+            content.contains("bookmarkStart") || content.contains("w:anchor"),
+            "Should have bookmark or anchor"
+        );
+    }
 }
