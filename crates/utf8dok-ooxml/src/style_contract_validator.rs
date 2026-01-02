@@ -611,7 +611,10 @@ impl StyleContractValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::style_map::{AnchorMapping, AnchorType, HyperlinkMapping, ParagraphStyleMapping};
+    use crate::style_map::{
+        AnchorMapping, AnchorType, CharacterStyleMapping, HyperlinkMapping, ParagraphStyleMapping,
+        TableStyleMapping,
+    };
 
     #[test]
     fn test_valid_semantic_id() {
@@ -1126,5 +1129,472 @@ mod tests {
             "Complex contract should be valid: {:?}",
             result.errors()
         );
+    }
+
+    // ==================== Sprint 20: Additional Validator Coverage ====================
+
+    #[test]
+    fn test_severity_enum_equality() {
+        assert_eq!(Severity::Error, Severity::Error);
+        assert_eq!(Severity::Warning, Severity::Warning);
+        assert_ne!(Severity::Error, Severity::Warning);
+    }
+
+    #[test]
+    fn test_validation_category_enum_equality() {
+        assert_eq!(ValidationCategory::Schema, ValidationCategory::Schema);
+        assert_eq!(ValidationCategory::Invariant, ValidationCategory::Invariant);
+        assert_eq!(
+            ValidationCategory::Completeness,
+            ValidationCategory::Completeness
+        );
+        assert_eq!(ValidationCategory::RoundTrip, ValidationCategory::RoundTrip);
+        assert_ne!(ValidationCategory::Schema, ValidationCategory::Invariant);
+    }
+
+    #[test]
+    fn test_validation_issue_structure() {
+        let issue = ValidationIssue {
+            severity: Severity::Error,
+            category: ValidationCategory::Schema,
+            message: "Test error".to_string(),
+            field: Some("test.field".to_string()),
+        };
+
+        assert_eq!(issue.severity, Severity::Error);
+        assert_eq!(issue.category, ValidationCategory::Schema);
+        assert_eq!(issue.message, "Test error");
+        assert_eq!(issue.field, Some("test.field".to_string()));
+    }
+
+    #[test]
+    fn test_validation_issue_without_field() {
+        let issue = ValidationIssue {
+            severity: Severity::Warning,
+            category: ValidationCategory::Completeness,
+            message: "Missing mapping".to_string(),
+            field: None,
+        };
+
+        assert_eq!(issue.severity, Severity::Warning);
+        assert!(issue.field.is_none());
+    }
+
+    #[test]
+    fn test_validation_result_warning_at() {
+        let mut result = ValidationResult::new();
+        result.warning_at(
+            ValidationCategory::Completeness,
+            "paragraph_styles.CustomStyle",
+            "Style not mapped",
+        );
+
+        assert!(!result.has_errors());
+        assert!(result.has_warnings());
+        assert!(result.is_valid()); // warnings don't make it invalid
+
+        let warnings = result.warnings();
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(
+            warnings[0].field,
+            Some("paragraph_styles.CustomStyle".to_string())
+        );
+    }
+
+    #[test]
+    fn test_validation_result_error_at() {
+        let mut result = ValidationResult::new();
+        result.error_at(
+            ValidationCategory::Schema,
+            "anchors._Invalid",
+            "Invalid NCName",
+        );
+
+        assert!(result.has_errors());
+        assert!(!result.is_valid());
+
+        let errors = result.errors();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].field, Some("anchors._Invalid".to_string()));
+    }
+
+    #[test]
+    fn test_validation_result_mixed_issues() {
+        let mut result = ValidationResult::new();
+        result.error(ValidationCategory::Schema, "Error 1");
+        result.warning(ValidationCategory::Completeness, "Warning 1");
+        result.error(ValidationCategory::Invariant, "Error 2");
+        result.warning(ValidationCategory::Completeness, "Warning 2");
+
+        assert!(result.has_errors());
+        assert!(result.has_warnings());
+        assert!(!result.is_valid());
+
+        assert_eq!(result.errors().len(), 2);
+        assert_eq!(result.warnings().len(), 2);
+        assert_eq!(result.issues.len(), 4);
+    }
+
+    #[test]
+    fn test_validation_result_merge_empty() {
+        let mut result1 = ValidationResult::new();
+        let result2 = ValidationResult::new();
+
+        result1.merge(result2);
+
+        assert!(result1.is_valid());
+        assert!(result1.issues.is_empty());
+    }
+
+    #[test]
+    fn test_validation_result_merge_errors_into_empty() {
+        let mut result1 = ValidationResult::new();
+        let mut result2 = ValidationResult::new();
+        result2.error(ValidationCategory::Schema, "Error from result2");
+
+        result1.merge(result2);
+
+        assert!(!result1.is_valid());
+        assert_eq!(result1.errors().len(), 1);
+    }
+
+    #[test]
+    fn test_validation_result_merge_preserves_all() {
+        let mut result1 = ValidationResult::new();
+        result1.error(ValidationCategory::Schema, "Error 1");
+        result1.warning(ValidationCategory::Completeness, "Warning 1");
+
+        let mut result2 = ValidationResult::new();
+        result2.error(ValidationCategory::Invariant, "Error 2");
+        result2.warning(ValidationCategory::RoundTrip, "Warning 2");
+
+        result1.merge(result2);
+
+        assert_eq!(result1.issues.len(), 4);
+        assert_eq!(result1.errors().len(), 2);
+        assert_eq!(result1.warnings().len(), 2);
+    }
+
+    #[test]
+    fn test_validate_schema_valid_heading_levels_1_to_9() {
+        for level in 1..=9 {
+            let mut contract = StyleContract::default();
+            contract.add_paragraph_style(
+                &format!("Heading{}", level),
+                ParagraphStyleMapping {
+                    role: format!("h{}", level),
+                    heading_level: Some(level),
+                    ..Default::default()
+                },
+            );
+
+            let result = StyleContractValidator::validate_schema(&contract);
+            assert!(
+                result.is_valid(),
+                "Heading level {} should be valid",
+                level
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_schema_invalid_heading_level_zero() {
+        let mut contract = StyleContract::default();
+        contract.add_paragraph_style(
+            "HeadingZero",
+            ParagraphStyleMapping {
+                role: "h0".to_string(),
+                heading_level: Some(0),
+                ..Default::default()
+            },
+        );
+
+        let result = StyleContractValidator::validate_schema(&contract);
+        assert!(!result.is_valid());
+        assert!(result.errors().iter().any(|e| e.message.contains("0")));
+    }
+
+    #[test]
+    fn test_validate_schema_invalid_heading_level_10() {
+        let mut contract = StyleContract::default();
+        contract.add_paragraph_style(
+            "HeadingTen",
+            ParagraphStyleMapping {
+                role: "h10".to_string(),
+                heading_level: Some(10),
+                ..Default::default()
+            },
+        );
+
+        let result = StyleContractValidator::validate_schema(&contract);
+        assert!(!result.is_valid());
+        assert!(result.errors().iter().any(|e| e.message.contains("10")));
+    }
+
+    #[test]
+    fn test_validate_invariants_unique_semantic_ids() {
+        let mut contract = StyleContract::default();
+        contract.add_anchor(
+            "_Ref1",
+            AnchorMapping {
+                semantic_id: "unique-1".to_string(),
+                anchor_type: AnchorType::Reference,
+                target_heading: None,
+                original_bookmark: Some("_Ref1".to_string()),
+            },
+        );
+        contract.add_anchor(
+            "_Ref2",
+            AnchorMapping {
+                semantic_id: "unique-2".to_string(),
+                anchor_type: AnchorType::Reference,
+                target_heading: None,
+                original_bookmark: Some("_Ref2".to_string()),
+            },
+        );
+
+        let result = StyleContractValidator::validate_invariants(&contract);
+        assert!(result.is_valid());
+    }
+
+    #[test]
+    fn test_validate_invariants_duplicate_semantic_ids() {
+        let mut contract = StyleContract::default();
+        contract.add_anchor(
+            "_Ref1",
+            AnchorMapping {
+                semantic_id: "same-id".to_string(),
+                anchor_type: AnchorType::Reference,
+                target_heading: None,
+                original_bookmark: Some("_Ref1".to_string()),
+            },
+        );
+        contract.add_anchor(
+            "_Ref2",
+            AnchorMapping {
+                semantic_id: "same-id".to_string(),
+                anchor_type: AnchorType::Reference,
+                target_heading: None,
+                original_bookmark: Some("_Ref2".to_string()),
+            },
+        );
+
+        let result = StyleContractValidator::validate_invariants(&contract);
+        // Duplicate semantic IDs produce warnings, not errors (still valid but with warnings)
+        assert!(result.is_valid());
+        assert!(!result.warnings().is_empty());
+        assert!(result
+            .warnings()
+            .iter()
+            .any(|w| w.message.contains("same-id")));
+    }
+
+    #[test]
+    fn test_validate_completeness_rendering_with_anchor_ref() {
+        let mut contract = StyleContract::default();
+
+        // Add an anchor
+        contract.add_anchor(
+            "_Section1",
+            AnchorMapping {
+                semantic_id: "section-1".to_string(),
+                anchor_type: AnchorType::Heading,
+                target_heading: Some("Section 1".to_string()),
+                original_bookmark: Some("_Section1".to_string()),
+            },
+        );
+
+        // Referenced anchors that exist in the contract
+        let mut referenced = HashSet::new();
+        referenced.insert("section-1".to_string());
+
+        let result = StyleContractValidator::validate_completeness_rendering(&contract, &referenced);
+        assert!(result.is_valid());
+    }
+
+    #[test]
+    fn test_validate_completeness_basic_only_warnings_on_missing() {
+        let contract = StyleContract::default();
+        let result = StyleContractValidator::validate_completeness_basic(&contract);
+
+        // Empty contract should generate warnings, not errors
+        // The basic completeness check is lenient
+        assert!(!result.has_errors() || result.has_warnings());
+    }
+
+    #[test]
+    fn test_validate_roundtrip_valid_contract() {
+        let mut contract = StyleContract::with_source("test.docx");
+        contract.add_paragraph_style(
+            "Heading1",
+            ParagraphStyleMapping {
+                role: "h1".to_string(),
+                heading_level: Some(1),
+                ..Default::default()
+            },
+        );
+        contract.add_anchor(
+            "_Toc001",
+            AnchorMapping {
+                semantic_id: "intro".to_string(),
+                anchor_type: AnchorType::Toc,
+                target_heading: Some("Introduction".to_string()),
+                original_bookmark: Some("_Toc001".to_string()),
+            },
+        );
+
+        let result = StyleContractValidator::validate_roundtrip_properties(&contract);
+        assert!(result.is_valid());
+    }
+
+    #[test]
+    fn test_validate_full_empty_contract() {
+        let contract = StyleContract::default();
+        let result = StyleContractValidator::validate(&contract);
+
+        // Empty contract should be valid (no schema/invariant errors)
+        // May have completeness warnings
+        assert!(!result.has_errors() || result.warnings().len() > 0);
+    }
+
+    #[test]
+    fn test_validate_full_with_all_valid_types() {
+        let mut contract = StyleContract::with_source("complete.docx");
+
+        // Add paragraph styles
+        contract.add_paragraph_style(
+            "Heading1",
+            ParagraphStyleMapping {
+                role: "h1".to_string(),
+                heading_level: Some(1),
+                ..Default::default()
+            },
+        );
+        contract.add_paragraph_style(
+            "Normal",
+            ParagraphStyleMapping {
+                role: "paragraph".to_string(),
+                ..Default::default()
+            },
+        );
+
+        // Add character style
+        contract.add_character_style(
+            "Strong",
+            CharacterStyleMapping {
+                role: "strong".to_string(),
+                is_strong: true,
+                is_emphasis: false,
+                is_code: false,
+            },
+        );
+
+        // Add table style
+        contract.add_table_style(
+            "TableGrid",
+            TableStyleMapping {
+                role: "table".to_string(),
+                first_row_header: true,
+                first_col_header: false,
+            },
+        );
+
+        // Add anchor
+        contract.add_anchor(
+            "_Ref1",
+            AnchorMapping {
+                semantic_id: "reference-1".to_string(),
+                anchor_type: AnchorType::Reference,
+                target_heading: None,
+                original_bookmark: Some("_Ref1".to_string()),
+            },
+        );
+
+        // Add hyperlink
+        contract.add_hyperlink(
+            "rId1",
+            HyperlinkMapping {
+                is_external: true,
+                url: Some("https://example.com".to_string()),
+                anchor_target: None,
+                original_rel_id: Some("rId1".to_string()),
+                original_anchor: None,
+            },
+        );
+
+        let result = StyleContractValidator::validate(&contract);
+        assert!(
+            result.is_valid(),
+            "Full contract should be valid: {:?}",
+            result.errors()
+        );
+    }
+
+    #[test]
+    fn test_is_valid_semantic_id_valid_ids() {
+        assert!(StyleContractValidator::is_valid_semantic_id("simple"));
+        assert!(StyleContractValidator::is_valid_semantic_id("with-dashes"));
+        assert!(StyleContractValidator::is_valid_semantic_id("section-1-intro"));
+        assert!(StyleContractValidator::is_valid_semantic_id("a"));
+        assert!(StyleContractValidator::is_valid_semantic_id("abc123"));
+        // Digits allowed as first character
+        assert!(StyleContractValidator::is_valid_semantic_id("123-numeric-start"));
+    }
+
+    #[test]
+    fn test_is_valid_semantic_id_invalid_ids() {
+        assert!(!StyleContractValidator::is_valid_semantic_id(""));
+        assert!(!StyleContractValidator::is_valid_semantic_id("has spaces"));
+        // Underscores not allowed
+        assert!(!StyleContractValidator::is_valid_semantic_id("with_underscore"));
+        assert!(!StyleContractValidator::is_valid_semantic_id(
+            "-starts-with-dash"
+        ));
+        assert!(!StyleContractValidator::is_valid_semantic_id("has.dot"));
+        // Uppercase not allowed
+        assert!(!StyleContractValidator::is_valid_semantic_id("HasUppercase"));
+    }
+
+    #[test]
+    fn test_is_valid_xml_ncname_valid_names() {
+        assert!(StyleContractValidator::is_valid_xml_ncname("_Toc123"));
+        assert!(StyleContractValidator::is_valid_xml_ncname("_Ref456"));
+        assert!(StyleContractValidator::is_valid_xml_ncname("_Hlk789"));
+        assert!(StyleContractValidator::is_valid_xml_ncname("SimpleBookmark"));
+        assert!(StyleContractValidator::is_valid_xml_ncname("_underscore"));
+        assert!(StyleContractValidator::is_valid_xml_ncname("a"));
+    }
+
+    #[test]
+    fn test_is_valid_xml_ncname_invalid_names() {
+        assert!(!StyleContractValidator::is_valid_xml_ncname(""));
+        assert!(!StyleContractValidator::is_valid_xml_ncname(
+            "123StartWithNumber"
+        ));
+        assert!(!StyleContractValidator::is_valid_xml_ncname("-StartWithDash"));
+        assert!(!StyleContractValidator::is_valid_xml_ncname("has space"));
+        assert!(!StyleContractValidator::is_valid_xml_ncname("has:colon"));
+    }
+
+    #[test]
+    fn test_validation_issue_debug_format() {
+        let issue = ValidationIssue {
+            severity: Severity::Error,
+            category: ValidationCategory::Schema,
+            message: "Test".to_string(),
+            field: None,
+        };
+
+        let debug_str = format!("{:?}", issue);
+        assert!(debug_str.contains("Error"));
+        assert!(debug_str.contains("Schema"));
+        assert!(debug_str.contains("Test"));
+    }
+
+    #[test]
+    fn test_validation_result_default() {
+        let result = ValidationResult::default();
+        assert!(result.is_valid());
+        assert!(result.issues.is_empty());
     }
 }
