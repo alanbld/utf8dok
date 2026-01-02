@@ -945,4 +945,228 @@ mod tests {
             panic!("Expected paragraph");
         }
     }
+
+    // ==================== Sprint 7: Paragraph::is_empty Tests ====================
+
+    #[test]
+    fn test_paragraph_is_empty_with_no_children() {
+        let para = Paragraph {
+            style_id: None,
+            children: vec![],
+            numbering: None,
+        };
+        assert!(para.is_empty());
+    }
+
+    #[test]
+    fn test_paragraph_is_empty_with_whitespace_only() {
+        let para = Paragraph {
+            style_id: None,
+            children: vec![ParagraphChild::Run(Run {
+                text: "   \t\n  ".to_string(),
+                bold: false,
+                italic: false,
+                monospace: false,
+            })],
+            numbering: None,
+        };
+        assert!(para.is_empty());
+    }
+
+    #[test]
+    fn test_paragraph_is_empty_with_image() {
+        use crate::image::{Image, ImagePosition};
+
+        let para = Paragraph {
+            style_id: None,
+            children: vec![ParagraphChild::Image(Image {
+                id: 1,
+                rel_id: "rId1".to_string(),
+                target: "media/image.png".to_string(),
+                alt: None,
+                name: None,
+                width_emu: None,
+                height_emu: None,
+                position: ImagePosition::Inline,
+            })],
+            numbering: None,
+        };
+        // Images are NOT empty
+        assert!(!para.is_empty());
+    }
+
+    #[test]
+    fn test_paragraph_is_empty_with_bookmark_only() {
+        let para = Paragraph {
+            style_id: None,
+            children: vec![ParagraphChild::Bookmark(Bookmark {
+                name: "_Toc123".to_string(),
+            })],
+            numbering: None,
+        };
+        // Bookmarks are considered empty (no visible content)
+        assert!(para.is_empty());
+    }
+
+    #[test]
+    fn test_paragraph_is_empty_with_empty_hyperlink() {
+        let para = Paragraph {
+            style_id: None,
+            children: vec![ParagraphChild::Hyperlink(Hyperlink {
+                id: Some("rId1".to_string()),
+                anchor: None,
+                runs: vec![Run {
+                    text: "   ".to_string(), // Whitespace only
+                    bold: false,
+                    italic: false,
+                    monospace: false,
+                }],
+            })],
+            numbering: None,
+        };
+        assert!(para.is_empty());
+    }
+
+    #[test]
+    fn test_paragraph_is_empty_with_hyperlink_and_image() {
+        use crate::image::{Image, ImagePosition};
+
+        let para = Paragraph {
+            style_id: None,
+            children: vec![
+                ParagraphChild::Hyperlink(Hyperlink {
+                    id: Some("rId1".to_string()),
+                    anchor: None,
+                    runs: vec![], // Empty runs
+                }),
+                ParagraphChild::Image(Image {
+                    id: 1,
+                    rel_id: "rId2".to_string(),
+                    target: "media/image.png".to_string(),
+                    alt: None,
+                    name: None,
+                    width_emu: None,
+                    height_emu: None,
+                    position: ImagePosition::Inline,
+                }),
+            ],
+            numbering: None,
+        };
+        // Image makes it non-empty
+        assert!(!para.is_empty());
+    }
+
+    #[test]
+    fn test_paragraph_is_empty_mixed_children() {
+        let para = Paragraph {
+            style_id: None,
+            children: vec![
+                ParagraphChild::Run(Run {
+                    text: "   ".to_string(), // Whitespace only
+                    bold: false,
+                    italic: false,
+                    monospace: false,
+                }),
+                ParagraphChild::Run(Run {
+                    text: "content".to_string(), // Has content
+                    bold: false,
+                    italic: false,
+                    monospace: false,
+                }),
+            ],
+            numbering: None,
+        };
+        // One run has content
+        assert!(!para.is_empty());
+    }
+
+    #[test]
+    fn test_paragraph_runs_iterator() {
+        let para = Paragraph {
+            style_id: None,
+            children: vec![
+                ParagraphChild::Run(Run {
+                    text: "First ".to_string(),
+                    bold: false,
+                    italic: false,
+                    monospace: false,
+                }),
+                ParagraphChild::Hyperlink(Hyperlink {
+                    id: None,
+                    anchor: Some("target".to_string()),
+                    runs: vec![
+                        Run {
+                            text: "link".to_string(),
+                            bold: true,
+                            italic: false,
+                            monospace: false,
+                        },
+                        Run {
+                            text: " text".to_string(),
+                            bold: false,
+                            italic: false,
+                            monospace: false,
+                        },
+                    ],
+                }),
+                ParagraphChild::Run(Run {
+                    text: " last".to_string(),
+                    bold: false,
+                    italic: false,
+                    monospace: false,
+                }),
+            ],
+            numbering: None,
+        };
+
+        let runs: Vec<_> = para.runs().collect();
+        assert_eq!(runs.len(), 4);
+        assert_eq!(runs[0].text, "First ");
+        assert_eq!(runs[1].text, "link");
+        assert_eq!(runs[2].text, " text");
+        assert_eq!(runs[3].text, " last");
+    }
+
+    #[test]
+    fn test_paragraph_images_iterator() {
+        use crate::image::{Image, ImagePosition};
+
+        let para = Paragraph {
+            style_id: None,
+            children: vec![
+                ParagraphChild::Run(Run {
+                    text: "Text ".to_string(),
+                    bold: false,
+                    italic: false,
+                    monospace: false,
+                }),
+                ParagraphChild::Image(Image {
+                    id: 1,
+                    rel_id: "rId1".to_string(),
+                    target: "media/image1.png".to_string(),
+                    alt: Some("First image".to_string()),
+                    name: None,
+                    width_emu: None,
+                    height_emu: None,
+                    position: ImagePosition::Inline,
+                }),
+                ParagraphChild::Image(Image {
+                    id: 2,
+                    rel_id: "rId2".to_string(),
+                    target: "media/image2.png".to_string(),
+                    alt: Some("Second image".to_string()),
+                    name: None,
+                    width_emu: None,
+                    height_emu: None,
+                    position: ImagePosition::Inline,
+                }),
+            ],
+            numbering: None,
+        };
+
+        let images: Vec<_> = para.images().collect();
+        assert_eq!(images.len(), 2);
+        assert_eq!(images[0].target, "media/image1.png");
+        assert_eq!(images[1].target, "media/image2.png");
+    }
 }

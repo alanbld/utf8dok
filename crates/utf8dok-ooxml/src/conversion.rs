@@ -750,4 +750,148 @@ mod tests {
             panic!("Expected Table block");
         }
     }
+
+    // ==================== Sprint 7: ConversionContext Tests ====================
+
+    #[test]
+    fn test_context_with_styles() {
+        use crate::styles::StyleSheet;
+
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="CustomHeading1" w:customStyle="1">
+                <w:name w:val="Custom Heading 1"/>
+                <w:pPr><w:outlineLvl w:val="0"/></w:pPr>
+            </w:style>
+            <w:style w:type="paragraph" w:styleId="CustomHeading2" w:customStyle="1">
+                <w:name w:val="Custom Heading 2"/>
+                <w:pPr><w:outlineLvl w:val="1"/></w:pPr>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+        let ctx = ConversionContext::with_styles(&styles);
+
+        // Should detect heading level from outline level in stylesheet
+        assert_eq!(ctx.heading_level("CustomHeading1"), Some(1));
+        assert_eq!(ctx.heading_level("CustomHeading2"), Some(2));
+        assert_eq!(ctx.heading_level("NonExistent"), None);
+    }
+
+    #[test]
+    fn test_context_with_styles_and_rels() {
+        use crate::relationships::Relationships;
+        use crate::styles::StyleSheet;
+
+        let styles_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Normal">
+                <w:name w:val="Normal"/>
+            </w:style>
+        </w:styles>"#;
+
+        let rels_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+            <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com" TargetMode="External"/>
+        </Relationships>"#;
+
+        let styles = StyleSheet::parse(styles_xml).unwrap();
+        let rels = Relationships::parse(rels_xml).unwrap();
+        let ctx = ConversionContext::with_styles_and_rels(&styles, &rels);
+
+        // Verify both styles and relationships are accessible
+        assert!(ctx.styles.is_some());
+        assert!(ctx.relationships.is_some());
+        assert_eq!(ctx.relationships.unwrap().get("rId1"), Some("https://example.com"));
+    }
+
+    #[test]
+    fn test_heading_level_fallback() {
+        // Without styles, should fall back to parsing style ID
+        let ctx = ConversionContext::new();
+
+        assert_eq!(ctx.heading_level("Heading1"), Some(1));
+        assert_eq!(ctx.heading_level("Heading2"), Some(2));
+        assert_eq!(ctx.heading_level("Heading9"), Some(9));
+        assert_eq!(ctx.heading_level("heading3"), Some(3)); // lowercase
+        assert_eq!(ctx.heading_level("Normal"), None);
+        assert_eq!(ctx.heading_level("HeadingX"), None); // Not a number
+    }
+
+    #[test]
+    fn test_heading_level_stylesheet_takes_precedence() {
+        use crate::styles::StyleSheet;
+
+        // Custom style with outline level 2, even though ID suggests level 1
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Heading1">
+                <w:name w:val="heading 1"/>
+                <w:pPr><w:outlineLvl w:val="2"/></w:pPr>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+        let ctx = ConversionContext::with_styles(&styles);
+
+        // Should use outline level (3), not ID-based (1)
+        assert_eq!(ctx.heading_level("Heading1"), Some(3));
+    }
+
+    #[test]
+    fn test_context_default() {
+        let ctx = ConversionContext::default();
+        assert!(ctx.styles.is_none());
+        assert!(ctx.relationships.is_none());
+    }
+
+    #[test]
+    fn test_hyperlink_with_context() {
+        use crate::relationships::Relationships;
+
+        let rels_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+            <Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://rust-lang.org" TargetMode="External"/>
+        </Relationships>"#;
+
+        let rels = Relationships::parse(rels_xml).unwrap();
+        let ctx = ConversionContext {
+            styles: None,
+            relationships: Some(&rels),
+        };
+
+        // Create hyperlink with relationship ID
+        let hyperlink = Hyperlink {
+            id: Some("rId5".to_string()),
+            anchor: None,
+            runs: vec![Run {
+                text: "Rust".to_string(),
+                bold: false,
+                italic: false,
+                monospace: false,
+            }],
+        };
+
+        let inline = hyperlink.to_ast(&ctx);
+
+        if let Inline::Link(link) = inline {
+            assert_eq!(link.url, "https://rust-lang.org");
+        } else {
+            panic!("Expected Link inline");
+        }
+    }
+
+    #[test]
+    fn test_section_break_conversion_explicit() {
+        let doc = Document {
+            blocks: vec![Block::SectionBreak],
+        };
+
+        let ast_doc = convert_document(&doc);
+        assert_eq!(ast_doc.blocks.len(), 1);
+        assert!(matches!(
+            &ast_doc.blocks[0],
+            AstBlock::Break(AstBreakType::Section)
+        ));
+    }
 }

@@ -100,6 +100,11 @@ impl StyleSheet {
                                 builder.is_default = true;
                             }
 
+                            // Check if custom style
+                            if get_attr(e, b"w:customStyle").as_deref() == Some("1") {
+                                builder.is_custom = true;
+                            }
+
                             current_style = Some(builder);
                         }
                         b"name" if current_style.is_some() => {
@@ -241,6 +246,7 @@ struct StyleBuilder {
     ui_priority: Option<u32>,
     outline_level: Option<u8>,
     is_default: bool,
+    is_custom: bool,
 }
 
 impl StyleBuilder {
@@ -252,7 +258,7 @@ impl StyleBuilder {
             style_type: self.style_type.unwrap_or(StyleType::Paragraph),
             based_on: self.based_on,
             next: self.next,
-            builtin: true, // TODO: detect custom styles
+            builtin: !self.is_custom, // Custom styles have w:customStyle="1"
             ui_priority: self.ui_priority,
             outline_level: self.outline_level,
         })
@@ -658,5 +664,91 @@ mod tests {
         assert_eq!(chain.len(), 2);
         assert_eq!(chain[0].id, "Heading1");
         assert_eq!(chain[1].id, "Normal");
+    }
+
+    // ==================== Sprint 7: Custom Style Detection ====================
+
+    #[test]
+    fn test_parse_custom_style() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Normal" w:default="1">
+                <w:name w:val="Normal"/>
+            </w:style>
+            <w:style w:type="paragraph" w:styleId="MyCustomStyle" w:customStyle="1">
+                <w:name w:val="My Custom Style"/>
+                <w:basedOn w:val="Normal"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+
+        // Built-in style (no customStyle attribute)
+        let normal = styles.get("Normal").unwrap();
+        assert!(normal.builtin, "Normal should be a built-in style");
+
+        // Custom style (customStyle="1")
+        let custom = styles.get("MyCustomStyle").unwrap();
+        assert!(!custom.builtin, "MyCustomStyle should be a custom style");
+        assert_eq!(custom.name, "My Custom Style");
+    }
+
+    #[test]
+    fn test_builtin_styles_detection() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Heading1">
+                <w:name w:val="heading 1"/>
+                <w:pPr><w:outlineLvl w:val="0"/></w:pPr>
+            </w:style>
+            <w:style w:type="table" w:styleId="TableGrid">
+                <w:name w:val="Table Grid"/>
+            </w:style>
+            <w:style w:type="character" w:styleId="Strong">
+                <w:name w:val="Strong"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+
+        // All without customStyle="1" should be builtin
+        assert!(styles.get("Heading1").unwrap().builtin);
+        assert!(styles.get("TableGrid").unwrap().builtin);
+        assert!(styles.get("Strong").unwrap().builtin);
+    }
+
+    #[test]
+    fn test_mixed_builtin_and_custom_styles() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Normal" w:default="1">
+                <w:name w:val="Normal"/>
+            </w:style>
+            <w:style w:type="paragraph" w:styleId="Heading1">
+                <w:name w:val="heading 1"/>
+            </w:style>
+            <w:style w:type="paragraph" w:styleId="CompanyHeader" w:customStyle="1">
+                <w:name w:val="Company Header"/>
+                <w:basedOn w:val="Heading1"/>
+            </w:style>
+            <w:style w:type="paragraph" w:styleId="LegalDisclaimer" w:customStyle="1">
+                <w:name w:val="Legal Disclaimer"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+
+        // Count builtin vs custom
+        let builtin_count = styles.styles.values().filter(|s| s.builtin).count();
+        let custom_count = styles.styles.values().filter(|s| !s.builtin).count();
+
+        assert_eq!(builtin_count, 2, "Should have 2 built-in styles");
+        assert_eq!(custom_count, 2, "Should have 2 custom styles");
+
+        // Verify specific styles
+        assert!(styles.get("Normal").unwrap().builtin);
+        assert!(styles.get("Heading1").unwrap().builtin);
+        assert!(!styles.get("CompanyHeader").unwrap().builtin);
+        assert!(!styles.get("LegalDisclaimer").unwrap().builtin);
     }
 }
