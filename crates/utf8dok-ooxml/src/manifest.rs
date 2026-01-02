@@ -230,4 +230,163 @@ mod tests {
         assert_eq!(meta.hash, Some("sha256:abcdef".to_string()));
         assert_eq!(meta.description, Some("Rust code example".to_string()));
     }
+
+    // ==================== Additional Coverage Tests ====================
+
+    #[test]
+    fn test_remove_element() {
+        let mut manifest = Manifest::new();
+        manifest.add_element("elem1", ElementMeta::new("test"));
+
+        assert_eq!(manifest.len(), 1);
+        assert!(!manifest.is_empty());
+
+        // Remove existing element
+        let removed = manifest.remove_element("elem1");
+        assert!(removed.is_some());
+        assert_eq!(removed.unwrap().type_, "test");
+        assert!(manifest.is_empty());
+
+        // Remove non-existent element
+        let removed_again = manifest.remove_element("elem1");
+        assert!(removed_again.is_none());
+    }
+
+    #[test]
+    fn test_to_json_bytes() {
+        let mut manifest = Manifest::new();
+        manifest.add_element("fig1", ElementMeta::new("figure"));
+
+        let bytes = manifest.to_json_bytes().unwrap();
+        assert!(!bytes.is_empty());
+
+        // Verify it's valid UTF-8 JSON
+        let json_str = std::str::from_utf8(&bytes).unwrap();
+        assert!(json_str.contains("\"version\""));
+        assert!(json_str.contains("\"fig1\""));
+    }
+
+    #[test]
+    fn test_from_json_bytes() {
+        let json = r#"{"version":"1.0","generator":"test","generated_at":"2025-01-01","elements":{"x":{"type":"section"}}}"#;
+
+        let manifest = Manifest::from_json_bytes(json.as_bytes()).unwrap();
+        assert_eq!(manifest.version, "1.0");
+        assert_eq!(manifest.generator, "test");
+        assert_eq!(manifest.len(), 1);
+        assert_eq!(manifest.get_element("x").unwrap().type_, "section");
+    }
+
+    #[test]
+    fn test_manifest_with_compiler_intent() {
+        let mut manifest = Manifest::new();
+        manifest.compiler = Some(DocumentIntent::default());
+
+        let json = manifest.to_json().unwrap();
+        assert!(json.contains("\"compiler\":"));
+
+        let restored = Manifest::from_json(&json).unwrap();
+        assert!(restored.compiler.is_some());
+    }
+
+    #[test]
+    fn test_manifest_without_compiler_intent() {
+        let manifest = Manifest::new();
+        assert!(manifest.compiler.is_none());
+
+        let json = manifest.to_json().unwrap();
+        // compiler field should be skipped when None
+        assert!(!json.contains("\"compiler\""));
+    }
+
+    #[test]
+    fn test_is_empty_and_len() {
+        let mut manifest = Manifest::new();
+
+        assert!(manifest.is_empty());
+        assert_eq!(manifest.len(), 0);
+
+        manifest.add_element("a", ElementMeta::new("test"));
+        assert!(!manifest.is_empty());
+        assert_eq!(manifest.len(), 1);
+
+        manifest.add_element("b", ElementMeta::new("test"));
+        assert_eq!(manifest.len(), 2);
+
+        manifest.remove_element("a");
+        assert_eq!(manifest.len(), 1);
+    }
+
+    #[test]
+    fn test_get_element_missing() {
+        let manifest = Manifest::new();
+        assert!(manifest.get_element("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_element_meta_minimal() {
+        // Test element with only type (no optional fields)
+        let meta = ElementMeta::new("table");
+        assert_eq!(meta.type_, "table");
+        assert!(meta.source.is_none());
+        assert!(meta.hash.is_none());
+        assert!(meta.description.is_none());
+
+        // Verify optional fields are skipped in JSON
+        let mut manifest = Manifest::new();
+        manifest.add_element("minimal", meta);
+        let json = manifest.to_json().unwrap();
+
+        // Should not contain source, hash, description for minimal element
+        assert!(!json.contains("\"source\""));
+        assert!(!json.contains("\"hash\""));
+        // Note: description might still appear if it's in another element
+    }
+
+    #[test]
+    fn test_manifest_roundtrip_bytes() {
+        let mut original = Manifest::new();
+        original.add_element(
+            "fig1",
+            ElementMeta::new("figure")
+                .with_source("diagrams/arch.mmd")
+                .with_hash("abc123"),
+        );
+        original.add_element(
+            "table1",
+            ElementMeta::new("table").with_description("Data table"),
+        );
+
+        // Roundtrip through bytes
+        let bytes = original.to_json_bytes().unwrap();
+        let restored = Manifest::from_json_bytes(&bytes).unwrap();
+
+        assert_eq!(restored.version, original.version);
+        assert_eq!(restored.len(), original.len());
+
+        let fig = restored.get_element("fig1").unwrap();
+        assert_eq!(fig.source, Some("diagrams/arch.mmd".to_string()));
+        assert_eq!(fig.hash, Some("abc123".to_string()));
+
+        let table = restored.get_element("table1").unwrap();
+        assert_eq!(table.description, Some("Data table".to_string()));
+    }
+
+    #[test]
+    fn test_overwrite_element() {
+        let mut manifest = Manifest::new();
+
+        manifest.add_element("elem", ElementMeta::new("original"));
+        assert_eq!(manifest.get_element("elem").unwrap().type_, "original");
+
+        // Overwrite with new value
+        manifest.add_element("elem", ElementMeta::new("updated"));
+        assert_eq!(manifest.get_element("elem").unwrap().type_, "updated");
+        assert_eq!(manifest.len(), 1); // Still only one element
+    }
+
+    #[test]
+    fn test_manifest_path_constant() {
+        assert_eq!(MANIFEST_PATH, "utf8dok/manifest.json");
+    }
 }

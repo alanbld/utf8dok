@@ -112,6 +112,11 @@ impl OoxmlArchive {
         self.files.contains_key(path)
     }
 
+    /// Check if a file exists in the archive (alias for `contains`)
+    pub fn has_file(&self, path: &str) -> bool {
+        self.contains(path)
+    }
+
     /// List all files in the archive
     pub fn file_list(&self) -> impl Iterator<Item = &str> {
         self.files.keys().map(|s| s.as_str())
@@ -348,5 +353,195 @@ mod tests {
 
         let restored_manifest = restored.get_manifest().unwrap().unwrap();
         assert_eq!(restored_manifest.len(), 1);
+    }
+
+    // ==================== Additional Coverage Tests ====================
+
+    #[test]
+    fn test_get_basic() {
+        let mut archive = OoxmlArchive {
+            files: HashMap::new(),
+        };
+
+        // Test get on non-existent file
+        assert!(archive.get("missing.xml").is_none());
+
+        // Add file and verify get works
+        archive.set("test.xml", b"<test/>".to_vec());
+        assert_eq!(archive.get("test.xml"), Some(b"<test/>".as_slice()));
+    }
+
+    #[test]
+    fn test_get_string_empty_file() {
+        let mut archive = OoxmlArchive {
+            files: HashMap::new(),
+        };
+
+        archive.set("empty.txt", Vec::new());
+        let result = archive.get_string("empty.txt").unwrap();
+        assert_eq!(result, Some(String::new()));
+    }
+
+    #[test]
+    fn test_get_string_non_existent() {
+        let archive = OoxmlArchive {
+            files: HashMap::new(),
+        };
+
+        let result = archive.get_string("missing.txt").unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_document_xml_missing() {
+        let archive = OoxmlArchive {
+            files: HashMap::new(),
+        };
+
+        let result = archive.document_xml();
+        assert!(result.is_err());
+        if let Err(OoxmlError::MissingFile(path)) = result {
+            assert_eq!(path, "word/document.xml");
+        } else {
+            panic!("Expected MissingFile error");
+        }
+    }
+
+    #[test]
+    fn test_styles_xml_missing() {
+        let archive = OoxmlArchive {
+            files: HashMap::new(),
+        };
+
+        let result = archive.styles_xml();
+        assert!(result.is_err());
+        if let Err(OoxmlError::MissingFile(path)) = result {
+            assert_eq!(path, "word/styles.xml");
+        } else {
+            panic!("Expected MissingFile error");
+        }
+    }
+
+    #[test]
+    fn test_optional_xml_files() {
+        let mut archive = OoxmlArchive {
+            files: HashMap::new(),
+        };
+
+        // All optional files should return None when missing
+        assert!(archive.numbering_xml().is_none());
+        assert!(archive.document_rels_xml().is_none());
+        assert!(archive.header_xml(1).is_none());
+        assert!(archive.footer_xml(1).is_none());
+        assert!(archive.core_properties_xml().is_none());
+        assert!(archive.comments_xml().is_none());
+
+        // Add header and footer
+        archive.set_string("word/header1.xml", "<header/>");
+        archive.set_string("word/footer1.xml", "<footer/>");
+
+        assert!(archive.header_xml(1).is_some());
+        assert!(archive.footer_xml(1).is_some());
+        // Different index still returns None
+        assert!(archive.header_xml(2).is_none());
+        assert!(archive.footer_xml(2).is_none());
+    }
+
+    #[test]
+    fn test_file_list() {
+        let mut archive = OoxmlArchive {
+            files: HashMap::new(),
+        };
+
+        archive.set_string("a.xml", "a");
+        archive.set_string("b.xml", "b");
+        archive.set_string("c.xml", "c");
+
+        let files: Vec<&str> = archive.file_list().collect();
+        assert_eq!(files.len(), 3);
+        assert!(files.contains(&"a.xml"));
+        assert!(files.contains(&"b.xml"));
+        assert!(files.contains(&"c.xml"));
+    }
+
+    #[test]
+    fn test_has_file_alias() {
+        let mut archive = OoxmlArchive {
+            files: HashMap::new(),
+        };
+
+        archive.set_string("test.xml", "content");
+
+        // Both methods should return the same result
+        assert_eq!(archive.contains("test.xml"), archive.has_file("test.xml"));
+        assert_eq!(archive.contains("missing.xml"), archive.has_file("missing.xml"));
+    }
+
+    #[test]
+    fn test_set_binary() {
+        let mut archive = OoxmlArchive {
+            files: HashMap::new(),
+        };
+
+        // Set binary data
+        let binary = vec![0x00, 0x01, 0x02, 0xFF, 0xFE];
+        archive.set("binary.bin", binary.clone());
+
+        assert_eq!(archive.get("binary.bin"), Some(binary.as_slice()));
+    }
+
+    #[test]
+    fn test_remove_returns_content() {
+        let mut archive = OoxmlArchive {
+            files: HashMap::new(),
+        };
+
+        archive.set_string("test.xml", "content");
+
+        let removed = archive.remove("test.xml");
+        assert_eq!(removed, Some(b"content".to_vec()));
+
+        // Removing again returns None
+        assert_eq!(archive.remove("test.xml"), None);
+    }
+
+    #[test]
+    fn test_read_utf8dok_file_bytes() {
+        let mut archive = OoxmlArchive {
+            files: HashMap::new(),
+        };
+
+        let binary = vec![0x89, 0x50, 0x4E, 0x47]; // PNG header
+        archive.write_utf8dok_file("image.png", binary.clone());
+
+        let read = archive.read_utf8dok_file("image.png");
+        assert_eq!(read, Some(binary.as_slice()));
+    }
+
+    #[test]
+    fn test_get_manifest_when_missing() {
+        let archive = OoxmlArchive {
+            files: HashMap::new(),
+        };
+
+        let result = archive.get_manifest().unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_multiple_utf8dok_files() {
+        let mut archive = OoxmlArchive {
+            files: HashMap::new(),
+        };
+
+        archive.write_utf8dok_string("file1.txt", "one");
+        archive.write_utf8dok_string("file2.txt", "two");
+        archive.write_utf8dok_string("subdir/file3.txt", "three");
+
+        let files = archive.list_utf8dok_files();
+        assert_eq!(files.len(), 3);
+        assert!(files.contains(&"file1.txt"));
+        assert!(files.contains(&"file2.txt"));
+        assert!(files.contains(&"subdir/file3.txt"));
     }
 }
