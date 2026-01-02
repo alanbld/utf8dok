@@ -3170,4 +3170,550 @@ paragraph = "Normal"
         // Existing author should remain
         assert!(core_xml.contains("<dc:creator>Existing Author</dc:creator>"));
     }
+
+    // ==================== Sprint 18: Writer Block Generation Tests ====================
+
+    #[test]
+    fn test_generate_break_page() {
+        use crate::test_utils::create_minimal_template;
+        use utf8dok_ast::BreakType;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![
+                Block::Paragraph(Paragraph {
+                    inlines: vec![Inline::Text("Before".to_string())],
+                    ..Default::default()
+                }),
+                Block::Break(BreakType::Page),
+                Block::Paragraph(Paragraph {
+                    inlines: vec![Inline::Text("After".to_string())],
+                    ..Default::default()
+                }),
+            ],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+        assert!(!result.is_empty());
+
+        // Verify the output contains a page break
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("<w:br w:type=\"page\"/>"));
+    }
+
+    #[test]
+    fn test_generate_break_section() {
+        use crate::test_utils::create_minimal_template;
+        use utf8dok_ast::BreakType;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![
+                Block::Paragraph(Paragraph {
+                    inlines: vec![Inline::Text("Before section".to_string())],
+                    ..Default::default()
+                }),
+                Block::Break(BreakType::Section),
+                Block::Paragraph(Paragraph {
+                    inlines: vec![Inline::Text("After section".to_string())],
+                    ..Default::default()
+                }),
+            ],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        // Section break should generate sectPr or similar
+        assert!(doc_xml.contains("Before section"));
+        assert!(doc_xml.contains("After section"));
+    }
+
+    #[test]
+    fn test_generate_literal_block() {
+        use crate::test_utils::create_minimal_template;
+        use utf8dok_ast::LiteralBlock;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::Literal(LiteralBlock {
+                content: "fn main() {\n    println!(\"Hello\");\n}".to_string(),
+                language: Some("rust".to_string()),
+                title: None,
+                style_id: None,
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        // Should contain the code content
+        assert!(doc_xml.contains("fn main()"));
+        assert!(doc_xml.contains("println!"));
+    }
+
+    #[test]
+    fn test_generate_literal_block_with_title() {
+        use crate::test_utils::create_minimal_template;
+        use utf8dok_ast::LiteralBlock;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::Literal(LiteralBlock {
+                content: "example code".to_string(),
+                language: None,
+                title: Some("Example".to_string()),
+                style_id: None,
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("example code"));
+    }
+
+    #[test]
+    fn test_generate_admonition_note() {
+        use crate::test_utils::create_minimal_template;
+        use utf8dok_ast::{Admonition, AdmonitionType};
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::Admonition(Admonition {
+                admonition_type: AdmonitionType::Note,
+                title: None,
+                content: vec![Block::Paragraph(Paragraph {
+                    inlines: vec![Inline::Text("Important note here".to_string())],
+                    ..Default::default()
+                })],
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("Important note here"));
+    }
+
+    #[test]
+    fn test_generate_admonition_warning() {
+        use crate::test_utils::create_minimal_template;
+        use utf8dok_ast::{Admonition, AdmonitionType};
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::Admonition(Admonition {
+                admonition_type: AdmonitionType::Warning,
+                title: Some(vec![Inline::Text("Danger!".to_string())]),
+                content: vec![Block::Paragraph(Paragraph {
+                    inlines: vec![Inline::Text("Be careful".to_string())],
+                    ..Default::default()
+                })],
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("Be careful"));
+    }
+
+    #[test]
+    fn test_generate_admonition_all_types() {
+        use crate::test_utils::create_minimal_template;
+        use utf8dok_ast::{Admonition, AdmonitionType};
+
+        let types = [
+            AdmonitionType::Note,
+            AdmonitionType::Tip,
+            AdmonitionType::Important,
+            AdmonitionType::Warning,
+            AdmonitionType::Caution,
+        ];
+
+        for admon_type in &types {
+            let doc = Document {
+                metadata: Default::default(),
+                intent: None,
+                blocks: vec![Block::Admonition(Admonition {
+                    admonition_type: admon_type.clone(),
+                    title: None,
+                    content: vec![Block::Paragraph(Paragraph {
+                        inlines: vec![Inline::Text("Content".to_string())],
+                        ..Default::default()
+                    })],
+                })],
+            };
+
+            let template = create_minimal_template();
+            let result = DocxWriter::generate(&doc, &template);
+            assert!(result.is_ok(), "Failed for admonition type {:?}", admon_type);
+        }
+    }
+
+    #[test]
+    fn test_generate_image_inline() {
+        use crate::test_utils::create_minimal_template;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::Paragraph(Paragraph {
+                inlines: vec![Inline::Image(utf8dok_ast::Image {
+                    src: "test.png".to_string(),
+                    alt: Some("Test image".to_string()),
+                })],
+                ..Default::default()
+            })],
+        };
+
+        let template = create_minimal_template();
+        // This won't embed the actual image (file doesn't exist), but should not panic
+        let result = DocxWriter::generate(&doc, &template);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_generate_nested_list() {
+        use crate::test_utils::create_minimal_template;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::List(List {
+                list_type: ListType::Unordered,
+                items: vec![
+                    ListItem {
+                        content: vec![Block::Paragraph(Paragraph {
+                            inlines: vec![Inline::Text("Item 1".to_string())],
+                            ..Default::default()
+                        })],
+                        level: 0,
+                        term: None,
+                    },
+                    ListItem {
+                        content: vec![Block::Paragraph(Paragraph {
+                            inlines: vec![Inline::Text("Nested item".to_string())],
+                            ..Default::default()
+                        })],
+                        level: 1,
+                        term: None,
+                    },
+                    ListItem {
+                        content: vec![Block::Paragraph(Paragraph {
+                            inlines: vec![Inline::Text("Item 2".to_string())],
+                            ..Default::default()
+                        })],
+                        level: 0,
+                        term: None,
+                    },
+                ],
+                style_id: None,
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("Item 1"));
+        assert!(doc_xml.contains("Nested item"));
+        assert!(doc_xml.contains("Item 2"));
+    }
+
+    #[test]
+    fn test_generate_ordered_list() {
+        use crate::test_utils::create_minimal_template;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::List(List {
+                list_type: ListType::Ordered,
+                items: vec![
+                    ListItem {
+                        content: vec![Block::Paragraph(Paragraph {
+                            inlines: vec![Inline::Text("First".to_string())],
+                            ..Default::default()
+                        })],
+                        level: 0,
+                        term: None,
+                    },
+                    ListItem {
+                        content: vec![Block::Paragraph(Paragraph {
+                            inlines: vec![Inline::Text("Second".to_string())],
+                            ..Default::default()
+                        })],
+                        level: 0,
+                        term: None,
+                    },
+                ],
+                style_id: None,
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("First"));
+        assert!(doc_xml.contains("Second"));
+    }
+
+    #[test]
+    fn test_generate_table_with_header() {
+        use crate::test_utils::create_minimal_template;
+        use utf8dok_ast::{Table, TableCell, TableRow};
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::Table(Table {
+                caption: None,
+                rows: vec![
+                    TableRow {
+                        cells: vec![
+                            TableCell {
+                                content: vec![Block::Paragraph(Paragraph {
+                                    inlines: vec![Inline::Text("Col A".to_string())],
+                                    ..Default::default()
+                                })],
+                                colspan: 1,
+                                rowspan: 1,
+                                align: None,
+                            },
+                            TableCell {
+                                content: vec![Block::Paragraph(Paragraph {
+                                    inlines: vec![Inline::Text("Col B".to_string())],
+                                    ..Default::default()
+                                })],
+                                colspan: 1,
+                                rowspan: 1,
+                                align: None,
+                            },
+                        ],
+                        is_header: true,
+                    },
+                    TableRow {
+                        cells: vec![
+                            TableCell {
+                                content: vec![Block::Paragraph(Paragraph {
+                                    inlines: vec![Inline::Text("Data 1".to_string())],
+                                    ..Default::default()
+                                })],
+                                colspan: 1,
+                                rowspan: 1,
+                                align: None,
+                            },
+                            TableCell {
+                                content: vec![Block::Paragraph(Paragraph {
+                                    inlines: vec![Inline::Text("Data 2".to_string())],
+                                    ..Default::default()
+                                })],
+                                colspan: 1,
+                                rowspan: 1,
+                                align: None,
+                            },
+                        ],
+                        is_header: false,
+                    },
+                ],
+                style_id: None,
+                columns: vec![],
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("Col A"));
+        assert!(doc_xml.contains("Col B"));
+        assert!(doc_xml.contains("Data 1"));
+        assert!(doc_xml.contains("Data 2"));
+    }
+
+    #[test]
+    fn test_generate_heading_with_anchor() {
+        use crate::test_utils::create_minimal_template;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::Heading(Heading {
+                level: 2,
+                text: vec![Inline::Text("Section Title".to_string())],
+                anchor: Some("section-title".to_string()),
+                style_id: None,
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("Section Title"));
+        // Heading level 2 should have Heading2 style
+        assert!(doc_xml.contains("Heading2") || doc_xml.contains("w:pStyle"));
+    }
+
+    #[test]
+    fn test_generate_inline_link_external() {
+        use crate::test_utils::create_minimal_template;
+        use utf8dok_ast::Link;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::Paragraph(Paragraph {
+                inlines: vec![Inline::Link(Link {
+                    url: "https://example.com".to_string(),
+                    text: vec![Inline::Text("Example".to_string())],
+                })],
+                ..Default::default()
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("Example"));
+        assert!(doc_xml.contains("hyperlink"));
+    }
+
+    #[test]
+    fn test_generate_inline_subscript_superscript() {
+        use crate::test_utils::create_minimal_template;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::Paragraph(Paragraph {
+                inlines: vec![
+                    Inline::Text("H".to_string()),
+                    Inline::Format(
+                        FormatType::Subscript,
+                        Box::new(Inline::Text("2".to_string())),
+                    ),
+                    Inline::Text("O".to_string()),
+                    Inline::Format(
+                        FormatType::Superscript,
+                        Box::new(Inline::Text("note".to_string())),
+                    ),
+                ],
+                ..Default::default()
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("H"));
+        assert!(doc_xml.contains("2"));
+        assert!(doc_xml.contains("O"));
+        // Subscript uses <w:vertAlign w:val="subscript"/>
+        assert!(doc_xml.contains("vertAlign"));
+    }
+
+    #[test]
+    fn test_generate_inline_highlight() {
+        use crate::test_utils::create_minimal_template;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::Paragraph(Paragraph {
+                inlines: vec![Inline::Format(
+                    FormatType::Highlight,
+                    Box::new(Inline::Text("important".to_string())),
+                )],
+                ..Default::default()
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("important"));
+    }
+
+    #[test]
+    fn test_generate_empty_document() {
+        use crate::test_utils::create_minimal_template;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        // Should still produce valid DOCX
+        assert!(!result.is_empty());
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("w:document"));
+        assert!(doc_xml.contains("w:body"));
+    }
+
+    #[test]
+    fn test_docx_writer_set_config_only() {
+        let mut writer = DocxWriter::new();
+        writer.set_config("key = \"value\"");
+        assert!(writer.config_text.is_some());
+        assert_eq!(writer.config_text.as_ref().unwrap(), "key = \"value\"");
+    }
+
+    #[test]
+    fn test_docx_writer_set_source_only() {
+        let mut writer = DocxWriter::new();
+        writer.set_source("= Title\n\nContent");
+        assert!(writer.source_text.is_some());
+        assert!(writer.source_text.as_ref().unwrap().contains("Title"));
+    }
+
+    #[test]
+    fn test_generate_with_manifest() {
+        use crate::test_utils::create_template_with_styles;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::Paragraph(Paragraph {
+                inlines: vec![Inline::Text("Test".to_string())],
+                ..Default::default()
+            })],
+        };
+
+        let mut writer = DocxWriter::new();
+        writer.set_source("= Test\n\nContent");
+        writer.set_config("[utf8dok]\nversion = \"1.0\"");
+
+        let template = create_template_with_styles();
+        let template_obj = Template::from_bytes(&template).unwrap();
+        let result = writer.generate_with_template(&doc, template_obj).unwrap();
+
+        // Should have embedded content
+        let cursor = Cursor::new(&result);
+        let archive = OoxmlArchive::from_reader(cursor).unwrap();
+        assert!(archive.contains("utf8dok/source.adoc"));
+        assert!(archive.contains("utf8dok/utf8dok.toml"));
+    }
 }
