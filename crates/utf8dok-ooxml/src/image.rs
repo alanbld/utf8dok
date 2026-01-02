@@ -326,4 +326,156 @@ mod tests {
             panic!("Expected Anchor");
         }
     }
+
+    // ==================== Sprint 6: Utility Edge Cases ====================
+
+    #[test]
+    fn test_emu_to_pixels_rounding() {
+        // Test rounding behavior at .5 boundaries
+        // EMU_PER_PIXEL = 9525
+        // 4762 EMUs = 0.4999... pixels -> rounds to 0
+        // 4763 EMUs = 0.5001... pixels -> rounds to 1
+        assert_eq!(emu_to_pixels(4762), 0); // Just under 0.5
+        assert_eq!(emu_to_pixels(4763), 1); // Just over 0.5, rounds to 1
+        assert_eq!(emu_to_pixels(9525), 1); // Exactly 1 pixel
+        // 9525 * 1.5 = 14287.5, so 14288 is just over 1.5
+        assert_eq!(emu_to_pixels(14288), 2); // Just over 1.5 pixels rounds to 2
+        assert_eq!(emu_to_pixels(14287), 1); // Just under 1.5 pixels rounds to 1
+    }
+
+    #[test]
+    fn test_emu_to_pixels_zero_and_negative() {
+        assert_eq!(emu_to_pixels(0), 0);
+        assert_eq!(emu_to_pixels(-9525), -1);
+        assert_eq!(emu_to_pixels(-914400), -96);
+    }
+
+    #[test]
+    fn test_filename_without_directory() {
+        // Direct filename without path
+        let img = Image::new_inline(1, "rId1".to_string(), "image.png".to_string());
+        assert_eq!(img.filename(), "image.png");
+    }
+
+    #[test]
+    fn test_filename_with_deep_path() {
+        let img = Image::new_inline(
+            1,
+            "rId1".to_string(),
+            "word/media/images/subfolder/image.png".to_string(),
+        );
+        assert_eq!(img.filename(), "image.png");
+    }
+
+    #[test]
+    fn test_extension_missing() {
+        // File without extension
+        let img = Image::new_inline(1, "rId1".to_string(), "media/imagefile".to_string());
+        // rsplit('.').next() returns the whole filename when no dot
+        assert_eq!(img.extension(), Some("imagefile"));
+    }
+
+    #[test]
+    fn test_extension_double_dot() {
+        let img = Image::new_inline(1, "rId1".to_string(), "media/archive.tar.gz".to_string());
+        assert_eq!(img.extension(), Some("gz"));
+    }
+
+    #[test]
+    fn test_content_type_unknown_extension() {
+        assert_eq!(content_type_for_extension("xyz"), "application/octet-stream");
+        assert_eq!(content_type_for_extension(""), "application/octet-stream");
+        assert_eq!(content_type_for_extension("unknown"), "application/octet-stream");
+    }
+
+    #[test]
+    fn test_content_type_all_variants() {
+        assert_eq!(content_type_for_extension("gif"), "image/gif");
+        assert_eq!(content_type_for_extension("wmf"), "image/x-wmf");
+        assert_eq!(content_type_for_extension("tiff"), "image/tiff");
+        assert_eq!(content_type_for_extension("tif"), "image/tiff");
+        assert_eq!(content_type_for_extension("bmp"), "image/bmp");
+    }
+
+    #[test]
+    fn test_emu_inch_conversions() {
+        // 1 inch = 914400 EMUs
+        assert_eq!(inches_to_emu(1.0), 914400);
+        assert_eq!(inches_to_emu(0.5), 457200);
+        assert_eq!(emu_to_inches(914400), 1.0);
+        assert_eq!(emu_to_inches(457200), 0.5);
+    }
+
+    #[test]
+    fn test_image_builder_chain() {
+        let img = Image::new_inline(1, "rId1".to_string(), "media/img.png".to_string())
+            .with_alt("Test alt text")
+            .with_name("Test name")
+            .with_dimensions_emu(1828800, 914400); // 2" x 1"
+
+        assert_eq!(img.alt, Some("Test alt text".to_string()));
+        assert_eq!(img.name, Some("Test name".to_string()));
+        assert_eq!(img.width_emu, Some(1828800));
+        assert_eq!(img.height_emu, Some(914400));
+        assert!(img.is_inline());
+        assert!(!img.is_anchor());
+    }
+
+    #[test]
+    fn test_image_anchor_builder() {
+        let img = Image::new_anchor(
+            2,
+            "rId2".to_string(),
+            "media/float.png".to_string(),
+            100000,
+            200000,
+            WrapType::Tight,
+        );
+
+        assert!(img.is_anchor());
+        assert!(!img.is_inline());
+
+        if let ImagePosition::Anchor { horizontal, vertical, wrap } = img.position {
+            assert_eq!(horizontal, 100000);
+            assert_eq!(vertical, 200000);
+            assert_eq!(wrap, WrapType::Tight);
+        } else {
+            panic!("Expected anchor position");
+        }
+    }
+
+    #[test]
+    fn test_wrap_type_element_names() {
+        assert_eq!(WrapType::None.element_name(), "wrapNone");
+        assert_eq!(WrapType::Square.element_name(), "wrapSquare");
+        assert_eq!(WrapType::Tight.element_name(), "wrapTight");
+        assert_eq!(WrapType::Through.element_name(), "wrapThrough");
+        assert_eq!(WrapType::TopAndBottom.element_name(), "wrapTopAndBottom");
+    }
+
+    #[test]
+    fn test_wrap_type_roundtrip() {
+        // Test all wrap types can be serialized and parsed back
+        let types = [
+            WrapType::None,
+            WrapType::Square,
+            WrapType::Tight,
+            WrapType::Through,
+            WrapType::TopAndBottom,
+        ];
+
+        for wrap_type in &types {
+            let name = wrap_type.element_name();
+            let parsed = WrapType::from_element_name(name);
+            assert_eq!(*wrap_type, parsed);
+        }
+    }
+
+    #[test]
+    fn test_width_height_px_none() {
+        let img = Image::new_inline(1, "rId1".to_string(), "media/img.png".to_string());
+        // Without dimensions set, should return None
+        assert!(img.width_px().is_none());
+        assert!(img.height_px().is_none());
+    }
 }

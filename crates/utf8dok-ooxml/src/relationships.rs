@@ -550,4 +550,170 @@ mod tests {
         assert_eq!(extract_id_number("invalid"), None);
         assert_eq!(extract_id_number("rIdabc"), None);
     }
+
+    // ==================== Sprint 6: Edge Case Tests ====================
+
+    #[test]
+    fn test_parse_large_id_numbers() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+            <Relationship Id="rId999" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+            <Relationship Id="rId1000" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="image.png"/>
+        </Relationships>"#;
+
+        let mut rels = Relationships::parse(xml).unwrap();
+        assert_eq!(rels.get("rId999"), Some("styles.xml"));
+        assert_eq!(rels.get("rId1000"), Some("image.png"));
+
+        // Next ID should be 1001
+        let new_id = rels.add("new.xml".to_string(), "type".to_string());
+        assert_eq!(new_id, "rId1001");
+    }
+
+    #[test]
+    fn test_parse_non_consecutive_ids() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+            <Relationship Id="rId1" Type="type" Target="first.xml"/>
+            <Relationship Id="rId10" Type="type" Target="tenth.xml"/>
+            <Relationship Id="rId5" Type="type" Target="fifth.xml"/>
+        </Relationships>"#;
+
+        let mut rels = Relationships::parse(xml).unwrap();
+        assert_eq!(rels.len(), 3);
+
+        // Verify all relationships are accessible
+        assert_eq!(rels.get("rId1"), Some("first.xml"));
+        assert_eq!(rels.get("rId5"), Some("fifth.xml"));
+        assert_eq!(rels.get("rId10"), Some("tenth.xml"));
+
+        // Next ID should be max + 1 = 11
+        let new_id = rels.add("new.xml".to_string(), "type".to_string());
+        assert_eq!(new_id, "rId11");
+    }
+
+    #[test]
+    fn test_add_duplicate_target_different_type() {
+        let mut rels = Relationships::new();
+
+        // Add same URL as both image and hyperlink
+        let img_id = rels.add(
+            "https://example.com/file.png".to_string(),
+            Relationships::TYPE_IMAGE.to_string(),
+        );
+        let link_id = rels.add(
+            "https://example.com/file.png".to_string(),
+            Relationships::TYPE_HYPERLINK.to_string(),
+        );
+
+        // Both should be added with different IDs
+        assert_eq!(img_id, "rId1");
+        assert_eq!(link_id, "rId2");
+        assert_eq!(rels.len(), 2);
+
+        // Both should be retrievable
+        assert!(rels.is_image("rId1"));
+        assert!(rels.is_hyperlink("rId2"));
+    }
+
+    #[test]
+    fn test_extract_id_number_edge_cases() {
+        // Leading zeros
+        assert_eq!(extract_id_number("rId007"), Some(7));
+        assert_eq!(extract_id_number("rId0"), Some(0));
+
+        // Empty prefix
+        assert_eq!(extract_id_number("rId"), None);
+        assert_eq!(extract_id_number(""), None);
+
+        // Numeric only (no prefix)
+        assert_eq!(extract_id_number("123"), None);
+
+        // Mixed case variations
+        assert_eq!(extract_id_number("RId99"), Some(99));
+        assert_eq!(extract_id_number("rid1"), Some(1));
+
+        // Large numbers
+        assert_eq!(extract_id_number("rId4294967295"), Some(4294967295)); // u32 max
+    }
+
+    #[test]
+    fn test_convenience_methods() {
+        let mut rels = Relationships::new();
+
+        let img_id = rels.add_image("media/diagram.png");
+        assert!(rels.is_image(&img_id));
+        assert_eq!(rels.get(&img_id), Some("media/diagram.png"));
+
+        let link_id = rels.add_hyperlink("https://example.com");
+        assert!(rels.is_hyperlink(&link_id));
+        assert_eq!(rels.get(&link_id), Some("https://example.com"));
+    }
+
+    #[test]
+    fn test_is_empty_and_len() {
+        let mut rels = Relationships::new();
+        assert!(rels.is_empty());
+        assert_eq!(rels.len(), 0);
+
+        rels.add("test.xml".to_string(), "type".to_string());
+        assert!(!rels.is_empty());
+        assert_eq!(rels.len(), 1);
+    }
+
+    #[test]
+    fn test_get_missing_relationship() {
+        let rels = Relationships::new();
+        assert_eq!(rels.get("rId1"), None);
+        assert_eq!(rels.get("nonexistent"), None);
+        assert!(!rels.is_hyperlink("rId1"));
+        assert!(!rels.is_image("rId1"));
+    }
+
+    #[test]
+    fn test_escape_xml_function() {
+        assert_eq!(escape_xml("normal text"), "normal text");
+        assert_eq!(escape_xml("a & b"), "a &amp; b");
+        assert_eq!(escape_xml("<tag>"), "&lt;tag&gt;");
+        assert_eq!(escape_xml("\"quoted\""), "&quot;quoted&quot;");
+        assert_eq!(escape_xml("it's"), "it&apos;s");
+        assert_eq!(
+            escape_xml("a < b & c > d \"e\" 'f'"),
+            "a &lt; b &amp; c &gt; d &quot;e&quot; &apos;f&apos;"
+        );
+    }
+
+    #[test]
+    fn test_parse_with_target_mode_internal() {
+        // Internal links don't have TargetMode attribute
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+            <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+        </Relationships>"#;
+
+        let rels = Relationships::parse(xml).unwrap();
+        // Internal targets should still be retrievable
+        assert_eq!(rels.get("rId1"), Some("styles.xml"));
+    }
+
+    #[test]
+    fn test_roundtrip_with_special_characters() {
+        let mut rels = Relationships::new();
+
+        // Add relationships with special characters in target
+        rels.add(
+            "path/with spaces/file.xml".to_string(),
+            "type".to_string(),
+        );
+        rels.add(
+            "unicode/日本語/ファイル.xml".to_string(),
+            "type".to_string(),
+        );
+
+        let xml = rels.to_xml();
+        let reparsed = Relationships::parse(xml.as_bytes()).unwrap();
+
+        assert_eq!(reparsed.get("rId1"), Some("path/with spaces/file.xml"));
+        assert_eq!(reparsed.get("rId2"), Some("unicode/日本語/ファイル.xml"));
+    }
 }

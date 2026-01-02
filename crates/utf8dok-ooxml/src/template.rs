@@ -316,4 +316,71 @@ mod tests {
         let rels = template.get_relationships();
         assert!(rels.is_ok());
     }
+
+    // ==================== Sprint 6: Boundary Tests ====================
+
+    #[test]
+    fn test_load_from_invalid_bytes() {
+        // Completely invalid bytes (not a ZIP)
+        let invalid_bytes = b"This is not a ZIP file";
+        let result = Template::from_bytes(invalid_bytes);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_from_truncated_zip() {
+        // Start of a valid ZIP but truncated
+        let truncated = &[0x50, 0x4b, 0x03, 0x04, 0x00, 0x00];
+        let result = Template::from_bytes(truncated);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_styles_caching() {
+        let template_bytes = create_test_template();
+        let mut template = Template::from_bytes(&template_bytes).unwrap();
+
+        // First call loads styles
+        let styles1 = template.get_styles().unwrap();
+        let has_normal1 = styles1.get("Normal").is_some();
+
+        // Second call should return cached styles
+        let styles2 = template.get_styles().unwrap();
+        let has_normal2 = styles2.get("Normal").is_some();
+
+        // Both calls should return consistent results
+        assert!(has_normal1);
+        assert!(has_normal2);
+    }
+
+    #[test]
+    fn test_has_style_before_get_styles() {
+        let template_bytes = create_test_template();
+        let mut template = Template::from_bytes(&template_bytes).unwrap();
+
+        // has_style should work without explicitly calling get_styles first
+        assert!(template.has_style("Normal").unwrap());
+        assert!(template.has_style("Heading1").unwrap());
+        assert!(!template.has_style("NonExistent").unwrap());
+    }
+
+    #[test]
+    fn test_available_style_ids_count() {
+        let template_bytes = create_test_template();
+        let mut template = Template::from_bytes(&template_bytes).unwrap();
+
+        let style_ids = template.available_style_ids().unwrap();
+        // Our test template has: Normal, Heading1, Heading2, Heading3, TableGrid, CodeBlock, ListBullet, ListNumber
+        assert!(style_ids.len() >= 7, "Expected at least 7 styles, got {}", style_ids.len());
+    }
+
+    #[test]
+    fn test_heading_style_levels() {
+        let template_bytes = create_test_template();
+        let mut template = Template::from_bytes(&template_bytes).unwrap();
+
+        let heading_ids = template.heading_style_ids().unwrap();
+        // Should have Heading1, Heading2, Heading3 from test template
+        assert_eq!(heading_ids.len(), 3);
+    }
 }
