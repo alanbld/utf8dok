@@ -243,3 +243,49 @@ git status && git log -5 --oneline
 # 3. Run tests
 cargo test --workspace
 ```
+
+## DOCX Polish Sprints (Active)
+
+**Goal:** Increase test coverage for `utf8dok-ooxml` crate systematically.
+
+**Sprint Pattern:**
+1. Explore coverage opportunities (find files with low test density)
+2. Add tests for untested/undertested functions
+3. Run tests and fix any errors
+4. Commit with message: `test(ooxml): Sprint N - <description>`
+
+**Completed Sprints:**
+
+| Sprint | File | Tests Added | Commit |
+|--------|------|-------------|--------|
+| 18 | writer.rs | +20 (block generation) | `05e79a2` |
+| 19 | style_map.rs | +17 (StyleContract, enums) | `3358ef7` |
+| 20 | style_contract_validator.rs | +15 | `b1a22f7` |
+| 21 | writer.rs | +19 (comments, content types, cover) | `fc9b8f3` |
+
+**Current Status (after Sprint 21):**
+- Total workspace tests: ~1,420
+- `utf8dok-ooxml` tests: 508
+- `writer.rs`: 72 tests / 4113 lines
+
+**Next: Sprint 22**
+
+To continue, run:
+```bash
+# Check test density per file
+for f in crates/utf8dok-ooxml/src/*.rs; do
+  tests=$(grep -c "#\[test\]" "$f" 2>/dev/null || echo 0)
+  lines=$(wc -l < "$f")
+  echo "$tests tests / $lines lines - $f"
+done | sort -t/ -k1 -n
+
+# Files with potential for more coverage:
+# - document.rs: 43 tests / 1944 lines (~1 per 45 lines)
+# - styles.rs: 34 tests / 1321 lines (~1 per 39 lines)
+# - relationships.rs: 26 tests / 840 lines (~1 per 32 lines)
+```
+
+**Key test utilities:**
+- `crate::test_utils::create_minimal_template()` - basic template without styles
+- `crate::test_utils::create_template_with_styles()` - template with word/styles.xml
+- `crate::test_utils::extract_document_xml(&result)` - extract document.xml from DOCX bytes
