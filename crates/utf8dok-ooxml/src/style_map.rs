@@ -1452,4 +1452,161 @@ content = "Version {revnumber}{delimiter}{revdate}"
         assert_eq!(config.title.color, "FFFFFF"); // White text
         assert!(config.title.bold);
     }
+
+    // ==================== Sprint 14: Template Expansion Edge Cases ====================
+
+    #[test]
+    fn test_template_expansion_repeated_placeholders() {
+        let metadata = CoverMetadata {
+            title: "Doc".to_string(),
+            revnumber: "1.0".to_string(),
+            ..Default::default()
+        };
+
+        // Same placeholder repeated multiple times
+        let result = CoverConfig::expand_template(
+            "{revnumber} - {title} - {revnumber}",
+            &metadata,
+            "",
+        );
+        assert_eq!(result, "1.0 - Doc - 1.0");
+    }
+
+    #[test]
+    fn test_template_expansion_all_placeholders() {
+        let metadata = CoverMetadata {
+            title: "Title".to_string(),
+            subtitle: "Subtitle".to_string(),
+            author: "Author".to_string(),
+            email: "email@test.com".to_string(),
+            revnumber: "2.0".to_string(),
+            revdate: "2025-01-01".to_string(),
+            revremark: "Final".to_string(),
+        };
+
+        let result = CoverConfig::expand_template(
+            "{title}|{subtitle}|{author}|{email}|{revnumber}|{revdate}|{revremark}|{delimiter}",
+            &metadata,
+            "SEP",
+        );
+        assert_eq!(result, "Title|Subtitle|Author|email@test.com|2.0|2025-01-01|Final|SEP");
+    }
+
+    #[test]
+    fn test_template_expansion_special_delimiter() {
+        let metadata = CoverMetadata {
+            revnumber: "1.0".to_string(),
+            revdate: "2025".to_string(),
+            ..Default::default()
+        };
+
+        // Delimiter with special characters
+        let result = CoverConfig::expand_template(
+            "{revnumber}{delimiter}{revdate}",
+            &metadata,
+            " | ",
+        );
+        assert_eq!(result, "1.0 | 2025");
+
+        // Newline delimiter
+        let result2 = CoverConfig::expand_template(
+            "{revnumber}{delimiter}{revdate}",
+            &metadata,
+            "\n",
+        );
+        assert_eq!(result2, "1.0\n2025");
+    }
+
+    #[test]
+    fn test_template_expansion_no_placeholders() {
+        let metadata = CoverMetadata::default();
+
+        // Static text without placeholders
+        let result = CoverConfig::expand_template("Static text only", &metadata, "");
+        assert_eq!(result, "Static text only");
+    }
+
+    #[test]
+    fn test_template_expansion_partial_placeholder() {
+        let metadata = CoverMetadata {
+            title: "Title".to_string(),
+            ..Default::default()
+        };
+
+        // Malformed/partial placeholders should remain
+        let result = CoverConfig::expand_template("{title} {title {notclosed", &metadata, "");
+        assert_eq!(result, "Title {title {notclosed");
+    }
+
+    #[test]
+    fn test_template_expansion_adjacent_placeholders() {
+        let metadata = CoverMetadata {
+            revnumber: "1".to_string(),
+            revdate: "2".to_string(),
+            ..Default::default()
+        };
+
+        // Placeholders directly adjacent to each other
+        let result = CoverConfig::expand_template("{revnumber}{revdate}", &metadata, "");
+        assert_eq!(result, "12");
+    }
+
+    #[test]
+    fn test_cover_config_for_light_background_preset() {
+        let config = CoverConfig::for_light_background();
+        // Should have dark text colors for light background
+        assert_eq!(config.title.color, "1F2937"); // Dark gray text
+        assert!(config.title.bold);
+    }
+
+    #[test]
+    fn test_style_contract_get_word_heading_style_all_levels() {
+        let mut contract = StyleContract::default();
+
+        // Add headings for all 9 levels
+        for level in 1..=9 {
+            contract.paragraph_styles.insert(
+                format!("H{}", level),
+                ParagraphStyleMapping {
+                    role: "heading".to_string(),
+                    heading_level: Some(level),
+                    ..Default::default()
+                },
+            );
+        }
+
+        // Verify all levels can be retrieved
+        for level in 1..=9 {
+            let style = contract.get_word_heading_style(level);
+            assert_eq!(style, Some(format!("H{}", level).as_str()));
+        }
+
+        // Level 0 and 10 should return None
+        assert!(contract.get_word_heading_style(0).is_none());
+        assert!(contract.get_word_heading_style(10).is_none());
+    }
+
+    #[test]
+    fn test_style_contract_get_word_style_for_role_multiple() {
+        let mut contract = StyleContract::default();
+
+        contract.paragraph_styles.insert(
+            "AbstractPara".to_string(),
+            ParagraphStyleMapping {
+                role: "abstract".to_string(),
+                ..Default::default()
+            },
+        );
+        contract.paragraph_styles.insert(
+            "NoteStyle".to_string(),
+            ParagraphStyleMapping {
+                role: "note".to_string(),
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(contract.get_word_style_for_role("abstract"), Some("AbstractPara"));
+        assert_eq!(contract.get_word_style_for_role("note"), Some("NoteStyle"));
+        assert!(contract.get_word_style_for_role("unknown").is_none());
+    }
 }

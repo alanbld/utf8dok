@@ -1916,4 +1916,112 @@ mod tests {
         assert!(ids.contains(&0));
         assert!(ids.contains(&1));
     }
+
+    // ==================== Sprint 14: DocumentMetadata Edge Cases ====================
+
+    #[test]
+    fn test_metadata_to_asciidoc_header_only_author() {
+        let metadata = DocumentMetadata {
+            author: Some("Solo Author".to_string()),
+            modified: None,
+            ..Default::default()
+        };
+        let header = metadata.to_asciidoc_header();
+        assert!(header.contains(":author: Solo Author"));
+        assert!(!header.contains(":revdate:"));
+    }
+
+    #[test]
+    fn test_metadata_to_asciidoc_header_only_modified() {
+        let metadata = DocumentMetadata {
+            author: None,
+            modified: Some("2025-06-15T14:30:00Z".to_string()),
+            ..Default::default()
+        };
+        let header = metadata.to_asciidoc_header();
+        assert!(!header.contains(":author:"));
+        assert!(header.contains(":revdate: 2025-06-15"));
+    }
+
+    #[test]
+    fn test_metadata_to_asciidoc_header_modified_without_time() {
+        // Date without T separator (edge case)
+        let metadata = DocumentMetadata {
+            modified: Some("2025-06-15".to_string()),
+            ..Default::default()
+        };
+        let header = metadata.to_asciidoc_header();
+        // Should use the whole string when no T found
+        assert!(header.contains(":revdate: 2025-06-15"));
+    }
+
+    #[test]
+    fn test_metadata_to_asciidoc_header_modified_malformed() {
+        // Malformed date without standard format
+        let metadata = DocumentMetadata {
+            modified: Some("June 15, 2025".to_string()),
+            ..Default::default()
+        };
+        let header = metadata.to_asciidoc_header();
+        // Should use the whole string when no T found
+        assert!(header.contains(":revdate: June 15, 2025"));
+    }
+
+    #[test]
+    fn test_metadata_parse_all_fields() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+                          xmlns:dc="http://purl.org/dc/elements/1.1/"
+                          xmlns:dcterms="http://purl.org/dc/terms/">
+            <dc:title>Full Document</dc:title>
+            <dc:creator>Test Author</dc:creator>
+            <dc:subject>Test Subject</dc:subject>
+            <cp:keywords>test, document, metadata</cp:keywords>
+            <cp:revision>5</cp:revision>
+            <dcterms:created>2025-01-01T00:00:00Z</dcterms:created>
+            <dcterms:modified>2025-06-15T12:00:00Z</dcterms:modified>
+        </cp:coreProperties>"#;
+
+        let metadata = DocumentMetadata::parse(xml);
+        assert_eq!(metadata.title, Some("Full Document".to_string()));
+        assert_eq!(metadata.author, Some("Test Author".to_string()));
+        assert_eq!(metadata.subject, Some("Test Subject".to_string()));
+        assert_eq!(metadata.keywords, Some("test, document, metadata".to_string()));
+        assert_eq!(metadata.revision, Some("5".to_string()));
+        assert_eq!(metadata.created, Some("2025-01-01T00:00:00Z".to_string()));
+        assert_eq!(metadata.modified, Some("2025-06-15T12:00:00Z".to_string()));
+    }
+
+    #[test]
+    fn test_metadata_parse_unicode_content() {
+        // Use regular string for Unicode content
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+        <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+                          xmlns:dc="http://purl.org/dc/elements/1.1/">
+            <dc:title>文档标题</dc:title>
+            <dc:creator>著者名前</dc:creator>
+        </cp:coreProperties>"#;
+
+        let metadata = DocumentMetadata::parse(xml.as_bytes());
+        assert_eq!(metadata.title, Some("文档标题".to_string()));
+        assert_eq!(metadata.author, Some("著者名前".to_string()));
+    }
+
+    #[test]
+    fn test_extractor_with_force_parse_builder() {
+        let extractor = AsciiDocExtractor::new()
+            .with_force_parse(true);
+
+        assert!(extractor.force_parse);
+    }
+
+    #[test]
+    fn test_extractor_default_values() {
+        let extractor = AsciiDocExtractor::new();
+
+        assert!(!extractor.force_parse);
+        assert!(extractor.include_header);
+        assert!(extractor.extract_tables);
+        assert!(extractor.preserve_formatting);
+    }
 }
