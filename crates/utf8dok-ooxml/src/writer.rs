@@ -2823,4 +2823,351 @@ paragraph = "Normal"
             "Should have bookmark or anchor"
         );
     }
+
+    // ==================== Sprint 12: Style Contract Resolution Tests ====================
+
+    #[test]
+    fn test_resolve_heading_style_without_contract() {
+        let writer = DocxWriter::new();
+
+        // Without contract, should fall back to style_map defaults
+        assert_eq!(writer.resolve_heading_style(1), "Heading1");
+        assert_eq!(writer.resolve_heading_style(2), "Heading2");
+        assert_eq!(writer.resolve_heading_style(9), "Heading9");
+    }
+
+    #[test]
+    fn test_resolve_heading_style_with_contract() {
+        use crate::style_map::{ParagraphStyleMapping, StyleContract};
+
+        let mut contract = StyleContract::default();
+        // Headings are stored in paragraph_styles with heading_level set
+        contract.paragraph_styles.insert(
+            "CustomH1".to_string(),
+            ParagraphStyleMapping {
+                role: "heading".to_string(),
+                heading_level: Some(1),
+                ..Default::default()
+            },
+        );
+        contract.paragraph_styles.insert(
+            "CustomH2".to_string(),
+            ParagraphStyleMapping {
+                role: "heading".to_string(),
+                heading_level: Some(2),
+                ..Default::default()
+            },
+        );
+
+        let mut writer = DocxWriter::new();
+        writer.set_style_contract(contract);
+
+        // Should use contract mappings
+        assert_eq!(writer.resolve_heading_style(1), "CustomH1");
+        assert_eq!(writer.resolve_heading_style(2), "CustomH2");
+
+        // Level 3 not in contract - should fall back to style_map
+        assert_eq!(writer.resolve_heading_style(3), "Heading3");
+    }
+
+    #[test]
+    fn test_resolve_paragraph_style_without_contract() {
+        let writer = DocxWriter::new();
+
+        // Without contract, should fall back to style_map.paragraph()
+        assert_eq!(writer.resolve_paragraph_style("body"), "Normal");
+        assert_eq!(writer.resolve_paragraph_style("intro"), "Normal");
+    }
+
+    #[test]
+    fn test_resolve_paragraph_style_with_contract() {
+        use crate::style_map::{ParagraphStyleMapping, StyleContract};
+
+        let mut contract = StyleContract::default();
+        // Key is Word style ID, value contains the semantic role
+        contract.paragraph_styles.insert(
+            "AbstractStyle".to_string(),
+            ParagraphStyleMapping {
+                role: "abstract".to_string(),
+                ..Default::default()
+            },
+        );
+        contract.paragraph_styles.insert(
+            "NoteStyle".to_string(),
+            ParagraphStyleMapping {
+                role: "note".to_string(),
+                ..Default::default()
+            },
+        );
+
+        let mut writer = DocxWriter::new();
+        writer.set_style_contract(contract);
+
+        // Should use contract mappings (looks up by role, returns Word style ID)
+        assert_eq!(writer.resolve_paragraph_style("abstract"), "AbstractStyle");
+        assert_eq!(writer.resolve_paragraph_style("note"), "NoteStyle");
+
+        // Unknown role should fall back
+        assert_eq!(writer.resolve_paragraph_style("unknown"), "Normal");
+    }
+
+    #[test]
+    fn test_next_bookmark_id_increments() {
+        let mut writer = DocxWriter::new();
+
+        assert_eq!(writer.next_bookmark_id(), 0);
+        assert_eq!(writer.next_bookmark_id(), 1);
+        assert_eq!(writer.next_bookmark_id(), 2);
+    }
+
+    #[test]
+    fn test_extract_cover_metadata_with_title_only() {
+        let mut meta = utf8dok_ast::DocumentMeta::default();
+        meta.title = Some("My Document Title".to_string());
+
+        let doc = Document {
+            metadata: meta,
+            intent: None,
+            blocks: vec![],
+        };
+
+        let writer = DocxWriter::new();
+        let cover_meta = writer.extract_cover_metadata(&doc);
+
+        assert_eq!(cover_meta.title, "My Document Title");
+        assert!(cover_meta.author.is_empty());
+        assert!(cover_meta.revnumber.is_empty());
+    }
+
+    #[test]
+    fn test_extract_cover_metadata_with_authors_vec() {
+        let mut meta = utf8dok_ast::DocumentMeta::default();
+        meta.title = Some("Title".to_string());
+        meta.authors = vec!["John Doe".to_string(), "Jane Smith".to_string()];
+
+        let doc = Document {
+            metadata: meta,
+            intent: None,
+            blocks: vec![],
+        };
+
+        let writer = DocxWriter::new();
+        let cover_meta = writer.extract_cover_metadata(&doc);
+
+        assert_eq!(cover_meta.author, "John Doe, Jane Smith");
+    }
+
+    #[test]
+    fn test_extract_cover_metadata_with_author_attribute() {
+        let mut meta = utf8dok_ast::DocumentMeta::default();
+        meta.attributes
+            .insert("author".to_string(), "Attribute Author".to_string());
+
+        let doc = Document {
+            metadata: meta,
+            intent: None,
+            blocks: vec![],
+        };
+
+        let writer = DocxWriter::new();
+        let cover_meta = writer.extract_cover_metadata(&doc);
+
+        // When authors vec is empty, falls back to attribute
+        assert_eq!(cover_meta.author, "Attribute Author");
+    }
+
+    #[test]
+    fn test_extract_cover_metadata_with_revision() {
+        let mut meta = utf8dok_ast::DocumentMeta::default();
+        meta.revision = Some("1.0".to_string());
+        meta.attributes
+            .insert("revdate".to_string(), "2025-01-01".to_string());
+
+        let doc = Document {
+            metadata: meta,
+            intent: None,
+            blocks: vec![],
+        };
+
+        let writer = DocxWriter::new();
+        let cover_meta = writer.extract_cover_metadata(&doc);
+
+        assert_eq!(cover_meta.revnumber, "1.0");
+        assert_eq!(cover_meta.revdate, "2025-01-01");
+    }
+
+    #[test]
+    fn test_extract_cover_metadata_empty() {
+        let doc = Document {
+            metadata: utf8dok_ast::DocumentMeta::default(),
+            intent: None,
+            blocks: vec![],
+        };
+
+        let writer = DocxWriter::new();
+        let cover_meta = writer.extract_cover_metadata(&doc);
+
+        assert!(cover_meta.title.is_empty());
+        assert!(cover_meta.author.is_empty());
+        assert!(cover_meta.revnumber.is_empty());
+        assert!(cover_meta.revdate.is_empty());
+    }
+
+    #[test]
+    fn test_update_core_properties_with_no_metadata() {
+        use crate::archive::OoxmlArchive;
+        use crate::test_utils::create_minimal_template;
+
+        let template = create_minimal_template();
+        let cursor = Cursor::new(&template);
+        let mut archive = OoxmlArchive::from_reader(cursor).unwrap();
+
+        let doc = Document {
+            metadata: utf8dok_ast::DocumentMeta::default(),
+            intent: None,
+            blocks: vec![],
+        };
+
+        let writer = DocxWriter::new();
+        let result = writer.update_core_properties(&mut archive, &doc);
+        assert!(result.is_ok());
+
+        // Should not create core.xml when no metadata
+        assert!(archive.get("docProps/core.xml").is_none());
+    }
+
+    #[test]
+    fn test_update_core_properties_creates_new() {
+        use crate::archive::OoxmlArchive;
+        use crate::test_utils::create_minimal_template;
+
+        let template = create_minimal_template();
+        let cursor = Cursor::new(&template);
+        let mut archive = OoxmlArchive::from_reader(cursor).unwrap();
+
+        let mut meta = utf8dok_ast::DocumentMeta::default();
+        meta.title = Some("New Title".to_string());
+        meta.authors = vec!["Author Name".to_string()];
+
+        let doc = Document {
+            metadata: meta,
+            intent: None,
+            blocks: vec![],
+        };
+
+        let writer = DocxWriter::new();
+        let result = writer.update_core_properties(&mut archive, &doc);
+        assert!(result.is_ok());
+
+        // Should create core.xml
+        let core_xml = archive.get_string("docProps/core.xml").unwrap();
+        assert!(core_xml.is_some());
+
+        let content = core_xml.unwrap();
+        assert!(content.contains("<dc:title>New Title</dc:title>"));
+        assert!(content.contains("<dc:creator>Author Name</dc:creator>"));
+    }
+
+    #[test]
+    fn test_update_core_properties_updates_existing() {
+        use crate::archive::OoxmlArchive;
+        use crate::test_utils::create_minimal_template;
+
+        let template = create_minimal_template();
+        let cursor = Cursor::new(&template);
+        let mut archive = OoxmlArchive::from_reader(cursor).unwrap();
+
+        // Pre-populate with existing core.xml
+        let existing = r#"<?xml version="1.0"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+    xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:title>Old Title</dc:title>
+<dc:creator>Old Author</dc:creator>
+</cp:coreProperties>"#;
+        archive.set_string("docProps/core.xml", existing.to_string());
+
+        let mut meta = utf8dok_ast::DocumentMeta::default();
+        meta.title = Some("Updated Title".to_string());
+        meta.authors = vec!["Updated Author".to_string()];
+
+        let doc = Document {
+            metadata: meta,
+            intent: None,
+            blocks: vec![],
+        };
+
+        let writer = DocxWriter::new();
+        let result = writer.update_core_properties(&mut archive, &doc);
+        assert!(result.is_ok());
+
+        let core_xml = archive.get_string("docProps/core.xml").unwrap().unwrap();
+        assert!(core_xml.contains("<dc:title>Updated Title</dc:title>"));
+        assert!(core_xml.contains("<dc:creator>Updated Author</dc:creator>"));
+        assert!(!core_xml.contains("Old Title"));
+        assert!(!core_xml.contains("Old Author"));
+    }
+
+    #[test]
+    fn test_update_core_properties_with_revdate() {
+        use crate::archive::OoxmlArchive;
+        use crate::test_utils::create_minimal_template;
+
+        let template = create_minimal_template();
+        let cursor = Cursor::new(&template);
+        let mut archive = OoxmlArchive::from_reader(cursor).unwrap();
+
+        let mut meta = utf8dok_ast::DocumentMeta::default();
+        meta.attributes
+            .insert("revdate".to_string(), "2025-06-15".to_string());
+
+        let doc = Document {
+            metadata: meta,
+            intent: None,
+            blocks: vec![],
+        };
+
+        let writer = DocxWriter::new();
+        let result = writer.update_core_properties(&mut archive, &doc);
+        assert!(result.is_ok());
+
+        let core_xml = archive.get_string("docProps/core.xml").unwrap().unwrap();
+        // Date should have ISO format with time
+        assert!(core_xml.contains("2025-06-15T00:00:00Z"));
+    }
+
+    #[test]
+    fn test_update_core_properties_insert_into_existing_without_title() {
+        use crate::archive::OoxmlArchive;
+        use crate::test_utils::create_minimal_template;
+
+        let template = create_minimal_template();
+        let cursor = Cursor::new(&template);
+        let mut archive = OoxmlArchive::from_reader(cursor).unwrap();
+
+        // Existing core.xml without title element
+        let existing = r#"<?xml version="1.0"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+    xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:creator>Existing Author</dc:creator>
+</cp:coreProperties>"#;
+        archive.set_string("docProps/core.xml", existing.to_string());
+
+        let mut meta = utf8dok_ast::DocumentMeta::default();
+        meta.title = Some("Inserted Title".to_string());
+
+        let doc = Document {
+            metadata: meta,
+            intent: None,
+            blocks: vec![],
+        };
+
+        let writer = DocxWriter::new();
+        let result = writer.update_core_properties(&mut archive, &doc);
+        assert!(result.is_ok());
+
+        let core_xml = archive.get_string("docProps/core.xml").unwrap().unwrap();
+        assert!(core_xml.contains("<dc:title>Inserted Title</dc:title>"));
+        // Existing author should remain
+        assert!(core_xml.contains("<dc:creator>Existing Author</dc:creator>"));
+    }
 }
