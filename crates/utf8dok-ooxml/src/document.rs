@@ -451,10 +451,22 @@ impl Document {
                             }
                         }
                         b"b" if current_run.is_some() => {
-                            current_run.as_mut().unwrap().bold = true;
+                            // Check for w:val="0" which means NOT bold
+                            let is_off = get_attr(e, b"w:val")
+                                .map(|v| v == "0" || v == "false")
+                                .unwrap_or(false);
+                            if !is_off {
+                                current_run.as_mut().unwrap().bold = true;
+                            }
                         }
                         b"i" if current_run.is_some() => {
-                            current_run.as_mut().unwrap().italic = true;
+                            // Check for w:val="0" which means NOT italic
+                            let is_off = get_attr(e, b"w:val")
+                                .map(|v| v == "0" || v == "false")
+                                .unwrap_or(false);
+                            if !is_off {
+                                current_run.as_mut().unwrap().italic = true;
+                            }
                         }
                         b"rFonts" if current_run.is_some() => {
                             // Check for monospace fonts (self-closing element)
@@ -1191,7 +1203,10 @@ mod tests {
             panic!("Expected paragraph");
         };
         // Should have bookmark and run
-        let has_bookmark = p.children.iter().any(|c| matches!(c, ParagraphChild::Bookmark(_)));
+        let has_bookmark = p
+            .children
+            .iter()
+            .any(|c| matches!(c, ParagraphChild::Bookmark(_)));
         assert!(has_bookmark);
     }
 
@@ -1216,7 +1231,10 @@ mod tests {
         };
         assert_eq!(t.rows[0].cells.len(), 1);
         assert!(!t.rows[0].cells[0].paragraphs.is_empty());
-        assert_eq!(t.rows[0].cells[0].paragraphs[0].plain_text(), "Cell content");
+        assert_eq!(
+            t.rows[0].cells[0].paragraphs[0].plain_text(),
+            "Cell content"
+        );
     }
 
     #[test]
@@ -1256,7 +1274,9 @@ mod tests {
         let doc = Document::parse(xml).unwrap();
         // For block-level iteration, use blocks directly
         assert_eq!(doc.blocks.len(), 2);
-        let top_level_paras: Vec<_> = doc.blocks.iter()
+        let top_level_paras: Vec<_> = doc
+            .blocks
+            .iter()
             .filter_map(|b| match b {
                 Block::Paragraph(p) => Some(p),
                 _ => None,
@@ -1940,5 +1960,859 @@ mod tests {
 
         // Bookmark should not contribute to plain text
         assert_eq!(para.plain_text(), "Heading");
+    }
+
+    // ==================== Sprint 22: Formatting Edge Cases ====================
+
+    #[test]
+    fn test_bold_with_val_0_should_not_bold() {
+        // <w:b w:val="0"/> should NOT make text bold
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:r>
+                        <w:rPr>
+                            <w:b w:val="0"/>
+                        </w:rPr>
+                        <w:t>Not bold</w:t>
+                    </w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("Expected paragraph");
+        };
+        let ParagraphChild::Run(r) = &p.children[0] else {
+            panic!("Expected run");
+        };
+        assert!(!r.bold, "val='0' should disable bold");
+        assert_eq!(r.text, "Not bold");
+    }
+
+    #[test]
+    fn test_bold_with_val_false_should_not_bold() {
+        // <w:b w:val="false"/> should NOT make text bold
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:r>
+                        <w:rPr>
+                            <w:b w:val="false"/>
+                        </w:rPr>
+                        <w:t>Not bold</w:t>
+                    </w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("Expected paragraph");
+        };
+        let ParagraphChild::Run(r) = &p.children[0] else {
+            panic!("Expected run");
+        };
+        assert!(!r.bold, "val='false' should disable bold");
+    }
+
+    #[test]
+    fn test_italic_with_val_0_should_not_italic() {
+        // <w:i w:val="0"/> should NOT make text italic
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:r>
+                        <w:rPr>
+                            <w:i w:val="0"/>
+                        </w:rPr>
+                        <w:t>Not italic</w:t>
+                    </w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("Expected paragraph");
+        };
+        let ParagraphChild::Run(r) = &p.children[0] else {
+            panic!("Expected run");
+        };
+        assert!(!r.italic, "val='0' should disable italic");
+    }
+
+    #[test]
+    fn test_italic_with_val_false_should_not_italic() {
+        // <w:i w:val="false"/> should NOT make text italic
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:r>
+                        <w:rPr>
+                            <w:i w:val="false"/>
+                        </w:rPr>
+                        <w:t>Not italic</w:t>
+                    </w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("Expected paragraph");
+        };
+        let ParagraphChild::Run(r) = &p.children[0] else {
+            panic!("Expected run");
+        };
+        assert!(!r.italic, "val='false' should disable italic");
+    }
+
+    #[test]
+    fn test_self_closing_bold_italic_applies_formatting() {
+        // Self-closing <w:b/> and <w:i/> should apply formatting
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:r>
+                        <w:rPr>
+                            <w:b/>
+                            <w:i/>
+                        </w:rPr>
+                        <w:t>Bold and italic</w:t>
+                    </w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("Expected paragraph");
+        };
+        let ParagraphChild::Run(r) = &p.children[0] else {
+            panic!("Expected run");
+        };
+        assert!(r.bold, "Self-closing <w:b/> should enable bold");
+        assert!(r.italic, "Self-closing <w:i/> should enable italic");
+    }
+
+    // ==================== Sprint 22: Image Parsing ====================
+
+    #[test]
+    fn test_inline_image_with_extent() {
+        // Parse width/height from <wp:extent cx="..." cy="..."/>
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                    xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+                    xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+                    xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+            <w:body>
+                <w:p>
+                    <w:r>
+                        <w:drawing>
+                            <wp:inline>
+                                <wp:extent cx="914400" cy="609600"/>
+                                <a:graphic>
+                                    <a:graphicData>
+                                        <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                                            <pic:blipFill>
+                                                <a:blip r:embed="rId1"/>
+                                            </pic:blipFill>
+                                        </pic:pic>
+                                    </a:graphicData>
+                                </a:graphic>
+                            </wp:inline>
+                        </w:drawing>
+                    </w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("Expected paragraph");
+        };
+        let ParagraphChild::Image(img) = &p.children[0] else {
+            panic!("Expected image");
+        };
+
+        assert_eq!(img.width_emu, Some(914400));
+        assert_eq!(img.height_emu, Some(609600));
+        assert!(matches!(img.position, ImagePosition::Inline));
+    }
+
+    #[test]
+    fn test_inline_image_with_docpr() {
+        // Parse alt text, name, id from <wp:docPr>
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                    xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+                    xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+                    xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+            <w:body>
+                <w:p>
+                    <w:r>
+                        <w:drawing>
+                            <wp:inline>
+                                <wp:docPr id="5" name="Picture 1" descr="Logo image"/>
+                                <a:graphic>
+                                    <a:graphicData>
+                                        <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                                            <pic:blipFill>
+                                                <a:blip r:embed="rId2"/>
+                                            </pic:blipFill>
+                                        </pic:pic>
+                                    </a:graphicData>
+                                </a:graphic>
+                            </wp:inline>
+                        </w:drawing>
+                    </w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("Expected paragraph");
+        };
+        let ParagraphChild::Image(img) = &p.children[0] else {
+            panic!("Expected image");
+        };
+
+        assert_eq!(img.id, 5);
+        assert_eq!(img.name, Some("Picture 1".to_string()));
+        assert_eq!(img.alt, Some("Logo image".to_string()));
+    }
+
+    #[test]
+    fn test_anchored_image_positioning() {
+        // Parse distL/distT from <wp:anchor>
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                    xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+                    xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+                    xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+            <w:body>
+                <w:p>
+                    <w:r>
+                        <w:drawing>
+                            <wp:anchor distL="114300" distT="57150">
+                                <a:graphic>
+                                    <a:graphicData>
+                                        <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                                            <pic:blipFill>
+                                                <a:blip r:embed="rId3"/>
+                                            </pic:blipFill>
+                                        </pic:pic>
+                                    </a:graphicData>
+                                </a:graphic>
+                            </wp:anchor>
+                        </w:drawing>
+                    </w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("Expected paragraph");
+        };
+        let ParagraphChild::Image(img) = &p.children[0] else {
+            panic!("Expected image");
+        };
+
+        match &img.position {
+            ImagePosition::Anchor {
+                horizontal,
+                vertical,
+                ..
+            } => {
+                assert_eq!(*horizontal, 114300);
+                assert_eq!(*vertical, 57150);
+            }
+            _ => panic!("Expected Anchor position"),
+        }
+    }
+
+    #[test]
+    fn test_image_wrap_types() {
+        // Parse different wrap types
+        let test_cases = [
+            ("wrapSquare", WrapType::Square),
+            ("wrapTight", WrapType::Tight),
+            ("wrapThrough", WrapType::Through),
+            ("wrapTopAndBottom", WrapType::TopAndBottom),
+            ("wrapNone", WrapType::None),
+        ];
+
+        for (wrap_element, expected_wrap) in test_cases {
+            let xml = format!(
+                r#"<?xml version="1.0" encoding="UTF-8"?>
+                <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                            xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+                            xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+                            xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+                    <w:body>
+                        <w:p>
+                            <w:r>
+                                <w:drawing>
+                                    <wp:anchor distL="0" distT="0">
+                                        <wp:{wrap_element}/>
+                                        <a:graphic>
+                                            <a:graphicData>
+                                                <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                                                    <pic:blipFill>
+                                                        <a:blip r:embed="rId1"/>
+                                                    </pic:blipFill>
+                                                </pic:pic>
+                                            </a:graphicData>
+                                        </a:graphic>
+                                    </wp:anchor>
+                                </w:drawing>
+                            </w:r>
+                        </w:p>
+                    </w:body>
+                </w:document>"#
+            );
+
+            let doc = Document::parse(xml.as_bytes()).unwrap();
+            let Block::Paragraph(p) = &doc.blocks[0] else {
+                panic!("Expected paragraph for {}", wrap_element);
+            };
+            let ParagraphChild::Image(img) = &p.children[0] else {
+                panic!("Expected image for {}", wrap_element);
+            };
+
+            match &img.position {
+                ImagePosition::Anchor { wrap, .. } => {
+                    assert_eq!(
+                        *wrap, expected_wrap,
+                        "Wrap type mismatch for {}",
+                        wrap_element
+                    );
+                }
+                _ => panic!("Expected Anchor position for {}", wrap_element),
+            }
+        }
+    }
+
+    #[test]
+    fn test_image_without_rel_id_not_created() {
+        // Image without rel_id should not be created
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                    xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+                    xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:r>
+                        <w:drawing>
+                            <wp:inline>
+                                <wp:extent cx="100" cy="100"/>
+                                <a:graphic>
+                                    <a:graphicData>
+                                        <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                                            <pic:blipFill>
+                                                <!-- No blip with r:embed -->
+                                            </pic:blipFill>
+                                        </pic:pic>
+                                    </a:graphicData>
+                                </a:graphic>
+                            </wp:inline>
+                        </w:drawing>
+                    </w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("Expected paragraph");
+        };
+
+        // No image should be created without rel_id
+        let image_count = p
+            .children
+            .iter()
+            .filter(|c| matches!(c, ParagraphChild::Image(_)))
+            .count();
+        assert_eq!(image_count, 0, "Image without rel_id should not be created");
+    }
+
+    #[test]
+    fn test_self_closing_blip_element() {
+        // Self-closing <a:blip r:embed="rId1"/> should work
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                    xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+                    xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+                    xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+            <w:body>
+                <w:p>
+                    <w:r>
+                        <w:drawing>
+                            <wp:inline>
+                                <a:graphic>
+                                    <a:graphicData>
+                                        <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                                            <pic:blipFill>
+                                                <a:blip r:embed="rId5"/>
+                                            </pic:blipFill>
+                                        </pic:pic>
+                                    </a:graphicData>
+                                </a:graphic>
+                            </wp:inline>
+                        </w:drawing>
+                    </w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("Expected paragraph");
+        };
+        let ParagraphChild::Image(img) = &p.children[0] else {
+            panic!("Expected image");
+        };
+
+        assert_eq!(img.rel_id, "rId5");
+    }
+
+    // ==================== Sprint 22: DrawingML Shape Handling ====================
+
+    #[test]
+    fn test_nested_drawingml_shapes() {
+        // Multiple levels of wsp/sp nesting
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                    xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">
+            <w:body>
+                <w:p>
+                    <w:r>
+                        <w:drawing>
+                            <wps:wsp>
+                                <wps:wsp>
+                                    <wps:txbx>
+                                        <w:txbxContent>
+                                            <w:p><w:r><w:t>Nested shape text</w:t></w:r></w:p>
+                                        </w:txbxContent>
+                                    </wps:txbx>
+                                </wps:wsp>
+                            </wps:wsp>
+                        </w:drawing>
+                    </w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+
+        // Should have parsed paragraphs from nested shapes
+        assert!(!doc.blocks.is_empty());
+        let text = doc.plain_text();
+        assert!(text.contains("Nested shape text"));
+    }
+
+    #[test]
+    fn test_connector_shape_cxnsp() {
+        // Connector shapes (cxnSp) should track shape depth
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                    xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">
+            <w:body>
+                <w:p>
+                    <w:r>
+                        <w:drawing>
+                            <wps:cxnSp>
+                                <wps:txbx>
+                                    <w:txbxContent>
+                                        <w:p><w:r><w:t>Connector text</w:t></w:r></w:p>
+                                    </w:txbxContent>
+                                </wps:txbx>
+                            </wps:cxnSp>
+                        </w:drawing>
+                    </w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+
+        // Should parse without error and handle shape depth correctly
+        assert!(!doc.blocks.is_empty());
+    }
+
+    #[test]
+    fn test_drawingml_sp_element() {
+        // DrawingML shape (sp) handling
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                    xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:r>
+                        <w:drawing>
+                            <a:sp>
+                                <a:txbx>
+                                    <w:txbxContent>
+                                        <w:p><w:r><w:t>Shape content</w:t></w:r></w:p>
+                                    </w:txbxContent>
+                                </a:txbx>
+                            </a:sp>
+                        </w:drawing>
+                    </w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+
+        // Should handle sp element correctly
+        assert!(!doc.blocks.is_empty());
+    }
+
+    // ==================== Sprint 22: Hyperlink Edge Cases ====================
+
+    #[test]
+    fn test_hyperlink_without_id_or_anchor() {
+        // Hyperlink with neither r:id nor w:anchor
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:hyperlink>
+                        <w:r><w:t>Orphan link</w:t></w:r>
+                    </w:hyperlink>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("Expected paragraph");
+        };
+        let ParagraphChild::Hyperlink(h) = &p.children[0] else {
+            panic!("Expected hyperlink");
+        };
+
+        assert!(h.id.is_none());
+        assert!(h.anchor.is_none());
+        assert_eq!(h.runs[0].text, "Orphan link");
+    }
+
+    #[test]
+    fn test_hyperlink_with_both_id_and_anchor() {
+        // Hyperlink with both r:id and w:anchor
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                    xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+            <w:body>
+                <w:p>
+                    <w:hyperlink r:id="rId7" w:anchor="section1">
+                        <w:r><w:t>Dual target link</w:t></w:r>
+                    </w:hyperlink>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("Expected paragraph");
+        };
+        let ParagraphChild::Hyperlink(h) = &p.children[0] else {
+            panic!("Expected hyperlink");
+        };
+
+        assert_eq!(h.id, Some("rId7".to_string()));
+        assert_eq!(h.anchor, Some("section1".to_string()));
+    }
+
+    #[test]
+    fn test_hyperlink_with_multiple_formatted_runs() {
+        // Hyperlink containing bold/italic runs
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                    xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+            <w:body>
+                <w:p>
+                    <w:hyperlink r:id="rId8">
+                        <w:r>
+                            <w:rPr><w:b/></w:rPr>
+                            <w:t>Bold </w:t>
+                        </w:r>
+                        <w:r>
+                            <w:rPr><w:i/></w:rPr>
+                            <w:t>italic </w:t>
+                        </w:r>
+                        <w:r>
+                            <w:t>normal</w:t>
+                        </w:r>
+                    </w:hyperlink>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("Expected paragraph");
+        };
+        let ParagraphChild::Hyperlink(h) = &p.children[0] else {
+            panic!("Expected hyperlink");
+        };
+
+        assert_eq!(h.runs.len(), 3);
+        assert!(h.runs[0].bold);
+        assert!(!h.runs[0].italic);
+        assert!(!h.runs[1].bold);
+        assert!(h.runs[1].italic);
+        assert!(!h.runs[2].bold);
+        assert!(!h.runs[2].italic);
+    }
+
+    // ==================== Sprint 22: Namespace Attribute Handling ====================
+
+    #[test]
+    fn test_get_attr_with_ns_exact_match() {
+        // Test get_attr_with_ns with exact namespace prefix match
+        use quick_xml::events::Event;
+        use quick_xml::Reader;
+
+        let xml = br#"<elem r:embed="rId1" xmlns:r="http://test"/>"#;
+        let mut reader = Reader::from_reader(&xml[..]);
+        let mut buf = Vec::new();
+
+        if let Ok(Event::Empty(e)) = reader.read_event_into(&mut buf) {
+            let result = get_attr_with_ns(&e, b"r:embed");
+            assert_eq!(result, Some("rId1".to_string()));
+        } else {
+            panic!("Expected Empty event");
+        }
+    }
+
+    #[test]
+    fn test_get_attr_with_ns_local_name_fallback() {
+        // Test get_attr_with_ns matching by local name after colon
+        use quick_xml::events::Event;
+        use quick_xml::Reader;
+
+        // When XML uses different prefix but same local name
+        let xml = br#"<elem embed="rId2"/>"#;
+        let mut reader = Reader::from_reader(&xml[..]);
+        let mut buf = Vec::new();
+
+        if let Ok(Event::Empty(e)) = reader.read_event_into(&mut buf) {
+            let result = get_attr_with_ns(&e, b"r:embed");
+            assert_eq!(result, Some("rId2".to_string()));
+        } else {
+            panic!("Expected Empty event");
+        }
+    }
+
+    // ==================== Sprint 22: Error Handling ====================
+
+    #[test]
+    fn test_malformed_xml_returns_error() {
+        // Invalid XML should return OoxmlError::Xml
+        let xml = br#"<?xml version="1.0"?>
+        <w:document>
+            <w:body>
+                <w:p>
+                    <w:r>
+                        <w:t>Unclosed
+                    </w:r>
+                <!-- Missing closing tags -->"#;
+
+        let result = Document::parse(xml);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), OoxmlError::Xml(_)));
+    }
+
+    #[test]
+    fn test_empty_run_text_filtered() {
+        // Runs with empty text should not be added to paragraph
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:r>
+                        <w:t></w:t>
+                    </w:r>
+                    <w:r>
+                        <w:t>Visible text</w:t>
+                    </w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("Expected paragraph");
+        };
+
+        // Only the run with actual text should be present
+        assert_eq!(p.children.len(), 1);
+        let ParagraphChild::Run(r) = &p.children[0] else {
+            panic!("Expected run");
+        };
+        assert_eq!(r.text, "Visible text");
+    }
+
+    // ==================== Sprint 22: Numbering Edge Cases ====================
+
+    #[test]
+    fn test_self_closing_numid_and_ilvl() {
+        // Self-closing <w:numId w:val="1"/> and <w:ilvl w:val="2"/>
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:pPr>
+                        <w:numPr>
+                            <w:ilvl w:val="3"/>
+                            <w:numId w:val="7"/>
+                        </w:numPr>
+                    </w:pPr>
+                    <w:r><w:t>List item</w:t></w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("Expected paragraph");
+        };
+
+        let num = p.numbering.as_ref().expect("Should have numbering");
+        assert_eq!(num.num_id, 7);
+        assert_eq!(num.ilvl, 3);
+    }
+
+    #[test]
+    fn test_invalid_numbering_values_ignored() {
+        // Non-numeric numId/ilvl should be ignored
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:pPr>
+                        <w:numPr>
+                            <w:ilvl w:val="invalid"/>
+                            <w:numId w:val="not_a_number"/>
+                        </w:numPr>
+                    </w:pPr>
+                    <w:r><w:t>No numbering</w:t></w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("Expected paragraph");
+        };
+
+        // Invalid values should result in no numbering
+        assert!(p.numbering.is_none());
+    }
+
+    // ==================== Sprint 22: Additional Coverage ====================
+
+    #[test]
+    fn test_paragraph_style_self_closing() {
+        // Self-closing <w:pStyle w:val="..."/> element
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:pPr>
+                        <w:pStyle w:val="Title"/>
+                    </w:pPr>
+                    <w:r><w:t>Document Title</w:t></w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("Expected paragraph");
+        };
+
+        assert_eq!(p.style_id, Some("Title".to_string()));
+    }
+
+    #[test]
+    fn test_rfonts_self_closing() {
+        // Self-closing <w:rFonts w:ascii="..."/> for monospace detection
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:r>
+                        <w:rPr>
+                            <w:rFonts w:ascii="Courier New"/>
+                        </w:rPr>
+                        <w:t>monospace code</w:t>
+                    </w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("Expected paragraph");
+        };
+        let ParagraphChild::Run(r) = &p.children[0] else {
+            panic!("Expected run");
+        };
+
+        assert!(r.monospace);
+    }
+
+    #[test]
+    fn test_image_builder_fallback_id() {
+        // When doc_id is not set, ImageBuilder should use its own id counter
+        let builder = ImageBuilder::new(42);
+        assert_eq!(builder.id, 42);
+
+        // With rel_id but no doc_id, the built image should use the counter id
+        let mut builder = ImageBuilder::new(99);
+        builder.rel_id = Some("rId1".to_string());
+        let img = builder.build().unwrap();
+        assert_eq!(img.id, 99); // Uses fallback id
+    }
+
+    #[test]
+    fn test_image_builder_with_doc_id() {
+        // When doc_id is set, ImageBuilder should use it instead of counter
+        let mut builder = ImageBuilder::new(1);
+        builder.rel_id = Some("rId1".to_string());
+        builder.doc_id = Some(500);
+        let img = builder.build().unwrap();
+        assert_eq!(img.id, 500); // Uses doc_id
+    }
+
+    #[test]
+    fn test_body_close_resets_state() {
+        // Parsing content after body close shouldn't affect results
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p><w:r><w:t>Inside body</w:t></w:r></w:p>
+            </w:body>
+            <!-- Content after body should be ignored -->
+            <w:p><w:r><w:t>Outside body</w:t></w:r></w:p>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+
+        // Only one paragraph should be parsed (from inside body)
+        assert_eq!(doc.blocks.len(), 1);
+        assert_eq!(doc.plain_text(), "Inside body");
     }
 }
