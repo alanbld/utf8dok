@@ -262,13 +262,22 @@ cargo test --workspace
 | 19 | style_map.rs | +17 (StyleContract, enums) | `3358ef7` |
 | 20 | style_contract_validator.rs | +15 | `b1a22f7` |
 | 21 | writer.rs | +19 (comments, content types, cover) | `fc9b8f3` |
+| 22 | document.rs | +28 (formatting, images, DrawingML) | `8541e69` |
 
-**Current Status (after Sprint 21):**
-- Total workspace tests: ~1,420
-- `utf8dok-ooxml` tests: 508
-- `writer.rs`: 72 tests / 4113 lines
+**Current Status (after Sprint 22):**
+- Total workspace tests: ~1,450
+- `utf8dok-ooxml` tests: 536
+- `document.rs`: 71 tests / 2818 lines
 
-**Next: Sprint 22**
+**Next: Sprint 23 - extract.rs**
+
+Target file: `extract.rs` (45 tests / 2029 lines, ~45 lines/test)
+
+Coverage gaps:
+- Style Contract building (`build_style_contract`, `extract_anchors`, `extract_hyperlinks`)
+- AsciiDoc conversion (headings, lists, code blocks, tables)
+- Image conversion (`convert_image` with dimensions, alt text, relationships)
+- Run merging (`merge_and_convert_runs`)
 
 To continue, run:
 ```bash
@@ -276,13 +285,16 @@ To continue, run:
 for f in crates/utf8dok-ooxml/src/*.rs; do
   tests=$(grep -c "#\[test\]" "$f" 2>/dev/null || echo 0)
   lines=$(wc -l < "$f")
-  echo "$tests tests / $lines lines - $f"
-done | sort -t/ -k1 -n
+  if [ "$tests" -gt 0 ]; then
+    ratio=$((lines / tests))
+    echo "$ratio lines/test | $tests tests / $lines lines - $(basename $f)"
+  fi
+done | sort -t'|' -k1 -rn | head -10
 
-# Files with potential for more coverage:
-# - document.rs: 43 tests / 1944 lines (~1 per 45 lines)
-# - styles.rs: 34 tests / 1321 lines (~1 per 39 lines)
-# - relationships.rs: 26 tests / 840 lines (~1 per 32 lines)
+# Priority files for coverage:
+# - extract.rs: 45 tests / 2029 lines (~45 lines/test)
+# - styles.rs: 34 tests / 1321 lines (~39 lines/test)
+# - conversion.rs: 44 tests / 1487 lines (~33 lines/test)
 ```
 
 **Key test utilities:**
