@@ -701,10 +701,7 @@ mod tests {
         let mut rels = Relationships::new();
 
         // Add relationships with special characters in target
-        rels.add(
-            "path/with spaces/file.xml".to_string(),
-            "type".to_string(),
-        );
+        rels.add("path/with spaces/file.xml".to_string(), "type".to_string());
         rels.add(
             "unicode/日本語/ファイル.xml".to_string(),
             "type".to_string(),
@@ -737,7 +734,10 @@ mod tests {
 
         // Verify all are retrievable
         assert_eq!(rels.get(&http_id), Some("https://example.com/page"));
-        assert_eq!(rels.get(&ftp_id), Some("ftp://files.example.com/download.zip"));
+        assert_eq!(
+            rels.get(&ftp_id),
+            Some("ftp://files.example.com/download.zip")
+        );
         assert_eq!(rels.get(&mail_id), Some("mailto:user@example.com"));
     }
 
@@ -800,7 +800,11 @@ mod tests {
             Relationships::TYPE_HYPERLINK,
         ];
         let unique: std::collections::HashSet<_> = types.iter().collect();
-        assert_eq!(unique.len(), types.len(), "All type constants should be unique");
+        assert_eq!(
+            unique.len(),
+            types.len(),
+            "All type constants should be unique"
+        );
     }
 
     #[test]
@@ -810,13 +814,18 @@ mod tests {
         rels.add_image("media/img1.png");
         rels.add_image("media/img2.jpg");
         rels.add_hyperlink("https://example.com");
-        rels.add("styles.xml".to_string(), Relationships::TYPE_STYLES.to_string());
+        rels.add(
+            "styles.xml".to_string(),
+            Relationships::TYPE_STYLES.to_string(),
+        );
 
         // Count by type
-        let image_count = rels.iter()
+        let image_count = rels
+            .iter()
             .filter(|(_, rel)| rel.rel_type == Relationships::TYPE_IMAGE)
             .count();
-        let link_count = rels.iter()
+        let link_count = rels
+            .iter()
             .filter(|(_, rel)| rel.rel_type == Relationships::TYPE_HYPERLINK)
             .count();
 

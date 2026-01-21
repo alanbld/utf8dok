@@ -963,7 +963,9 @@ mod tests {
 
         let result = StyleContractValidator::validate_invariants(&contract);
         assert!(result.has_errors());
-        assert!(result.errors()[0].message.contains("not a valid XML NCName"));
+        assert!(result.errors()[0]
+            .message
+            .contains("not a valid XML NCName"));
     }
 
     #[test]
@@ -1289,11 +1291,7 @@ mod tests {
             );
 
             let result = StyleContractValidator::validate_schema(&contract);
-            assert!(
-                result.is_valid(),
-                "Heading level {} should be valid",
-                level
-            );
+            assert!(result.is_valid(), "Heading level {} should be valid", level);
         }
     }
 
@@ -1408,7 +1406,8 @@ mod tests {
         let mut referenced = HashSet::new();
         referenced.insert("section-1".to_string());
 
-        let result = StyleContractValidator::validate_completeness_rendering(&contract, &referenced);
+        let result =
+            StyleContractValidator::validate_completeness_rendering(&contract, &referenced);
         assert!(result.is_valid());
     }
 
@@ -1534,11 +1533,15 @@ mod tests {
     fn test_is_valid_semantic_id_valid_ids() {
         assert!(StyleContractValidator::is_valid_semantic_id("simple"));
         assert!(StyleContractValidator::is_valid_semantic_id("with-dashes"));
-        assert!(StyleContractValidator::is_valid_semantic_id("section-1-intro"));
+        assert!(StyleContractValidator::is_valid_semantic_id(
+            "section-1-intro"
+        ));
         assert!(StyleContractValidator::is_valid_semantic_id("a"));
         assert!(StyleContractValidator::is_valid_semantic_id("abc123"));
         // Digits allowed as first character
-        assert!(StyleContractValidator::is_valid_semantic_id("123-numeric-start"));
+        assert!(StyleContractValidator::is_valid_semantic_id(
+            "123-numeric-start"
+        ));
     }
 
     #[test]
@@ -1546,13 +1549,17 @@ mod tests {
         assert!(!StyleContractValidator::is_valid_semantic_id(""));
         assert!(!StyleContractValidator::is_valid_semantic_id("has spaces"));
         // Underscores not allowed
-        assert!(!StyleContractValidator::is_valid_semantic_id("with_underscore"));
+        assert!(!StyleContractValidator::is_valid_semantic_id(
+            "with_underscore"
+        ));
         assert!(!StyleContractValidator::is_valid_semantic_id(
             "-starts-with-dash"
         ));
         assert!(!StyleContractValidator::is_valid_semantic_id("has.dot"));
         // Uppercase not allowed
-        assert!(!StyleContractValidator::is_valid_semantic_id("HasUppercase"));
+        assert!(!StyleContractValidator::is_valid_semantic_id(
+            "HasUppercase"
+        ));
     }
 
     #[test]
@@ -1560,7 +1567,9 @@ mod tests {
         assert!(StyleContractValidator::is_valid_xml_ncname("_Toc123"));
         assert!(StyleContractValidator::is_valid_xml_ncname("_Ref456"));
         assert!(StyleContractValidator::is_valid_xml_ncname("_Hlk789"));
-        assert!(StyleContractValidator::is_valid_xml_ncname("SimpleBookmark"));
+        assert!(StyleContractValidator::is_valid_xml_ncname(
+            "SimpleBookmark"
+        ));
         assert!(StyleContractValidator::is_valid_xml_ncname("_underscore"));
         assert!(StyleContractValidator::is_valid_xml_ncname("a"));
     }
@@ -1571,7 +1580,9 @@ mod tests {
         assert!(!StyleContractValidator::is_valid_xml_ncname(
             "123StartWithNumber"
         ));
-        assert!(!StyleContractValidator::is_valid_xml_ncname("-StartWithDash"));
+        assert!(!StyleContractValidator::is_valid_xml_ncname(
+            "-StartWithDash"
+        ));
         assert!(!StyleContractValidator::is_valid_xml_ncname("has space"));
         assert!(!StyleContractValidator::is_valid_xml_ncname("has:colon"));
     }

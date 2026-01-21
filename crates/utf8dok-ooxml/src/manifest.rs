@@ -407,7 +407,10 @@ mod tests {
         assert_eq!(retrieved.type_, "diagram");
         assert_eq!(retrieved.source, Some("diagrams/flow.mmd".to_string()));
         assert_eq!(retrieved.hash, Some("sha256:abc123def456".to_string()));
-        assert_eq!(retrieved.description, Some("System architecture overview".to_string()));
+        assert_eq!(
+            retrieved.description,
+            Some("System architecture overview".to_string())
+        );
     }
 
     #[test]
@@ -452,7 +455,12 @@ mod tests {
         // Empty manifest should have version and empty elements
         let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
         assert_eq!(parsed.get("version").unwrap(), "1.0");
-        assert!(parsed.get("elements").unwrap().as_object().unwrap().is_empty());
+        assert!(parsed
+            .get("elements")
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -461,8 +469,8 @@ mod tests {
             .with_source("doc.adoc")
             .with_hash("hash1")
             .with_description("desc1")
-            .with_source("updated.adoc")  // Can update
-            .with_hash("hash2");          // Can update again
+            .with_source("updated.adoc") // Can update
+            .with_hash("hash2"); // Can update again
 
         assert_eq!(meta.type_, "source");
         assert_eq!(meta.source, Some("updated.adoc".to_string()));
@@ -492,8 +500,7 @@ mod tests {
     fn test_manifest_unicode_values() {
         let mut manifest = Manifest::new();
 
-        let meta = ElementMeta::new("document")
-            .with_description("文档说明 - Document with 日本語");
+        let meta = ElementMeta::new("document").with_description("文档说明 - Document with 日本語");
 
         manifest.add_element("doc", meta);
 

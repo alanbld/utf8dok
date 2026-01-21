@@ -635,10 +635,7 @@ mod tests {
 
     #[test]
     fn test_generate_anchor_special_chars() {
-        assert_eq!(
-            generate_anchor("What's New?"),
-            Some("whats-new".into())
-        );
+        assert_eq!(generate_anchor("What's New?"), Some("whats-new".into()));
         assert_eq!(
             generate_anchor("C++ Programming"),
             Some("c-programming".into())
@@ -668,10 +665,7 @@ mod tests {
     fn test_extract_plain_text_formatted() {
         let inlines = vec![
             Inline::Text("Plain ".to_string()),
-            Inline::Format(
-                FormatType::Bold,
-                Box::new(Inline::Text("bold".to_string())),
-            ),
+            Inline::Format(FormatType::Bold, Box::new(Inline::Text("bold".to_string()))),
             Inline::Text(" text".to_string()),
         ];
         assert_eq!(extract_plain_text(&inlines), "Plain bold text");
@@ -802,7 +796,10 @@ mod tests {
         // Verify both styles and relationships are accessible
         assert!(ctx.styles.is_some());
         assert!(ctx.relationships.is_some());
-        assert_eq!(ctx.relationships.unwrap().get("rId1"), Some("https://example.com"));
+        assert_eq!(
+            ctx.relationships.unwrap().get("rId1"),
+            Some("https://example.com")
+        );
     }
 
     #[test]
@@ -1099,7 +1096,9 @@ mod tests {
         // Unicode-only text may return None if all chars are filtered
         if let Some(a) = anchor {
             // If it returns Some, should be ASCII-safe
-            assert!(a.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+            assert!(a
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
         }
         // Not panicking is the main test
     }

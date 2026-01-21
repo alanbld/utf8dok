@@ -338,7 +338,7 @@ mod tests {
         assert_eq!(emu_to_pixels(4762), 0); // Just under 0.5
         assert_eq!(emu_to_pixels(4763), 1); // Just over 0.5, rounds to 1
         assert_eq!(emu_to_pixels(9525), 1); // Exactly 1 pixel
-        // 9525 * 1.5 = 14287.5, so 14288 is just over 1.5
+                                            // 9525 * 1.5 = 14287.5, so 14288 is just over 1.5
         assert_eq!(emu_to_pixels(14288), 2); // Just over 1.5 pixels rounds to 2
         assert_eq!(emu_to_pixels(14287), 1); // Just under 1.5 pixels rounds to 1
     }
@@ -383,9 +383,15 @@ mod tests {
 
     #[test]
     fn test_content_type_unknown_extension() {
-        assert_eq!(content_type_for_extension("xyz"), "application/octet-stream");
+        assert_eq!(
+            content_type_for_extension("xyz"),
+            "application/octet-stream"
+        );
         assert_eq!(content_type_for_extension(""), "application/octet-stream");
-        assert_eq!(content_type_for_extension("unknown"), "application/octet-stream");
+        assert_eq!(
+            content_type_for_extension("unknown"),
+            "application/octet-stream"
+        );
     }
 
     #[test]
@@ -435,7 +441,12 @@ mod tests {
         assert!(img.is_anchor());
         assert!(!img.is_inline());
 
-        if let ImagePosition::Anchor { horizontal, vertical, wrap } = img.position {
+        if let ImagePosition::Anchor {
+            horizontal,
+            vertical,
+            wrap,
+        } = img.position
+        {
             assert_eq!(horizontal, 100000);
             assert_eq!(vertical, 200000);
             assert_eq!(wrap, WrapType::Tight);

@@ -1464,11 +1464,8 @@ content = "Version {revnumber}{delimiter}{revdate}"
         };
 
         // Same placeholder repeated multiple times
-        let result = CoverConfig::expand_template(
-            "{revnumber} - {title} - {revnumber}",
-            &metadata,
-            "",
-        );
+        let result =
+            CoverConfig::expand_template("{revnumber} - {title} - {revnumber}", &metadata, "");
         assert_eq!(result, "1.0 - Doc - 1.0");
     }
 
@@ -1489,7 +1486,10 @@ content = "Version {revnumber}{delimiter}{revdate}"
             &metadata,
             "SEP",
         );
-        assert_eq!(result, "Title|Subtitle|Author|email@test.com|2.0|2025-01-01|Final|SEP");
+        assert_eq!(
+            result,
+            "Title|Subtitle|Author|email@test.com|2.0|2025-01-01|Final|SEP"
+        );
     }
 
     #[test]
@@ -1501,19 +1501,13 @@ content = "Version {revnumber}{delimiter}{revdate}"
         };
 
         // Delimiter with special characters
-        let result = CoverConfig::expand_template(
-            "{revnumber}{delimiter}{revdate}",
-            &metadata,
-            " | ",
-        );
+        let result =
+            CoverConfig::expand_template("{revnumber}{delimiter}{revdate}", &metadata, " | ");
         assert_eq!(result, "1.0 | 2025");
 
         // Newline delimiter
-        let result2 = CoverConfig::expand_template(
-            "{revnumber}{delimiter}{revdate}",
-            &metadata,
-            "\n",
-        );
+        let result2 =
+            CoverConfig::expand_template("{revnumber}{delimiter}{revdate}", &metadata, "\n");
         assert_eq!(result2, "1.0\n2025");
     }
 
@@ -1605,7 +1599,10 @@ content = "Version {revnumber}{delimiter}{revdate}"
             },
         );
 
-        assert_eq!(contract.get_word_style_for_role("abstract"), Some("AbstractPara"));
+        assert_eq!(
+            contract.get_word_style_for_role("abstract"),
+            Some("AbstractPara")
+        );
         assert_eq!(contract.get_word_style_for_role("note"), Some("NoteStyle"));
         assert!(contract.get_word_style_for_role("unknown").is_none());
     }

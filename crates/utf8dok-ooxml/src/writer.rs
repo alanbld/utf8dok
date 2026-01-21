@@ -2622,12 +2622,10 @@ paragraph = "Normal"
             0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
             0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, // IHDR chunk
             0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, // 1x1 pixel
-            0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
-            0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41,
-            0x54, 0x08, 0xD7, 0x63, 0xF8, 0xFF, 0xFF, 0x3F,
-            0x00, 0x05, 0xFE, 0x02, 0xFE, 0xDC, 0xCC, 0x59,
-            0xE7, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E,
-            0x44, 0xAE, 0x42, 0x60, 0x82, // IEND chunk
+            0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49,
+            0x44, 0x41, 0x54, 0x08, 0xD7, 0x63, 0xF8, 0xFF, 0xFF, 0x3F, 0x00, 0x05, 0xFE, 0x02,
+            0xFE, 0xDC, 0xCC, 0x59, 0xE7, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+            0x42, 0x60, 0x82, // IEND chunk
         ];
 
         let doc = Document {
@@ -2707,14 +2705,8 @@ paragraph = "Normal"
         assert!(writer.source_text.is_some());
         assert!(writer.config_text.is_some());
 
-        assert_eq!(
-            writer.source_text.unwrap(),
-            "= My Doc\n\nContent here."
-        );
-        assert_eq!(
-            writer.config_text.unwrap(),
-            "[template]\npath = \"t.dotx\""
-        );
+        assert_eq!(writer.source_text.unwrap(), "= My Doc\n\nContent here.");
+        assert_eq!(writer.config_text.unwrap(), "[template]\npath = \"t.dotx\"");
     }
 
     #[test]
@@ -2723,7 +2715,7 @@ paragraph = "Normal"
 
         writer.set_embedded_content(
             "= Document Title\n\nParagraph.",
-            "[styles]\nheading1 = \"H1\""
+            "[styles]\nheading1 = \"H1\"",
         );
 
         assert_eq!(
@@ -3360,7 +3352,11 @@ paragraph = "Normal"
 
             let template = create_minimal_template();
             let result = DocxWriter::generate(&doc, &template);
-            assert!(result.is_ok(), "Failed for admonition type {:?}", admon_type);
+            assert!(
+                result.is_ok(),
+                "Failed for admonition type {:?}",
+                admon_type
+            );
         }
     }
 
@@ -3884,7 +3880,9 @@ paragraph = "Normal"
 
         // Simulate having media files
         let mut writer = DocxWriter::new();
-        writer.media_files.push(("word/media/image1.png".to_string(), vec![0x89, 0x50]));
+        writer
+            .media_files
+            .push(("word/media/image1.png".to_string(), vec![0x89, 0x50]));
 
         let result = writer.update_content_types(&mut archive);
         assert!(result.is_ok());
@@ -3912,7 +3910,9 @@ paragraph = "Normal"
         archive.set_string("[Content_Types].xml", with_png);
 
         let mut writer = DocxWriter::new();
-        writer.media_files.push(("word/media/image1.png".to_string(), vec![]));
+        writer
+            .media_files
+            .push(("word/media/image1.png".to_string(), vec![]));
 
         writer.update_content_types(&mut archive).unwrap();
 
@@ -4102,9 +4102,10 @@ paragraph = "Normal"
         let mut writer = DocxWriter::new();
         assert!(writer.diagram_sources.is_empty());
 
-        writer
-            .diagram_sources
-            .push(("utf8dok/diagrams/d1.mmd".to_string(), "graph TD".to_string()));
+        writer.diagram_sources.push((
+            "utf8dok/diagrams/d1.mmd".to_string(),
+            "graph TD".to_string(),
+        ));
 
         assert_eq!(writer.diagram_sources.len(), 1);
         assert!(writer.diagram_sources[0].1.contains("graph TD"));

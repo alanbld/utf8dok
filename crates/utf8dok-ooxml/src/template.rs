@@ -371,7 +371,11 @@ mod tests {
 
         let style_ids = template.available_style_ids().unwrap();
         // Our test template has: Normal, Heading1, Heading2, Heading3, TableGrid, CodeBlock, ListBullet, ListNumber
-        assert!(style_ids.len() >= 7, "Expected at least 7 styles, got {}", style_ids.len());
+        assert!(
+            style_ids.len() >= 7,
+            "Expected at least 7 styles, got {}",
+            style_ids.len()
+        );
     }
 
     #[test]
@@ -412,7 +416,8 @@ mod tests {
 </Relationships>"#).unwrap();
 
         // word/_rels/document.xml.rels
-        zip.start_file("word/_rels/document.xml.rels", options).unwrap();
+        zip.start_file("word/_rels/document.xml.rels", options)
+            .unwrap();
         zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>
@@ -422,33 +427,45 @@ mod tests {
 
         // word/document.xml
         zip.start_file("word/document.xml", options).unwrap();
-        zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+        zip.write_all(
+            br#"<?xml version="1.0" encoding="UTF-8"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:body>
     <w:p><w:r><w:t>Template content</w:t></w:r></w:p>
   </w:body>
-</w:document>"#).unwrap();
+</w:document>"#,
+        )
+        .unwrap();
 
         // word/header1.xml
         zip.start_file("word/header1.xml", options).unwrap();
-        zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+        zip.write_all(
+            br#"<?xml version="1.0" encoding="UTF-8"?>
 <w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:p><w:r><w:t>Header 1 Content</w:t></w:r></w:p>
-</w:hdr>"#).unwrap();
+</w:hdr>"#,
+        )
+        .unwrap();
 
         // word/header2.xml
         zip.start_file("word/header2.xml", options).unwrap();
-        zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+        zip.write_all(
+            br#"<?xml version="1.0" encoding="UTF-8"?>
 <w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:p><w:r><w:t>Header 2 Content</w:t></w:r></w:p>
-</w:hdr>"#).unwrap();
+</w:hdr>"#,
+        )
+        .unwrap();
 
         // word/footer1.xml
         zip.start_file("word/footer1.xml", options).unwrap();
-        zip.write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+        zip.write_all(
+            br#"<?xml version="1.0" encoding="UTF-8"?>
 <w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:p><w:r><w:t>Footer 1 Content</w:t></w:r></w:p>
-</w:ftr>"#).unwrap();
+</w:ftr>"#,
+        )
+        .unwrap();
 
         zip.finish().unwrap();
         buffer.into_inner()
@@ -561,7 +578,10 @@ mod tests {
 
         // UTF8dok manifest
         zip.start_file("utf8dok/manifest.json", options).unwrap();
-        zip.write_all(br#"{"version":"1.0","generator":"utf8dok","generated_at":"2025-01-01","elements":{}}"#).unwrap();
+        zip.write_all(
+            br#"{"version":"1.0","generator":"utf8dok","generated_at":"2025-01-01","elements":{}}"#,
+        )
+        .unwrap();
 
         zip.finish().unwrap();
         let template_bytes = buffer.into_inner();

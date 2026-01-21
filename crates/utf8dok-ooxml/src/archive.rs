@@ -474,7 +474,10 @@ mod tests {
 
         // Both methods should return the same result
         assert_eq!(archive.contains("test.xml"), archive.has_file("test.xml"));
-        assert_eq!(archive.contains("missing.xml"), archive.has_file("missing.xml"));
+        assert_eq!(
+            archive.contains("missing.xml"),
+            archive.has_file("missing.xml")
+        );
     }
 
     #[test]
@@ -559,8 +562,7 @@ mod tests {
         let mut manifest = Manifest::new();
         manifest.add_element(
             "source",
-            crate::manifest::ElementMeta::new("source.adoc")
-                .with_hash("abc123"),
+            crate::manifest::ElementMeta::new("source.adoc").with_hash("abc123"),
         );
 
         // Set manifest
@@ -639,14 +641,8 @@ mod tests {
         archive.write_utf8dok_string("utf8dok.toml", "[template]\npath = \"t.dotx\"");
 
         let mut manifest = Manifest::new();
-        manifest.add_element(
-            "source",
-            crate::manifest::ElementMeta::new("source.adoc"),
-        );
-        manifest.add_element(
-            "config",
-            crate::manifest::ElementMeta::new("utf8dok.toml"),
-        );
+        manifest.add_element("source", crate::manifest::ElementMeta::new("source.adoc"));
+        manifest.add_element("config", crate::manifest::ElementMeta::new("utf8dok.toml"));
         archive.set_manifest(&manifest).unwrap();
 
         // Verify all parts exist

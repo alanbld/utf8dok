@@ -34,9 +34,8 @@ impl Compiler {
 
         // Add fonts if provided
         for font_path in font_paths {
-            let font_bytes = std::fs::read(font_path).map_err(|e| {
-                PdfError::Font(format!("Failed to read font {}: {}", font_path, e))
-            })?;
+            let font_bytes = std::fs::read(font_path)
+                .map_err(|e| PdfError::Font(format!("Failed to read font {}: {}", font_path, e)))?;
             builder = builder.fonts([font_bytes]);
         }
 

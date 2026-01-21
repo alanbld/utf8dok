@@ -1986,7 +1986,10 @@ mod tests {
         assert_eq!(metadata.title, Some("Full Document".to_string()));
         assert_eq!(metadata.author, Some("Test Author".to_string()));
         assert_eq!(metadata.subject, Some("Test Subject".to_string()));
-        assert_eq!(metadata.keywords, Some("test, document, metadata".to_string()));
+        assert_eq!(
+            metadata.keywords,
+            Some("test, document, metadata".to_string())
+        );
         assert_eq!(metadata.revision, Some("5".to_string()));
         assert_eq!(metadata.created, Some("2025-01-01T00:00:00Z".to_string()));
         assert_eq!(metadata.modified, Some("2025-06-15T12:00:00Z".to_string()));
@@ -2009,8 +2012,7 @@ mod tests {
 
     #[test]
     fn test_extractor_with_force_parse_builder() {
-        let extractor = AsciiDocExtractor::new()
-            .with_force_parse(true);
+        let extractor = AsciiDocExtractor::new().with_force_parse(true);
 
         assert!(extractor.force_parse);
     }

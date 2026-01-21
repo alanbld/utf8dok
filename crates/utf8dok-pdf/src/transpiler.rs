@@ -3,8 +3,7 @@
 //! Converts utf8dok AST nodes to Typst markup strings.
 
 use utf8dok_ast::{
-    AdmonitionType, Block, Document, FormatType, Inline, List, ListItem, ListType, Table,
-    TableRow,
+    AdmonitionType, Block, Document, FormatType, Inline, List, ListItem, ListType, Table, TableRow,
 };
 
 /// Transpiler for converting AST to Typst markup
@@ -186,13 +185,10 @@ impl Transpiler {
     fn transpile_table(table: &Table) -> String {
         let mut output = String::new();
 
-        let col_count = table.columns.len().max(
-            table
-                .rows
-                .first()
-                .map(|r| r.cells.len())
-                .unwrap_or(0),
-        );
+        let col_count = table
+            .columns
+            .len()
+            .max(table.rows.first().map(|r| r.cells.len()).unwrap_or(0));
 
         // Start table
         output.push_str(&format!("#table(\n  columns: {},\n", col_count));
@@ -265,10 +261,7 @@ impl Transpiler {
 
             Inline::Image(img) => {
                 if let Some(ref alt) = img.alt {
-                    format!(
-                        "#figure(image(\"{}\"), caption: [{}])",
-                        img.src, alt
-                    )
+                    format!("#figure(image(\"{}\"), caption: [{}])", img.src, alt)
                 } else {
                     format!("#image(\"{}\")", img.src)
                 }
