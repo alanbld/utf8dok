@@ -1267,6 +1267,7 @@ impl StyleMappings {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{Relationships, StyleContract, TableCell, TableRow};
 
     #[test]
     fn test_extractor_simple_paragraph() {
@@ -2025,5 +2026,1233 @@ mod tests {
         assert!(extractor.include_header);
         assert!(extractor.extract_tables);
         assert!(extractor.preserve_formatting);
+    }
+
+    // ==================== Sprint 23: Style Contract and Extraction Tests ====================
+
+    #[test]
+    fn test_build_style_contract_basic() {
+        // Create a simple document with a heading
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:pPr><w:pStyle w:val="Heading1"/></w:pPr>
+                    <w:r><w:t>Introduction</w:t></w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+
+        // Create stylesheet with heading style
+        let styles_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Heading1">
+                <w:name w:val="heading 1"/>
+                <w:pPr><w:outlineLvl w:val="0"/></w:pPr>
+            </w:style>
+        </w:styles>"#;
+        let styles = StyleSheet::parse(styles_xml).unwrap();
+
+        let extractor = AsciiDocExtractor::new();
+        let contract = extractor.build_style_contract(&doc, &styles, None, None);
+
+        // Should have the heading style mapped
+        assert!(contract.paragraph_styles.contains_key("Heading1"));
+        let mapping = contract.paragraph_styles.get("Heading1").unwrap();
+        assert_eq!(mapping.role, "h1");
+        assert_eq!(mapping.heading_level, Some(1));
+    }
+
+    #[test]
+    fn test_build_style_contract_with_source_file() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body><w:p><w:r><w:t>Test</w:t></w:r></w:p></w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let styles = StyleSheet::default();
+
+        let extractor = AsciiDocExtractor::new();
+        let contract =
+            extractor.build_style_contract(&doc, &styles, None, Some("test.docx".to_string()));
+
+        assert_eq!(contract.meta.source_file, Some("test.docx".to_string()));
+    }
+
+    #[test]
+    fn test_build_style_contract_from_stylesheet() {
+        let styles_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Heading1">
+                <w:name w:val="heading 1"/>
+                <w:pPr><w:outlineLvl w:val="0"/></w:pPr>
+            </w:style>
+            <w:style w:type="paragraph" w:styleId="Heading2">
+                <w:name w:val="heading 2"/>
+                <w:pPr><w:outlineLvl w:val="1"/></w:pPr>
+            </w:style>
+        </w:styles>"#;
+        let styles = StyleSheet::parse(styles_xml).unwrap();
+
+        let extractor = AsciiDocExtractor::new();
+        let contract = extractor.build_style_contract_from_stylesheet(&styles, None);
+
+        // Both heading styles should be present
+        assert!(contract.paragraph_styles.contains_key("Heading1"));
+        assert!(contract.paragraph_styles.contains_key("Heading2"));
+
+        // And Normal style is always added
+        assert!(contract.paragraph_styles.contains_key("Normal"));
+    }
+
+    #[test]
+    fn test_extract_anchors_with_bookmarks() {
+        // Document with bookmarks
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:pPr><w:pStyle w:val="Heading1"/></w:pPr>
+                    <w:bookmarkStart w:name="_Toc12345"/>
+                    <w:r><w:t>Getting Started</w:t></w:r>
+                    <w:bookmarkEnd/>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+
+        let styles_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Heading1">
+                <w:name w:val="heading 1"/>
+                <w:pPr><w:outlineLvl w:val="0"/></w:pPr>
+            </w:style>
+        </w:styles>"#;
+        let styles = StyleSheet::parse(styles_xml).unwrap();
+
+        let extractor = AsciiDocExtractor::new();
+        let mut contract = StyleContract::new();
+        extractor.extract_anchors(&mut contract, &doc, &styles);
+
+        // Should have the TOC anchor
+        assert!(contract.anchors.contains_key("_Toc12345"));
+        let anchor = contract.anchors.get("_Toc12345").unwrap();
+        assert_eq!(anchor.anchor_type, crate::style_map::AnchorType::Toc);
+        // Semantic ID should be normalized from heading text
+        assert_eq!(anchor.semantic_id, "getting-started");
+    }
+
+    #[test]
+    fn test_extract_anchors_user_defined_bookmark() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:bookmarkStart w:name="my_custom_anchor"/>
+                    <w:r><w:t>Custom section</w:t></w:r>
+                    <w:bookmarkEnd/>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let styles = StyleSheet::default();
+
+        let extractor = AsciiDocExtractor::new();
+        let mut contract = StyleContract::new();
+        extractor.extract_anchors(&mut contract, &doc, &styles);
+
+        // User-defined bookmark should be preserved
+        assert!(contract.anchors.contains_key("my_custom_anchor"));
+        let anchor = contract.anchors.get("my_custom_anchor").unwrap();
+        assert_eq!(
+            anchor.anchor_type,
+            crate::style_map::AnchorType::UserDefined
+        );
+    }
+
+    #[test]
+    fn test_extract_anchors_reference_bookmark() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:bookmarkStart w:name="_Ref98765"/>
+                    <w:r><w:t>Figure 1</w:t></w:r>
+                    <w:bookmarkEnd/>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let styles = StyleSheet::default();
+
+        let extractor = AsciiDocExtractor::new();
+        let mut contract = StyleContract::new();
+        extractor.extract_anchors(&mut contract, &doc, &styles);
+
+        // Reference bookmark
+        assert!(contract.anchors.contains_key("_Ref98765"));
+        let anchor = contract.anchors.get("_Ref98765").unwrap();
+        assert_eq!(anchor.anchor_type, crate::style_map::AnchorType::Reference);
+        assert_eq!(anchor.semantic_id, "ref-98765");
+    }
+
+    #[test]
+    fn test_extract_anchors_highlight_bookmark_skipped() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:bookmarkStart w:name="_Hlk12345"/>
+                    <w:r><w:t>Highlighted</w:t></w:r>
+                    <w:bookmarkEnd/>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let styles = StyleSheet::default();
+
+        let extractor = AsciiDocExtractor::new();
+        let mut contract = StyleContract::new();
+        extractor.extract_anchors(&mut contract, &doc, &styles);
+
+        // Highlight bookmarks should be skipped
+        assert!(!contract.anchors.contains_key("_Hlk12345"));
+    }
+
+    #[test]
+    fn test_extract_hyperlinks_external() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                    xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+            <w:body>
+                <w:p>
+                    <w:hyperlink r:id="rId1">
+                        <w:r><w:t>Visit Website</w:t></w:r>
+                    </w:hyperlink>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+
+        // Create relationships
+        let rels = Relationships::from_map(
+            [("rId1".to_string(), "https://example.com".to_string())]
+                .into_iter()
+                .collect(),
+        );
+
+        let extractor = AsciiDocExtractor::new();
+        let mut contract = StyleContract::new();
+        extractor.extract_hyperlinks(&mut contract, &doc, Some(&rels));
+
+        // Should have link1
+        assert!(contract.hyperlinks.contains_key("link1"));
+        let link = contract.hyperlinks.get("link1").unwrap();
+        assert!(link.is_external);
+        assert_eq!(link.url, Some("https://example.com".to_string()));
+    }
+
+    #[test]
+    fn test_extract_hyperlinks_internal_anchor() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:hyperlink w:anchor="section1">
+                        <w:r><w:t>Jump to Section 1</w:t></w:r>
+                    </w:hyperlink>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+
+        let extractor = AsciiDocExtractor::new();
+        let mut contract = StyleContract::new();
+        extractor.extract_hyperlinks(&mut contract, &doc, None);
+
+        // Should have internal link
+        assert!(contract.hyperlinks.contains_key("link1"));
+        let link = contract.hyperlinks.get("link1").unwrap();
+        assert!(!link.is_external);
+        assert_eq!(link.anchor_target, Some("section1".to_string()));
+    }
+
+    #[test]
+    fn test_extract_hyperlinks_in_table() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                    xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+            <w:body>
+                <w:tbl>
+                    <w:tr>
+                        <w:tc>
+                            <w:p>
+                                <w:hyperlink r:id="rId2">
+                                    <w:r><w:t>Table Link</w:t></w:r>
+                                </w:hyperlink>
+                            </w:p>
+                        </w:tc>
+                    </w:tr>
+                </w:tbl>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+
+        let rels = Relationships::from_map(
+            [("rId2".to_string(), "https://table-link.com".to_string())]
+                .into_iter()
+                .collect(),
+        );
+
+        let extractor = AsciiDocExtractor::new();
+        let mut contract = StyleContract::new();
+        extractor.extract_hyperlinks(&mut contract, &doc, Some(&rels));
+
+        // Should find the link in the table
+        assert!(contract.hyperlinks.contains_key("link1"));
+        let link = contract.hyperlinks.get("link1").unwrap();
+        assert!(link.is_external);
+        assert_eq!(link.url, Some("https://table-link.com".to_string()));
+    }
+
+    #[test]
+    fn test_extract_multiple_hyperlinks() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+                    xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+            <w:body>
+                <w:p>
+                    <w:hyperlink r:id="rId1"><w:r><w:t>First</w:t></w:r></w:hyperlink>
+                </w:p>
+                <w:p>
+                    <w:hyperlink w:anchor="internal"><w:r><w:t>Second</w:t></w:r></w:hyperlink>
+                </w:p>
+                <w:p>
+                    <w:hyperlink r:id="rId3"><w:r><w:t>Third</w:t></w:r></w:hyperlink>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+
+        let rels = Relationships::from_map(
+            [
+                ("rId1".to_string(), "https://first.com".to_string()),
+                ("rId3".to_string(), "https://third.com".to_string()),
+            ]
+            .into_iter()
+            .collect(),
+        );
+
+        let extractor = AsciiDocExtractor::new();
+        let mut contract = StyleContract::new();
+        extractor.extract_hyperlinks(&mut contract, &doc, Some(&rels));
+
+        // Should have link1, link2, link3
+        assert!(contract.hyperlinks.contains_key("link1"));
+        assert!(contract.hyperlinks.contains_key("link2"));
+        assert!(contract.hyperlinks.contains_key("link3"));
+    }
+
+    #[test]
+    fn test_convert_image_basic() {
+        let extractor = AsciiDocExtractor::new();
+
+        let img = crate::image::Image {
+            id: 1,
+            rel_id: "rId5".to_string(),
+            target: "word/media/image1.png".to_string(),
+            alt: None,
+            name: None,
+            width_emu: None,
+            height_emu: None,
+            position: crate::image::ImagePosition::Inline,
+        };
+
+        let result = extractor.convert_image(&img, None);
+        assert!(result.contains("image::word/media/image1.png"));
+    }
+
+    #[test]
+    fn test_convert_image_with_alt_text() {
+        let extractor = AsciiDocExtractor::new();
+
+        let img = crate::image::Image {
+            id: 1,
+            rel_id: "rId5".to_string(),
+            target: "image.png".to_string(),
+            alt: Some("A beautiful diagram".to_string()),
+            name: None,
+            width_emu: None,
+            height_emu: None,
+            position: crate::image::ImagePosition::Inline,
+        };
+
+        let result = extractor.convert_image(&img, None);
+        assert!(result.contains("[A beautiful diagram]"));
+    }
+
+    #[test]
+    fn test_convert_image_with_dimensions() {
+        let extractor = AsciiDocExtractor::new();
+
+        // 100px = 914400 EMU (at 96 DPI)
+        let width_emu = 914400;
+        let height_emu = 457200; // 50px
+
+        let img = crate::image::Image {
+            id: 1,
+            rel_id: "rId5".to_string(),
+            target: "image.png".to_string(),
+            alt: Some("Sized image".to_string()),
+            name: None,
+            width_emu: Some(width_emu),
+            height_emu: Some(height_emu),
+            position: crate::image::ImagePosition::Inline,
+        };
+
+        let result = extractor.convert_image(&img, None);
+        // Should contain width and height attributes
+        assert!(result.contains("width="));
+        assert!(result.contains("height="));
+    }
+
+    #[test]
+    fn test_convert_image_with_relationship() {
+        let extractor = AsciiDocExtractor::new();
+
+        let img = crate::image::Image {
+            id: 1,
+            rel_id: "rId5".to_string(),
+            target: "".to_string(), // Empty target, use relationship
+            alt: None,
+            name: None,
+            width_emu: None,
+            height_emu: None,
+            position: crate::image::ImagePosition::Inline,
+        };
+
+        let rels = Relationships::from_map(
+            [("rId5".to_string(), "media/picture.jpg".to_string())]
+                .into_iter()
+                .collect(),
+        );
+
+        let result = extractor.convert_image(&img, Some(&rels));
+        // Should resolve target from relationship
+        assert!(result.contains("media/picture.jpg"));
+    }
+
+    #[test]
+    fn test_convert_image_fallback_to_id() {
+        let extractor = AsciiDocExtractor::new();
+
+        let img = crate::image::Image {
+            id: 42,
+            rel_id: "rIdMissing".to_string(),
+            target: "".to_string(), // Empty target
+            alt: None,
+            name: None,
+            width_emu: None,
+            height_emu: None,
+            position: crate::image::ImagePosition::Inline,
+        };
+
+        // No relationship provided
+        let result = extractor.convert_image(&img, None);
+        // Should fallback to media/image{id}.png
+        assert!(result.contains("media/image42.png"));
+    }
+
+    #[test]
+    fn test_merge_and_convert_runs_same_formatting() {
+        let extractor = AsciiDocExtractor::new();
+
+        let runs = vec![
+            Run {
+                text: "Hello ".to_string(),
+                bold: true,
+                italic: false,
+                monospace: false,
+            },
+            Run {
+                text: "World".to_string(),
+                bold: true,
+                italic: false,
+                monospace: false,
+            },
+        ];
+
+        let result = extractor.merge_and_convert_runs(&runs);
+        // Should merge into single bold run
+        assert_eq!(result, "*Hello World*");
+    }
+
+    #[test]
+    fn test_merge_and_convert_runs_different_formatting() {
+        let extractor = AsciiDocExtractor::new();
+
+        let runs = vec![
+            Run {
+                text: "Normal ".to_string(),
+                bold: false,
+                italic: false,
+                monospace: false,
+            },
+            Run {
+                text: "bold".to_string(),
+                bold: true,
+                italic: false,
+                monospace: false,
+            },
+            Run {
+                text: " text".to_string(),
+                bold: false,
+                italic: false,
+                monospace: false,
+            },
+        ];
+
+        let result = extractor.merge_and_convert_runs(&runs);
+        // Should keep formatting boundaries
+        assert!(result.contains("Normal "));
+        assert!(result.contains("*bold*"));
+        assert!(result.contains(" text"));
+    }
+
+    #[test]
+    fn test_merge_and_convert_runs_empty() {
+        let extractor = AsciiDocExtractor::new();
+
+        let runs: Vec<Run> = vec![];
+        let result = extractor.merge_and_convert_runs(&runs);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_merge_and_convert_runs_single() {
+        let extractor = AsciiDocExtractor::new();
+
+        let runs = vec![Run {
+            text: "single".to_string(),
+            bold: false,
+            italic: true,
+            monospace: false,
+        }];
+
+        let result = extractor.merge_and_convert_runs(&runs);
+        assert_eq!(result, "_single_");
+    }
+
+    #[test]
+    fn test_convert_to_asciidoc_heading_levels() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:pPr><w:pStyle w:val="Heading1"/></w:pPr>
+                    <w:r><w:t>Chapter One</w:t></w:r>
+                </w:p>
+                <w:p>
+                    <w:pPr><w:pStyle w:val="Heading2"/></w:pPr>
+                    <w:r><w:t>Section A</w:t></w:r>
+                </w:p>
+                <w:p>
+                    <w:pPr><w:pStyle w:val="Heading3"/></w:pPr>
+                    <w:r><w:t>Subsection</w:t></w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+
+        let styles_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Heading1">
+                <w:name w:val="heading 1"/>
+                <w:pPr><w:outlineLvl w:val="0"/></w:pPr>
+            </w:style>
+            <w:style w:type="paragraph" w:styleId="Heading2">
+                <w:name w:val="heading 2"/>
+                <w:pPr><w:outlineLvl w:val="1"/></w:pPr>
+            </w:style>
+            <w:style w:type="paragraph" w:styleId="Heading3">
+                <w:name w:val="heading 3"/>
+                <w:pPr><w:outlineLvl w:val="2"/></w:pPr>
+            </w:style>
+        </w:styles>"#;
+        let styles = StyleSheet::parse(styles_xml).unwrap();
+
+        let metadata = DocumentMetadata::default();
+        let comments = Comments::default();
+        let comment_ranges = CommentRanges::default();
+
+        let extractor = AsciiDocExtractor::new();
+        let asciidoc = extractor.convert_to_asciidoc(
+            &doc,
+            &styles,
+            None,
+            &metadata,
+            &comments,
+            &comment_ranges,
+        );
+
+        // First heading becomes title
+        assert!(asciidoc.contains("= Chapter One"));
+        // Second and third become proper headings
+        assert!(asciidoc.contains("== Section A"));
+        assert!(asciidoc.contains("=== Subsection"));
+    }
+
+    #[test]
+    fn test_convert_to_asciidoc_unordered_list() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:pPr>
+                        <w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>
+                    </w:pPr>
+                    <w:r><w:t>First item</w:t></w:r>
+                </w:p>
+                <w:p>
+                    <w:pPr>
+                        <w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>
+                    </w:pPr>
+                    <w:r><w:t>Second item</w:t></w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let styles = StyleSheet::default();
+        let metadata = DocumentMetadata::default();
+        let comments = Comments::default();
+        let comment_ranges = CommentRanges::default();
+
+        let extractor = AsciiDocExtractor::new();
+        let asciidoc = extractor.convert_to_asciidoc(
+            &doc,
+            &styles,
+            None,
+            &metadata,
+            &comments,
+            &comment_ranges,
+        );
+
+        // Unordered list items use *
+        assert!(asciidoc.contains("* First item"));
+        assert!(asciidoc.contains("* Second item"));
+    }
+
+    #[test]
+    fn test_convert_to_asciidoc_ordered_list() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:pPr>
+                        <w:numPr><w:ilvl w:val="0"/><w:numId w:val="2"/></w:numPr>
+                    </w:pPr>
+                    <w:r><w:t>Step one</w:t></w:r>
+                </w:p>
+                <w:p>
+                    <w:pPr>
+                        <w:numPr><w:ilvl w:val="0"/><w:numId w:val="2"/></w:numPr>
+                    </w:pPr>
+                    <w:r><w:t>Step two</w:t></w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let styles = StyleSheet::default();
+        let metadata = DocumentMetadata::default();
+        let comments = Comments::default();
+        let comment_ranges = CommentRanges::default();
+
+        let extractor = AsciiDocExtractor::new();
+        let asciidoc = extractor.convert_to_asciidoc(
+            &doc,
+            &styles,
+            None,
+            &metadata,
+            &comments,
+            &comment_ranges,
+        );
+
+        // Ordered list items use .
+        assert!(asciidoc.contains(". Step one"));
+        assert!(asciidoc.contains(". Step two"));
+    }
+
+    #[test]
+    fn test_convert_to_asciidoc_nested_list() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:pPr>
+                        <w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>
+                    </w:pPr>
+                    <w:r><w:t>Parent item</w:t></w:r>
+                </w:p>
+                <w:p>
+                    <w:pPr>
+                        <w:numPr><w:ilvl w:val="1"/><w:numId w:val="1"/></w:numPr>
+                    </w:pPr>
+                    <w:r><w:t>Child item</w:t></w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let styles = StyleSheet::default();
+        let metadata = DocumentMetadata::default();
+        let comments = Comments::default();
+        let comment_ranges = CommentRanges::default();
+
+        let extractor = AsciiDocExtractor::new();
+        let asciidoc = extractor.convert_to_asciidoc(
+            &doc,
+            &styles,
+            None,
+            &metadata,
+            &comments,
+            &comment_ranges,
+        );
+
+        // Nested items use ** for level 1
+        assert!(asciidoc.contains("* Parent item"));
+        assert!(asciidoc.contains("** Child item"));
+    }
+
+    #[test]
+    fn test_convert_to_asciidoc_code_block_by_style() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:pPr><w:pStyle w:val="SourceCode"/></w:pPr>
+                    <w:r><w:t>fn main() { println!("Hello"); }</w:t></w:r>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let styles = StyleSheet::default();
+        let metadata = DocumentMetadata::default();
+        let comments = Comments::default();
+        let comment_ranges = CommentRanges::default();
+
+        let extractor = AsciiDocExtractor::new();
+        let asciidoc = extractor.convert_to_asciidoc(
+            &doc,
+            &styles,
+            None,
+            &metadata,
+            &comments,
+            &comment_ranges,
+        );
+
+        // Code block with style containing "source"
+        assert!(asciidoc.contains("[source]"));
+        assert!(asciidoc.contains("----"));
+        assert!(asciidoc.contains("fn main()"));
+    }
+
+    #[test]
+    fn test_convert_to_asciidoc_code_block_with_language_comment() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:pPr><w:pStyle w:val="Code"/></w:pPr>
+                    <w:commentRangeStart w:id="0"/>
+                    <w:r><w:t>print("hello")</w:t></w:r>
+                    <w:commentRangeEnd w:id="0"/>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let styles = StyleSheet::default();
+        let metadata = DocumentMetadata::default();
+
+        // Create comments with language
+        let comments_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:comment w:id="0"><w:p><w:r><w:t>Language: python</w:t></w:r></w:p></w:comment>
+        </w:comments>"#;
+        let comments = Comments::parse(comments_xml);
+        let comment_ranges = CommentRanges::parse(xml);
+
+        let extractor = AsciiDocExtractor::new();
+        let asciidoc = extractor.convert_to_asciidoc(
+            &doc,
+            &styles,
+            None,
+            &metadata,
+            &comments,
+            &comment_ranges,
+        );
+
+        // Should have language from comment
+        assert!(asciidoc.contains("[source,python]"));
+    }
+
+    // Note: Block::SectionBreak handling exists in convert_to_asciidoc but the
+    // document parser currently doesn't create SectionBreak blocks from XML.
+    // This test is reserved for when section break parsing is implemented.
+
+    #[test]
+    fn test_convert_to_asciidoc_empty_paragraphs_skipped() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p><w:r><w:t>Before</w:t></w:r></w:p>
+                <w:p></w:p>
+                <w:p><w:r><w:t>After</w:t></w:r></w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let styles = StyleSheet::default();
+        let metadata = DocumentMetadata::default();
+        let comments = Comments::default();
+        let comment_ranges = CommentRanges::default();
+
+        let extractor = AsciiDocExtractor::new();
+        let asciidoc = extractor.convert_to_asciidoc(
+            &doc,
+            &styles,
+            None,
+            &metadata,
+            &comments,
+            &comment_ranges,
+        );
+
+        // Empty paragraphs should be skipped
+        assert!(asciidoc.contains("Before"));
+        assert!(asciidoc.contains("After"));
+    }
+
+    #[test]
+    fn test_convert_to_asciidoc_with_docprops_title() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p><w:r><w:t>Body text</w:t></w:r></w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let styles = StyleSheet::default();
+        let metadata = DocumentMetadata {
+            title: Some("Document Title".to_string()),
+            author: Some("Test Author".to_string()),
+            ..Default::default()
+        };
+        let comments = Comments::default();
+        let comment_ranges = CommentRanges::default();
+
+        let extractor = AsciiDocExtractor::new();
+        let asciidoc = extractor.convert_to_asciidoc(
+            &doc,
+            &styles,
+            None,
+            &metadata,
+            &comments,
+            &comment_ranges,
+        );
+
+        // Should use docProps title
+        assert!(asciidoc.contains("= Document Title"));
+        assert!(asciidoc.contains(":author: Test Author"));
+    }
+
+    #[test]
+    fn test_convert_to_asciidoc_tables_disabled() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:tbl>
+                    <w:tr><w:tc><w:p><w:r><w:t>Cell</w:t></w:r></w:p></w:tc></w:tr>
+                </w:tbl>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let styles = StyleSheet::default();
+        let metadata = DocumentMetadata::default();
+        let comments = Comments::default();
+        let comment_ranges = CommentRanges::default();
+
+        let mut extractor = AsciiDocExtractor::new();
+        extractor.extract_tables = false;
+
+        let asciidoc = extractor.convert_to_asciidoc(
+            &doc,
+            &styles,
+            None,
+            &metadata,
+            &comments,
+            &comment_ranges,
+        );
+
+        // Tables should be omitted
+        assert!(asciidoc.contains("// [TABLE OMITTED]"));
+        assert!(!asciidoc.contains("|==="));
+    }
+
+    #[test]
+    fn test_convert_table_with_data() {
+        let extractor = AsciiDocExtractor::new();
+
+        let table = Table {
+            rows: vec![
+                TableRow {
+                    cells: vec![
+                        TableCell {
+                            paragraphs: vec![Paragraph {
+                                style_id: None,
+                                numbering: None,
+                                children: vec![ParagraphChild::Run(Run {
+                                    text: "Header 1".to_string(),
+                                    bold: false,
+                                    italic: false,
+                                    monospace: false,
+                                })],
+                            }],
+                        },
+                        TableCell {
+                            paragraphs: vec![Paragraph {
+                                style_id: None,
+                                numbering: None,
+                                children: vec![ParagraphChild::Run(Run {
+                                    text: "Header 2".to_string(),
+                                    bold: false,
+                                    italic: false,
+                                    monospace: false,
+                                })],
+                            }],
+                        },
+                    ],
+                    is_header: true,
+                },
+                TableRow {
+                    cells: vec![
+                        TableCell {
+                            paragraphs: vec![Paragraph {
+                                style_id: None,
+                                numbering: None,
+                                children: vec![ParagraphChild::Run(Run {
+                                    text: "Data 1".to_string(),
+                                    bold: false,
+                                    italic: false,
+                                    monospace: false,
+                                })],
+                            }],
+                        },
+                        TableCell {
+                            paragraphs: vec![Paragraph {
+                                style_id: None,
+                                numbering: None,
+                                children: vec![ParagraphChild::Run(Run {
+                                    text: "Data 2".to_string(),
+                                    bold: false,
+                                    italic: false,
+                                    monospace: false,
+                                })],
+                            }],
+                        },
+                    ],
+                    is_header: false,
+                },
+            ],
+            style_id: None,
+        };
+
+        let result = extractor.convert_table(&table);
+
+        // Check table structure
+        assert!(result.contains("[cols="));
+        assert!(result.contains("|==="));
+        assert!(result.contains("|Header 1|Header 2"));
+        assert!(result.contains("|Data 1|Data 2"));
+    }
+
+    #[test]
+    fn test_convert_table_single_column() {
+        let extractor = AsciiDocExtractor::new();
+
+        let table = Table {
+            rows: vec![
+                TableRow {
+                    cells: vec![TableCell {
+                        paragraphs: vec![Paragraph {
+                            style_id: None,
+                            numbering: None,
+                            children: vec![ParagraphChild::Run(Run {
+                                text: "Only column".to_string(),
+                                bold: false,
+                                italic: false,
+                                monospace: false,
+                            })],
+                        }],
+                    }],
+                    is_header: true,
+                },
+                TableRow {
+                    cells: vec![TableCell {
+                        paragraphs: vec![Paragraph {
+                            style_id: None,
+                            numbering: None,
+                            children: vec![ParagraphChild::Run(Run {
+                                text: "Row data".to_string(),
+                                bold: false,
+                                italic: false,
+                                monospace: false,
+                            })],
+                        }],
+                    }],
+                    is_header: false,
+                },
+            ],
+            style_id: None,
+        };
+
+        let result = extractor.convert_table(&table);
+        assert!(result.contains("[cols=\"1\""));
+    }
+
+    #[test]
+    fn test_convert_hyperlink_external_with_rels() {
+        let extractor = AsciiDocExtractor::new();
+
+        let hyperlink = Hyperlink {
+            id: Some("rId1".to_string()),
+            anchor: None,
+            runs: vec![Run {
+                text: "Click here".to_string(),
+                bold: false,
+                italic: false,
+                monospace: false,
+            }],
+        };
+
+        let rels = Relationships::from_map(
+            [("rId1".to_string(), "https://example.com".to_string())]
+                .into_iter()
+                .collect(),
+        );
+
+        let result = extractor.convert_hyperlink(&hyperlink, Some(&rels));
+        assert_eq!(result, "https://example.com[Click here]");
+    }
+
+    #[test]
+    fn test_convert_hyperlink_external_no_rels() {
+        let extractor = AsciiDocExtractor::new();
+
+        let hyperlink = Hyperlink {
+            id: Some("rId1".to_string()),
+            anchor: None,
+            runs: vec![Run {
+                text: "Click here".to_string(),
+                bold: false,
+                italic: false,
+                monospace: false,
+            }],
+        };
+
+        // No relationships provided
+        let result = extractor.convert_hyperlink(&hyperlink, None);
+        // Should fallback to #rId1
+        assert!(result.contains("<<rId1,Click here>>"));
+    }
+
+    #[test]
+    fn test_convert_hyperlink_with_formatted_text() {
+        let extractor = AsciiDocExtractor::new();
+
+        let hyperlink = Hyperlink {
+            id: None,
+            anchor: Some("section".to_string()),
+            runs: vec![
+                Run {
+                    text: "bold ".to_string(),
+                    bold: true,
+                    italic: false,
+                    monospace: false,
+                },
+                Run {
+                    text: "link".to_string(),
+                    bold: true,
+                    italic: false,
+                    monospace: false,
+                },
+            ],
+        };
+
+        let result = extractor.convert_hyperlink(&hyperlink, None);
+        // Merged runs with bold formatting
+        assert!(result.contains("<<section,*bold link*>>"));
+    }
+
+    #[test]
+    fn test_add_paragraph_styles() {
+        let extractor = AsciiDocExtractor::new();
+
+        let styles_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Heading1" w:default="0">
+                <w:name w:val="heading 1"/>
+                <w:pPr><w:outlineLvl w:val="0"/></w:pPr>
+            </w:style>
+            <w:style w:type="paragraph" w:styleId="Normal" w:default="1">
+                <w:name w:val="Normal"/>
+            </w:style>
+        </w:styles>"#;
+        let styles = StyleSheet::parse(styles_xml).unwrap();
+
+        let mut contract = StyleContract::new();
+        extractor.add_paragraph_styles(&mut contract, &styles);
+
+        // Should have heading and Normal styles
+        assert!(contract.paragraph_styles.contains_key("Heading1"));
+        assert!(contract.paragraph_styles.contains_key("Normal"));
+
+        let h1 = contract.paragraph_styles.get("Heading1").unwrap();
+        assert_eq!(h1.heading_level, Some(1));
+
+        let normal = contract.paragraph_styles.get("Normal").unwrap();
+        assert_eq!(normal.role, "body");
+    }
+
+    #[test]
+    fn test_detect_style_mappings_with_default_paragraph() {
+        let extractor = AsciiDocExtractor::new();
+
+        let styles_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="CustomPara" w:default="1">
+                <w:name w:val="Custom Paragraph"/>
+            </w:style>
+        </w:styles>"#;
+        let styles = StyleSheet::parse(styles_xml).unwrap();
+
+        let mappings = extractor.detect_style_mappings(&styles);
+        assert_eq!(mappings.paragraph, Some("CustomPara".to_string()));
+    }
+
+    #[test]
+    fn test_detect_style_mappings_with_table_styles() {
+        let extractor = AsciiDocExtractor::new();
+
+        let styles_xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="table" w:styleId="TableGrid">
+                <w:name w:val="Table Grid"/>
+            </w:style>
+            <w:style w:type="table" w:styleId="TableSimple">
+                <w:name w:val="Table Simple"/>
+            </w:style>
+        </w:styles>"#;
+        let styles = StyleSheet::parse(styles_xml).unwrap();
+
+        let mappings = extractor.detect_style_mappings(&styles);
+        assert_eq!(mappings.tables.len(), 2);
+        assert!(mappings.tables.contains(&"TableGrid".to_string()));
+        assert!(mappings.tables.contains(&"TableSimple".to_string()));
+    }
+
+    #[test]
+    fn test_get_language_from_comment_no_match() {
+        let extractor = AsciiDocExtractor::new();
+        let comments = Comments::default();
+        let comment_ranges = CommentRanges::default();
+
+        // No comment at block 0
+        let lang = extractor.get_language_from_comment(0, &comments, &comment_ranges);
+        assert!(lang.is_none());
+    }
+
+    #[test]
+    fn test_convert_paragraph_with_bookmark() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:body>
+                <w:p>
+                    <w:bookmarkStart w:name="my_anchor"/>
+                    <w:r><w:t>Anchored text</w:t></w:r>
+                    <w:bookmarkEnd/>
+                </w:p>
+            </w:body>
+        </w:document>"#;
+
+        let doc = Document::parse(xml).unwrap();
+        let styles = StyleSheet::default();
+        let metadata = DocumentMetadata::default();
+        let comments = Comments::default();
+        let comment_ranges = CommentRanges::default();
+
+        let extractor = AsciiDocExtractor::new();
+        let asciidoc = extractor.convert_to_asciidoc(
+            &doc,
+            &styles,
+            None,
+            &metadata,
+            &comments,
+            &comment_ranges,
+        );
+
+        // Should have anchor syntax
+        assert!(asciidoc.contains("[[my_anchor]]"));
+        assert!(asciidoc.contains("Anchored text"));
+    }
+
+    #[test]
+    fn test_is_code_block_paragraph_empty() {
+        let extractor = AsciiDocExtractor::new();
+
+        // Empty paragraph
+        let para = Paragraph {
+            style_id: None,
+            numbering: None,
+            children: vec![],
+        };
+
+        assert!(!extractor.is_code_block_paragraph(&para));
+    }
+
+    #[test]
+    fn test_is_code_block_paragraph_with_empty_run() {
+        let extractor = AsciiDocExtractor::new();
+
+        // Paragraph with empty runs
+        let para = Paragraph {
+            style_id: None,
+            numbering: None,
+            children: vec![ParagraphChild::Run(Run {
+                text: "".to_string(),
+                bold: false,
+                italic: false,
+                monospace: true,
+            })],
+        };
+
+        // Empty text doesn't count as code block
+        assert!(!extractor.is_code_block_paragraph(&para));
     }
 }

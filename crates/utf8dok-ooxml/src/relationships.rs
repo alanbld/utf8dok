@@ -298,6 +298,37 @@ impl Relationships {
         self.map.is_empty()
     }
 
+    /// Create relationships from a simple map of ID to target (for testing)
+    ///
+    /// This is a convenience method primarily for testing. The relationship type
+    /// is inferred from the target (hyperlink for URLs, otherwise generic).
+    #[cfg(test)]
+    pub fn from_map(map: HashMap<String, String>) -> Self {
+        let mut rels = Self::new();
+        for (id, target) in map {
+            let rel_type = if target.starts_with("http") {
+                Self::TYPE_HYPERLINK.to_string()
+            } else {
+                Self::TYPE_IMAGE.to_string()
+            };
+            let target_mode = if target.starts_with("http") {
+                Some("External".to_string())
+            } else {
+                None
+            };
+            rels.order.push(id.clone());
+            rels.map.insert(
+                id,
+                RelationshipTarget {
+                    target,
+                    rel_type,
+                    target_mode,
+                },
+            );
+        }
+        rels
+    }
+
     /// Iterate over relationships in insertion order
     pub fn iter(&self) -> impl Iterator<Item = (&str, &RelationshipTarget)> {
         self.order
