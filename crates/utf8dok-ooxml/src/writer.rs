@@ -4110,4 +4110,674 @@ paragraph = "Normal"
         assert_eq!(writer.diagram_sources.len(), 1);
         assert!(writer.diagram_sources[0].1.contains("graph TD"));
     }
+
+    // ==================== Sprint 24: Block Generation and Inline Tests ====================
+
+    #[test]
+    fn test_generate_thematic_break() {
+        use crate::test_utils::create_minimal_template;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![
+                Block::Paragraph(Paragraph {
+                    inlines: vec![Inline::Text("Before".to_string())],
+                    ..Default::default()
+                }),
+                Block::ThematicBreak,
+                Block::Paragraph(Paragraph {
+                    inlines: vec![Inline::Text("After".to_string())],
+                    ..Default::default()
+                }),
+            ],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        // ThematicBreak generates a bottom border
+        assert!(doc_xml.contains("w:pBdr"));
+        assert!(doc_xml.contains("w:bottom"));
+    }
+
+    #[test]
+    fn test_generate_open_block() {
+        use crate::test_utils::create_minimal_template;
+        use utf8dok_ast::OpenBlock;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::Open(OpenBlock {
+                blocks: vec![
+                    Block::Paragraph(Paragraph {
+                        inlines: vec![Inline::Text("Inside open block".to_string())],
+                        ..Default::default()
+                    }),
+                    Block::Paragraph(Paragraph {
+                        inlines: vec![Inline::Text("Second para".to_string())],
+                        ..Default::default()
+                    }),
+                ],
+                role: None,
+                title: None,
+                attributes: Default::default(),
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("Inside open block"));
+        assert!(doc_xml.contains("Second para"));
+    }
+
+    #[test]
+    fn test_generate_sidebar_block() {
+        use crate::test_utils::create_minimal_template;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::Sidebar(utf8dok_ast::Sidebar {
+                blocks: vec![Block::Paragraph(Paragraph {
+                    inlines: vec![Inline::Text("Sidebar content".to_string())],
+                    ..Default::default()
+                })],
+                title: Some("Sidebar Title".to_string()),
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("Sidebar content"));
+    }
+
+    #[test]
+    fn test_generate_quote_block() {
+        use crate::test_utils::create_minimal_template;
+        use utf8dok_ast::QuoteBlock;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::Quote(QuoteBlock {
+                blocks: vec![Block::Paragraph(Paragraph {
+                    inlines: vec![Inline::Text("Quoted text".to_string())],
+                    ..Default::default()
+                })],
+                attribution: Some("Famous Author".to_string()),
+                cite: None,
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("Quoted text"));
+    }
+
+    #[test]
+    fn test_generate_admonition_note_sprint24() {
+        use crate::test_utils::create_minimal_template;
+        use utf8dok_ast::{Admonition, AdmonitionType};
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::Admonition(Admonition {
+                admonition_type: AdmonitionType::Note,
+                title: Some(vec![Inline::Text("Important Note".to_string())]),
+                content: vec![Block::Paragraph(Paragraph {
+                    inlines: vec![Inline::Text("This is a note.".to_string())],
+                    ..Default::default()
+                })],
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("Important Note"));
+        assert!(doc_xml.contains("This is a note"));
+        assert!(doc_xml.contains("NoteTitle"));
+    }
+
+    #[test]
+    fn test_generate_admonition_tip_caution() {
+        use utf8dok_ast::AdmonitionType;
+
+        // Test Tip and Caution types mapping
+        let tip_name = match AdmonitionType::Tip {
+            AdmonitionType::Note => "Note",
+            AdmonitionType::Tip => "Tip",
+            AdmonitionType::Important => "Important",
+            AdmonitionType::Warning => "Warning",
+            AdmonitionType::Caution => "Caution",
+        };
+        assert_eq!(tip_name, "Tip");
+
+        let caution_name = match AdmonitionType::Caution {
+            AdmonitionType::Note => "Note",
+            AdmonitionType::Tip => "Tip",
+            AdmonitionType::Important => "Important",
+            AdmonitionType::Warning => "Warning",
+            AdmonitionType::Caution => "Caution",
+        };
+        assert_eq!(caution_name, "Caution");
+    }
+
+    #[test]
+    fn test_generate_break_page_sprint24() {
+        use crate::test_utils::create_minimal_template;
+        use utf8dok_ast::BreakType;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![
+                Block::Paragraph(Paragraph {
+                    inlines: vec![Inline::Text("Page 1".to_string())],
+                    ..Default::default()
+                }),
+                Block::Break(BreakType::Page),
+                Block::Paragraph(Paragraph {
+                    inlines: vec![Inline::Text("Page 2".to_string())],
+                    ..Default::default()
+                }),
+            ],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("<w:br w:type=\"page\"/>"));
+    }
+
+    #[test]
+    fn test_generate_break_section_sprint24() {
+        use crate::test_utils::create_minimal_template;
+        use utf8dok_ast::BreakType;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![
+                Block::Paragraph(Paragraph {
+                    inlines: vec![Inline::Text("Section 1".to_string())],
+                    ..Default::default()
+                }),
+                Block::Break(BreakType::Section),
+                Block::Paragraph(Paragraph {
+                    inlines: vec![Inline::Text("Section 2".to_string())],
+                    ..Default::default()
+                }),
+            ],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("<w:sectPr>"));
+        assert!(doc_xml.contains("<w:type w:val=\"nextPage\"/>"));
+    }
+
+    #[test]
+    fn test_generate_inline_anchor() {
+        use crate::test_utils::create_minimal_template;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::Paragraph(Paragraph {
+                inlines: vec![
+                    Inline::Anchor("my-bookmark".to_string()),
+                    Inline::Text("Bookmarked text".to_string()),
+                ],
+                ..Default::default()
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("w:bookmarkStart"));
+        assert!(doc_xml.contains("w:bookmarkEnd"));
+        assert!(doc_xml.contains("my-bookmark"));
+    }
+
+    #[test]
+    fn test_generate_inline_break() {
+        use crate::test_utils::create_minimal_template;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::Paragraph(Paragraph {
+                inlines: vec![
+                    Inline::Text("Line 1".to_string()),
+                    Inline::Break,
+                    Inline::Text("Line 2".to_string()),
+                ],
+                ..Default::default()
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("<w:br/>"));
+    }
+
+    #[test]
+    fn test_generate_inline_span() {
+        use crate::test_utils::create_minimal_template;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::Paragraph(Paragraph {
+                inlines: vec![Inline::Span(vec![
+                    Inline::Text("First ".to_string()),
+                    Inline::Format(FormatType::Bold, Box::new(Inline::Text("bold".to_string()))),
+                    Inline::Text(" last".to_string()),
+                ])],
+                ..Default::default()
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("First "));
+        assert!(doc_xml.contains("bold"));
+        assert!(doc_xml.contains(" last"));
+    }
+
+    #[test]
+    fn test_generate_inline_image() {
+        use crate::test_utils::create_minimal_template;
+        use utf8dok_ast::Image;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::Paragraph(Paragraph {
+                inlines: vec![Inline::Image(Image {
+                    src: "images/logo.png".to_string(),
+                    alt: Some("Company Logo".to_string()),
+                })],
+                ..Default::default()
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("w:drawing"));
+        assert!(doc_xml.contains("Company Logo"));
+        assert!(doc_xml.contains("wp:inline"));
+    }
+
+    #[test]
+    fn test_extract_text_from_inline() {
+        // Test various inline types
+        assert_eq!(extract_text(&Inline::Text("hello".to_string())), "hello");
+
+        assert_eq!(
+            extract_text(&Inline::Format(
+                FormatType::Bold,
+                Box::new(Inline::Text("bold".to_string()))
+            )),
+            "bold"
+        );
+
+        assert_eq!(
+            extract_text(&Inline::Span(vec![
+                Inline::Text("a".to_string()),
+                Inline::Text("b".to_string())
+            ])),
+            "ab"
+        );
+
+        assert_eq!(extract_text(&Inline::Break), "");
+
+        assert_eq!(extract_text(&Inline::Anchor("anchor".to_string())), "");
+    }
+
+    #[test]
+    fn test_extract_text_from_link() {
+        use utf8dok_ast::Link;
+
+        let link = Inline::Link(Link {
+            url: "https://example.com".to_string(),
+            text: vec![Inline::Text("click".to_string())],
+        });
+
+        assert_eq!(extract_text(&link), "click");
+    }
+
+    #[test]
+    fn test_extract_text_from_image() {
+        use utf8dok_ast::Image;
+
+        let img = Inline::Image(Image {
+            src: "img.png".to_string(),
+            alt: Some("Alt text".to_string()),
+        });
+
+        assert_eq!(extract_text(&img), "Alt text");
+    }
+
+    #[test]
+    fn test_extract_text_from_image_no_alt() {
+        use utf8dok_ast::Image;
+
+        let img = Inline::Image(Image {
+            src: "img.png".to_string(),
+            alt: None,
+        });
+
+        assert_eq!(extract_text(&img), "");
+    }
+
+    #[test]
+    fn test_generate_list_ordered() {
+        use crate::test_utils::create_minimal_template;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::List(List {
+                list_type: ListType::Ordered,
+                items: vec![
+                    ListItem {
+                        content: vec![Block::Paragraph(Paragraph {
+                            inlines: vec![Inline::Text("Step 1".to_string())],
+                            ..Default::default()
+                        })],
+                        level: 0,
+                        term: None,
+                    },
+                    ListItem {
+                        content: vec![Block::Paragraph(Paragraph {
+                            inlines: vec![Inline::Text("Step 2".to_string())],
+                            ..Default::default()
+                        })],
+                        level: 0,
+                        term: None,
+                    },
+                ],
+                style_id: None,
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("Step 1"));
+        assert!(doc_xml.contains("Step 2"));
+        // Ordered list uses numId=2
+        assert!(doc_xml.contains("<w:numId w:val=\"2\"/>"));
+    }
+
+    #[test]
+    fn test_generate_list_description() {
+        use crate::test_utils::create_minimal_template;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::List(List {
+                list_type: ListType::Description,
+                items: vec![ListItem {
+                    content: vec![Block::Paragraph(Paragraph {
+                        inlines: vec![Inline::Text("Definition".to_string())],
+                        ..Default::default()
+                    })],
+                    level: 0,
+                    term: Some(vec![Inline::Text("Term".to_string())]),
+                }],
+                style_id: None,
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("Definition"));
+        // Description list uses numId=3
+        assert!(doc_xml.contains("<w:numId w:val=\"3\"/>"));
+    }
+
+    #[test]
+    fn test_generate_list_nested() {
+        use crate::test_utils::create_minimal_template;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::List(List {
+                list_type: ListType::Unordered,
+                items: vec![
+                    ListItem {
+                        content: vec![Block::Paragraph(Paragraph {
+                            inlines: vec![Inline::Text("Parent".to_string())],
+                            ..Default::default()
+                        })],
+                        level: 0,
+                        term: None,
+                    },
+                    ListItem {
+                        content: vec![Block::Paragraph(Paragraph {
+                            inlines: vec![Inline::Text("Child".to_string())],
+                            ..Default::default()
+                        })],
+                        level: 1,
+                        term: None,
+                    },
+                ],
+                style_id: None,
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("<w:ilvl w:val=\"0\"/>"));
+        assert!(doc_xml.contains("<w:ilvl w:val=\"1\"/>"));
+    }
+
+    #[test]
+    fn test_generate_table_with_colspan() {
+        use crate::test_utils::create_minimal_template;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::Table(Table {
+                rows: vec![utf8dok_ast::TableRow {
+                    cells: vec![utf8dok_ast::TableCell {
+                        content: vec![Block::Paragraph(Paragraph {
+                            inlines: vec![Inline::Text("Spanning cell".to_string())],
+                            ..Default::default()
+                        })],
+                        colspan: 3,
+                        rowspan: 1,
+                        align: None,
+                    }],
+                    is_header: false,
+                }],
+                style_id: None,
+                caption: None,
+                columns: vec![],
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("<w:gridSpan w:val=\"3\"/>"));
+    }
+
+    #[test]
+    fn test_generate_table_with_rowspan() {
+        use crate::test_utils::create_minimal_template;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::Table(Table {
+                rows: vec![utf8dok_ast::TableRow {
+                    cells: vec![utf8dok_ast::TableCell {
+                        content: vec![Block::Paragraph(Paragraph {
+                            inlines: vec![Inline::Text("Merged rows".to_string())],
+                            ..Default::default()
+                        })],
+                        colspan: 1,
+                        rowspan: 2,
+                        align: None,
+                    }],
+                    is_header: false,
+                }],
+                style_id: None,
+                caption: None,
+                columns: vec![],
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("<w:vMerge w:val=\"restart\"/>"));
+    }
+
+    #[test]
+    fn test_generate_table_empty_cell() {
+        use crate::test_utils::create_minimal_template;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::Table(Table {
+                rows: vec![utf8dok_ast::TableRow {
+                    cells: vec![utf8dok_ast::TableCell {
+                        content: vec![], // Empty cell
+                        colspan: 1,
+                        rowspan: 1,
+                        align: None,
+                    }],
+                    is_header: false,
+                }],
+                style_id: None,
+                caption: None,
+                columns: vec![],
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        // Empty cells still get an empty paragraph
+        assert!(doc_xml.contains("<w:p/>"));
+    }
+
+    #[test]
+    fn test_escape_xml_apostrophe() {
+        assert_eq!(escape_xml("it's"), "it&apos;s");
+    }
+
+    #[test]
+    fn test_escape_xml_all_special_chars() {
+        assert_eq!(
+            escape_xml("<tag attr=\"val\" & 'test'>"),
+            "&lt;tag attr=&quot;val&quot; &amp; &apos;test&apos;&gt;"
+        );
+    }
+
+    #[test]
+    fn test_literal_block_preserves_whitespace() {
+        use crate::test_utils::create_minimal_template;
+        use utf8dok_ast::LiteralBlock;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::Literal(LiteralBlock {
+                content: "  indented\n    more indent".to_string(),
+                language: None,
+                title: None,
+                style_id: None,
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("xml:space=\"preserve\""));
+    }
+
+    #[test]
+    fn test_heading_with_explicit_style_id() {
+        use crate::test_utils::create_minimal_template;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::Heading(Heading {
+                level: 2,
+                text: vec![Inline::Text("Custom Styled".to_string())],
+                anchor: None,
+                style_id: Some("MyCustomHeading".to_string()),
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        // Should use the explicit style_id, not the default
+        assert!(doc_xml.contains("MyCustomHeading"));
+    }
+
+    #[test]
+    fn test_paragraph_with_explicit_style_id() {
+        use crate::test_utils::create_minimal_template;
+
+        let doc = Document {
+            metadata: Default::default(),
+            intent: None,
+            blocks: vec![Block::Paragraph(Paragraph {
+                inlines: vec![Inline::Text("Custom para".to_string())],
+                style_id: Some("BodyText".to_string()),
+                attributes: HashMap::new(),
+            })],
+        };
+
+        let template = create_minimal_template();
+        let result = DocxWriter::generate(&doc, &template).unwrap();
+
+        let doc_xml = crate::test_utils::extract_document_xml(&result);
+        assert!(doc_xml.contains("BodyText"));
+    }
 }
