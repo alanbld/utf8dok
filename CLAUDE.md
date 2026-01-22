@@ -263,21 +263,18 @@ cargo test --workspace
 | 20 | style_contract_validator.rs | +15 | `b1a22f7` |
 | 21 | writer.rs | +19 (comments, content types, cover) | `fc9b8f3` |
 | 22 | document.rs | +28 (formatting, images, DrawingML) | `8541e69` |
+| 23 | extract.rs | +41 (style contract, hyperlinks, images, conversions) | `37e6411` |
 
-**Current Status (after Sprint 22):**
-- Total workspace tests: ~1,450
-- `utf8dok-ooxml` tests: 536
-- `document.rs`: 71 tests / 2818 lines
+**Current Status (after Sprint 23):**
+- Total workspace tests: ~1,490
+- `utf8dok-ooxml` tests: 577
+- `extract.rs`: 86 tests / 3258 lines (~38 lines/test)
 
-**Next: Sprint 23 - extract.rs**
+**Next: Sprint 24 - styles.rs or conversion.rs**
 
-Target file: `extract.rs` (45 tests / 2029 lines, ~45 lines/test)
-
-Coverage gaps:
-- Style Contract building (`build_style_contract`, `extract_anchors`, `extract_hyperlinks`)
-- AsciiDoc conversion (headings, lists, code blocks, tables)
-- Image conversion (`convert_image` with dimensions, alt text, relationships)
-- Run merging (`merge_and_convert_runs`)
+Priority files for coverage:
+- `styles.rs`: 34 tests / 1321 lines (~39 lines/test)
+- `conversion.rs`: 44 tests / 1487 lines (~34 lines/test)
 
 To continue, run:
 ```bash
@@ -290,11 +287,6 @@ for f in crates/utf8dok-ooxml/src/*.rs; do
     echo "$ratio lines/test | $tests tests / $lines lines - $(basename $f)"
   fi
 done | sort -t'|' -k1 -rn | head -10
-
-# Priority files for coverage:
-# - extract.rs: 45 tests / 2029 lines (~45 lines/test)
-# - styles.rs: 34 tests / 1321 lines (~39 lines/test)
-# - conversion.rs: 44 tests / 1487 lines (~33 lines/test)
 ```
 
 **Key test utilities:**
