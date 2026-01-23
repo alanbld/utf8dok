@@ -265,17 +265,18 @@ cargo test --workspace
 | 22 | document.rs | +28 (formatting, images, DrawingML) | `8541e69` |
 | 23 | extract.rs | +41 (style contract, hyperlinks, images, conversions) | `37e6411` |
 | 24 | writer.rs | +27 (block gen, inlines, lists, tables) | `232467d` |
+| 25 | styles.rs | +30 (StyleMap, StyleSheet, from_stylesheet) | `e94e3ff` |
 
-**Current Status (after Sprint 24):**
-- Total workspace tests: ~1,510
-- `utf8dok-ooxml` tests: 604
-- `writer.rs`: 99 tests / 4783 lines (~48 lines/test)
+**Current Status (after Sprint 25):**
+- Total workspace tests: ~1,540
+- `utf8dok-ooxml` tests: 634
+- `styles.rs`: 64 tests / 1854 lines (~28 lines/test)
 
-**Next: Sprint 25 - styles.rs or document.rs**
+**Next: Sprint 26 - document.rs or conversion.rs**
 
 Priority files for coverage:
+- `writer.rs`: 99 tests / 4783 lines (~48 lines/test)
 - `document.rs`: 71 tests / 2818 lines (~39 lines/test)
-- `styles.rs`: 34 tests / 1321 lines (~38 lines/test)
 - `conversion.rs`: 44 tests / 1487 lines (~33 lines/test)
 
 To continue, run:
