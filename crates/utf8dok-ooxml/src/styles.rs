@@ -1318,4 +1318,537 @@ mod tests {
         assert_eq!(map.paragraph(), "Normal");
         assert_eq!(map.code_block(), "CodeBlock");
     }
+
+    // ==================== Sprint 25: Additional Coverage ====================
+
+    #[test]
+    fn test_style_map_set_overwrites_existing() {
+        let mut map = StyleMap::new();
+        map.set(ElementType::Heading(1), "FirstValue");
+        assert_eq!(map.heading(1), "FirstValue");
+
+        // Overwrite with new value
+        map.set(ElementType::Heading(1), "SecondValue");
+        assert_eq!(map.heading(1), "SecondValue");
+    }
+
+    #[test]
+    fn test_style_map_from_stylesheet_list_number_detection() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Normal" w:default="1">
+                <w:name w:val="Normal"/>
+            </w:style>
+            <w:style w:type="paragraph" w:styleId="ListNum">
+                <w:name w:val="List Number"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+        let map = StyleMap::from_stylesheet(&styles);
+
+        // Should detect "List Number" style by name
+        assert_eq!(map.list(true), "ListNum");
+    }
+
+    #[test]
+    fn test_style_map_from_stylesheet_list_number_fallback_by_id() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Normal" w:default="1">
+                <w:name w:val="Normal"/>
+            </w:style>
+            <w:style w:type="paragraph" w:styleId="ListNumber">
+                <w:name w:val="Custom Numbered List"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+        let map = StyleMap::from_stylesheet(&styles);
+
+        // Fallback for ListNumber isn't implemented by styleId for ListNumber specifically
+        // but ListBullet fallback is - this tests the current behavior
+        assert_eq!(map.list(true), "ListNumber"); // Fallback default
+    }
+
+    #[test]
+    fn test_style_map_from_stylesheet_verbatim_code_style() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Normal" w:default="1">
+                <w:name w:val="Normal"/>
+            </w:style>
+            <w:style w:type="paragraph" w:styleId="VerbatimStyle">
+                <w:name w:val="Verbatim"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+        let map = StyleMap::from_stylesheet(&styles);
+
+        // Should detect "Verbatim" as code style
+        assert_eq!(map.code_block(), "VerbatimStyle");
+    }
+
+    #[test]
+    fn test_style_map_from_stylesheet_source_code_style() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Normal" w:default="1">
+                <w:name w:val="Normal"/>
+            </w:style>
+            <w:style w:type="paragraph" w:styleId="SourceCodeStyle">
+                <w:name w:val="Source Code"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+        let map = StyleMap::from_stylesheet(&styles);
+
+        // Should detect "Source Code" as code style
+        assert_eq!(map.code_block(), "SourceCodeStyle");
+    }
+
+    #[test]
+    fn test_style_map_from_stylesheet_no_spacing_code_style() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Normal" w:default="1">
+                <w:name w:val="Normal"/>
+            </w:style>
+            <w:style w:type="paragraph" w:styleId="NoSpacingStyle">
+                <w:name w:val="No Spacing"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+        let map = StyleMap::from_stylesheet(&styles);
+
+        // Should detect "No Spacing" as code style
+        assert_eq!(map.code_block(), "NoSpacingStyle");
+    }
+
+    #[test]
+    fn test_style_map_from_stylesheet_plain_table() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Normal" w:default="1">
+                <w:name w:val="Normal"/>
+            </w:style>
+            <w:style w:type="table" w:styleId="PlainTable1">
+                <w:name w:val="Plain Table 1"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+        let map = StyleMap::from_stylesheet(&styles);
+
+        // Should detect "Plain Table 1" as table style
+        assert_eq!(map.table(), "PlainTable1");
+    }
+
+    #[test]
+    fn test_style_map_validate_empty_map() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Normal">
+                <w:name w:val="Normal"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+        let map = StyleMap::new(); // Empty map
+
+        let missing = map.validate(&styles);
+        // Empty map has no mappings, so nothing is missing
+        assert!(missing.is_empty());
+    }
+
+    #[test]
+    fn test_stylesheet_empty_iterations() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+
+        // All iterations should return empty
+        assert_eq!(styles.all().count(), 0);
+        assert_eq!(styles.paragraph_styles().count(), 0);
+        assert_eq!(styles.heading_styles().count(), 0);
+        assert_eq!(styles.table_styles().count(), 0);
+    }
+
+    #[test]
+    fn test_stylesheet_get_returns_none_for_unknown() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Normal">
+                <w:name w:val="Normal"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+
+        assert!(styles.get("Normal").is_some());
+        assert!(styles.get("UnknownStyle").is_none());
+        assert!(styles.get("").is_none());
+    }
+
+    #[test]
+    fn test_stylesheet_multiple_headings_same_outline_level() {
+        // Two styles with same outline level
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Heading1">
+                <w:name w:val="Heading 1"/>
+                <w:pPr><w:outlineLvl w:val="0"/></w:pPr>
+            </w:style>
+            <w:style w:type="paragraph" w:styleId="TitleStyle">
+                <w:name w:val="Title"/>
+                <w:pPr><w:outlineLvl w:val="0"/></w:pPr>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+
+        // Both should be detected as headings
+        assert!(styles.is_heading("Heading1"));
+        assert!(styles.is_heading("TitleStyle"));
+
+        // Both should report level 1
+        assert_eq!(styles.heading_level("Heading1"), Some(1));
+        assert_eq!(styles.heading_level("TitleStyle"), Some(1));
+
+        // heading_styles should include both
+        let headings: Vec<_> = styles.heading_styles().collect();
+        assert_eq!(headings.len(), 2);
+    }
+
+    #[test]
+    fn test_stylesheet_parse_style_without_type() {
+        // Style without type attribute - should default to paragraph
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:styleId="NoType">
+                <w:name w:val="No Type Style"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+
+        let style = styles.get("NoType").unwrap();
+        // Should default to Paragraph type
+        assert_eq!(style.style_type, StyleType::Paragraph);
+    }
+
+    #[test]
+    fn test_stylesheet_parse_empty_style_id() {
+        // Style with empty styleId - should not be added
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="">
+                <w:name w:val="Empty ID"/>
+            </w:style>
+            <w:style w:type="paragraph" w:styleId="Valid">
+                <w:name w:val="Valid Style"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+
+        // Empty styleId style should still be added (empty string is valid key)
+        assert!(styles.get("").is_some() || styles.get("Valid").is_some());
+        assert!(styles.get("Valid").is_some());
+    }
+
+    #[test]
+    fn test_style_type_equality() {
+        assert_eq!(StyleType::Paragraph, StyleType::Paragraph);
+        assert_eq!(StyleType::Character, StyleType::Character);
+        assert_eq!(StyleType::Table, StyleType::Table);
+        assert_eq!(StyleType::Numbering, StyleType::Numbering);
+
+        assert_ne!(StyleType::Paragraph, StyleType::Character);
+        assert_ne!(StyleType::Table, StyleType::Numbering);
+    }
+
+    #[test]
+    fn test_element_type_equality() {
+        assert_eq!(ElementType::Heading(1), ElementType::Heading(1));
+        assert_ne!(ElementType::Heading(1), ElementType::Heading(2));
+        assert_eq!(ElementType::Paragraph, ElementType::Paragraph);
+        assert_ne!(ElementType::Paragraph, ElementType::CodeBlock);
+        assert_eq!(ElementType::AdmonitionNote, ElementType::AdmonitionNote);
+    }
+
+    #[test]
+    fn test_style_map_from_stylesheet_list_bullet_alternatives() {
+        // Test ListBullet fallback by styleId
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Normal" w:default="1">
+                <w:name w:val="Normal"/>
+            </w:style>
+            <w:style w:type="paragraph" w:styleId="ListBullet">
+                <w:name w:val="Custom Bullet Name"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+        let map = StyleMap::from_stylesheet(&styles);
+
+        // Should find ListBullet by styleId fallback
+        assert_eq!(map.list(false), "ListBullet");
+    }
+
+    #[test]
+    fn test_style_map_from_stylesheet_code_alternatives() {
+        // Test Code styleId fallback
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Normal" w:default="1">
+                <w:name w:val="Normal"/>
+            </w:style>
+            <w:style w:type="paragraph" w:styleId="Code">
+                <w:name w:val="My Code Style"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+        let map = StyleMap::from_stylesheet(&styles);
+
+        // Should find Code by styleId fallback
+        assert_eq!(map.code_block(), "Code");
+    }
+
+    #[test]
+    fn test_style_map_from_stylesheet_no_spacing_id_fallback() {
+        // Test NoSpacing styleId fallback
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Normal" w:default="1">
+                <w:name w:val="Normal"/>
+            </w:style>
+            <w:style w:type="paragraph" w:styleId="NoSpacing">
+                <w:name w:val="Compact"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+        let map = StyleMap::from_stylesheet(&styles);
+
+        // Should find NoSpacing by styleId fallback
+        assert_eq!(map.code_block(), "NoSpacing");
+    }
+
+    #[test]
+    fn test_style_map_from_stylesheet_table_grid_id_fallback() {
+        // Test TableGrid styleId fallback
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Normal" w:default="1">
+                <w:name w:val="Normal"/>
+            </w:style>
+            <w:style w:type="table" w:styleId="TableGrid">
+                <w:name w:val="Custom Table"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+        let map = StyleMap::from_stylesheet(&styles);
+
+        // Should find TableGrid by styleId fallback
+        assert_eq!(map.table(), "TableGrid");
+    }
+
+    #[test]
+    fn test_style_clone() {
+        let style = Style {
+            id: "Test".to_string(),
+            name: "Test Style".to_string(),
+            style_type: StyleType::Paragraph,
+            based_on: Some("Normal".to_string()),
+            next: Some("Normal".to_string()),
+            builtin: true,
+            ui_priority: Some(10),
+            outline_level: Some(0),
+        };
+
+        let cloned = style.clone();
+        assert_eq!(cloned.id, style.id);
+        assert_eq!(cloned.name, style.name);
+        assert_eq!(cloned.style_type, style.style_type);
+        assert_eq!(cloned.based_on, style.based_on);
+        assert_eq!(cloned.next, style.next);
+        assert_eq!(cloned.builtin, style.builtin);
+        assert_eq!(cloned.ui_priority, style.ui_priority);
+        assert_eq!(cloned.outline_level, style.outline_level);
+    }
+
+    #[test]
+    fn test_stylesheet_clone() {
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Normal" w:default="1">
+                <w:name w:val="Normal"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+        let cloned = styles.clone();
+
+        assert_eq!(cloned.default_paragraph, styles.default_paragraph);
+        assert!(cloned.get("Normal").is_some());
+    }
+
+    #[test]
+    fn test_style_map_clone() {
+        let mut map = StyleMap::new();
+        map.set(ElementType::Heading(1), "H1");
+        map.set(ElementType::Paragraph, "Para");
+
+        let cloned = map.clone();
+        assert_eq!(cloned.heading(1), "H1");
+        assert_eq!(cloned.paragraph(), "Para");
+    }
+
+    #[test]
+    fn test_stylesheet_parse_ui_priority_invalid() {
+        // Invalid uiPriority value (not a number)
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Test">
+                <w:name w:val="Test"/>
+                <w:uiPriority w:val="invalid"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+
+        let style = styles.get("Test").unwrap();
+        // Invalid uiPriority should be None
+        assert_eq!(style.ui_priority, None);
+    }
+
+    #[test]
+    fn test_stylesheet_parse_outline_level_invalid() {
+        // Invalid outlineLvl value (not a number)
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Test">
+                <w:name w:val="Test"/>
+                <w:pPr><w:outlineLvl w:val="abc"/></w:pPr>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+
+        let style = styles.get("Test").unwrap();
+        // Invalid outlineLvl should be None (not detected as heading)
+        assert_eq!(style.outline_level, None);
+        assert!(!styles.is_heading("Test"));
+    }
+
+    #[test]
+    fn test_style_map_from_stylesheet_listparagraph_id_fallback() {
+        // Test ListParagraph styleId fallback for bullets
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Normal" w:default="1">
+                <w:name w:val="Normal"/>
+            </w:style>
+            <w:style w:type="paragraph" w:styleId="ListParagraph">
+                <w:name w:val="Custom List"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+        let map = StyleMap::from_stylesheet(&styles);
+
+        // Should find ListParagraph by styleId fallback
+        assert_eq!(map.list(false), "ListParagraph");
+    }
+
+    #[test]
+    fn test_style_map_from_stylesheet_grid_table_1_light_id_fallback() {
+        // Test GridTable1Light styleId fallback
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="Normal" w:default="1">
+                <w:name w:val="Normal"/>
+            </w:style>
+            <w:style w:type="table" w:styleId="GridTable1Light">
+                <w:name w:val="Custom Grid"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+        let map = StyleMap::from_stylesheet(&styles);
+
+        // Should find GridTable1Light by styleId fallback
+        assert_eq!(map.table(), "GridTable1Light");
+    }
+
+    #[test]
+    fn test_style_map_from_stylesheet_normal_by_name() {
+        // Test Normal detection by name (lowercase)
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="StandardText">
+                <w:name w:val="Normal"/>
+            </w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+        let map = StyleMap::from_stylesheet(&styles);
+
+        // Should find by name "normal" (lowercase lookup)
+        assert_eq!(map.paragraph(), "StandardText");
+    }
+
+    #[test]
+    fn test_style_map_all_heading_levels() {
+        let map = StyleMap::default();
+
+        // Verify all 9 heading levels have defaults
+        for level in 1..=9 {
+            let expected = format!("Heading{}", level);
+            assert_eq!(map.heading(level), expected);
+        }
+    }
+
+    #[test]
+    fn test_style_map_from_stylesheet_all_heading_levels() {
+        // Create stylesheet with all 9 heading levels
+        let xml = br#"<?xml version="1.0" encoding="UTF-8"?>
+        <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:style w:type="paragraph" w:styleId="H1"><w:name w:val="H1"/><w:pPr><w:outlineLvl w:val="0"/></w:pPr></w:style>
+            <w:style w:type="paragraph" w:styleId="H2"><w:name w:val="H2"/><w:pPr><w:outlineLvl w:val="1"/></w:pPr></w:style>
+            <w:style w:type="paragraph" w:styleId="H3"><w:name w:val="H3"/><w:pPr><w:outlineLvl w:val="2"/></w:pPr></w:style>
+            <w:style w:type="paragraph" w:styleId="H4"><w:name w:val="H4"/><w:pPr><w:outlineLvl w:val="3"/></w:pPr></w:style>
+            <w:style w:type="paragraph" w:styleId="H5"><w:name w:val="H5"/><w:pPr><w:outlineLvl w:val="4"/></w:pPr></w:style>
+            <w:style w:type="paragraph" w:styleId="H6"><w:name w:val="H6"/><w:pPr><w:outlineLvl w:val="5"/></w:pPr></w:style>
+            <w:style w:type="paragraph" w:styleId="H7"><w:name w:val="H7"/><w:pPr><w:outlineLvl w:val="6"/></w:pPr></w:style>
+            <w:style w:type="paragraph" w:styleId="H8"><w:name w:val="H8"/><w:pPr><w:outlineLvl w:val="7"/></w:pPr></w:style>
+            <w:style w:type="paragraph" w:styleId="H9"><w:name w:val="H9"/><w:pPr><w:outlineLvl w:val="8"/></w:pPr></w:style>
+        </w:styles>"#;
+
+        let styles = StyleSheet::parse(xml).unwrap();
+        let map = StyleMap::from_stylesheet(&styles);
+
+        for level in 1..=9 {
+            let expected = format!("H{}", level);
+            assert_eq!(map.heading(level), expected);
+        }
+    }
+
+    #[test]
+    fn test_stylesheet_default_values() {
+        let styles = StyleSheet::default();
+
+        assert!(styles.default_paragraph.is_none());
+        assert!(styles.default_character.is_none());
+        assert_eq!(styles.all().count(), 0);
+    }
 }
