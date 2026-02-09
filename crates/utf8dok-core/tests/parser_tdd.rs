@@ -46,7 +46,7 @@ Hello *world*."#;
                 level: 1,
                 text: vec![Inline::Text("Section One".to_string())],
                 style_id: None,
-                anchor: None,
+                anchor: Some("section-one".to_string()),
             }),
             Block::Paragraph(Paragraph {
                 inlines: vec![

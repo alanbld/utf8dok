@@ -408,11 +408,12 @@ impl Parser {
         // and must be followed by a space
         if level >= 2 && line.len() > level && line.chars().nth(level) == Some(' ') {
             let text = line[level + 1..].trim().to_string();
+            let anchor = generate_heading_anchor(&text);
             return Some(Heading {
                 level: (level - 1) as u8, // == is level 1, === is level 2, etc.
                 text: vec![Inline::Text(text)],
                 style_id: None,
-                anchor: None,
+                anchor: Some(anchor),
             });
         }
 
@@ -724,6 +725,37 @@ impl Parser {
     }
 }
 
+/// Generate a URL-friendly anchor from heading text
+///
+/// Converts to lowercase, replaces non-alphanumeric characters with hyphens,
+/// collapses consecutive hyphens, and trims leading/trailing hyphens.
+fn generate_heading_anchor(text: &str) -> String {
+    let raw: String = text
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect();
+    // Collapse consecutive hyphens and trim
+    let mut result = String::new();
+    let mut prev_hyphen = false;
+    for c in raw.chars() {
+        if c == '-' {
+            if !prev_hyphen && !result.is_empty() {
+                result.push('-');
+            }
+            prev_hyphen = true;
+        } else {
+            result.push(c);
+            prev_hyphen = false;
+        }
+    }
+    // Trim trailing hyphen
+    if result.ends_with('-') {
+        result.pop();
+    }
+    result
+}
+
 /// Parse inline formatting in text
 fn parse_inlines(text: &str) -> Vec<Inline> {
     // Regex patterns for inline formatting
@@ -735,6 +767,13 @@ fn parse_inlines(text: &str) -> Vec<Inline> {
     let xref_re = Regex::new(r"<<([^,>]+),([^>]+)>>|<<([^>]+)>>").unwrap();
     // Inline anchor: [[name]]
     let anchor_re = Regex::new(r"\[\[([^\]]+)\]\]").unwrap();
+    // URL with text: https://url[text] or http://url[text]
+    let url_with_text_re = Regex::new(r"(https?://[^\s\[]+)\[([^\]]+)\]").unwrap();
+    // Link macro: link:url[text]
+    let link_macro_re = Regex::new(r"link:([^\[]+)\[([^\]]*)\]").unwrap();
+    // Bare URL: https://url or http://url (ends at whitespace or end of string)
+    // Note: url_with_text should be checked first due to earliest match logic
+    let bare_url_re = Regex::new(r"https?://[^\s\[\]<>]+").unwrap();
 
     let mut result = Vec::new();
     let mut remaining = text;
@@ -746,6 +785,9 @@ fn parse_inlines(text: &str) -> Vec<Inline> {
         let mono_match = mono_re.find(remaining);
         let xref_match = xref_re.find(remaining);
         let anchor_match = anchor_re.find(remaining);
+        let url_with_text_match = url_with_text_re.find(remaining);
+        let link_macro_match = link_macro_re.find(remaining);
+        let bare_url_match = bare_url_re.find(remaining);
 
         // Determine which match comes first
         let earliest = [
@@ -754,6 +796,9 @@ fn parse_inlines(text: &str) -> Vec<Inline> {
             mono_match.map(|m| (m.start(), m.end(), "mono")),
             xref_match.map(|m| (m.start(), m.end(), "xref")),
             anchor_match.map(|m| (m.start(), m.end(), "anchor")),
+            url_with_text_match.map(|m| (m.start(), m.end(), "url_text")),
+            link_macro_match.map(|m| (m.start(), m.end(), "link_macro")),
+            bare_url_match.map(|m| (m.start(), m.end(), "bare_url")),
         ]
         .into_iter()
         .flatten()
@@ -827,6 +872,40 @@ fn parse_inlines(text: &str) -> Vec<Inline> {
                         } else {
                             Inline::Text(matched.to_string())
                         }
+                    }
+                    "url_text" => {
+                        // Parse URL with text: https://url[text]
+                        if let Some(caps) = url_with_text_re.captures(matched) {
+                            let url = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+                            let text = caps.get(2).map(|m| m.as_str()).unwrap_or(url);
+                            Inline::Link(Link {
+                                url: url.to_string(),
+                                text: vec![Inline::Text(text.to_string())],
+                            })
+                        } else {
+                            Inline::Text(matched.to_string())
+                        }
+                    }
+                    "link_macro" => {
+                        // Parse link macro: link:url[text]
+                        if let Some(caps) = link_macro_re.captures(matched) {
+                            let url = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+                            let text = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+                            let display_text = if text.is_empty() { url } else { text };
+                            Inline::Link(Link {
+                                url: url.to_string(),
+                                text: vec![Inline::Text(display_text.to_string())],
+                            })
+                        } else {
+                            Inline::Text(matched.to_string())
+                        }
+                    }
+                    "bare_url" => {
+                        // Bare URL becomes a link with URL as text
+                        Inline::Link(Link {
+                            url: matched.to_string(),
+                            text: vec![Inline::Text(matched.to_string())],
+                        })
                     }
                     _ => unreachable!(),
                 };
@@ -962,12 +1041,93 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_inlines_url_with_text() {
+        let inlines = parse_inlines("Visit https://example.com[Example Site] for more");
+        assert_eq!(inlines.len(), 3);
+        assert_eq!(inlines[0], Inline::Text("Visit ".to_string()));
+
+        if let Inline::Link(link) = &inlines[1] {
+            assert_eq!(link.url, "https://example.com");
+            assert_eq!(link.text.len(), 1);
+            if let Inline::Text(text) = &link.text[0] {
+                assert_eq!(text, "Example Site");
+            } else {
+                panic!("Expected Text inline in link");
+            }
+        } else {
+            panic!("Expected Link inline");
+        }
+
+        assert_eq!(inlines[2], Inline::Text(" for more".to_string()));
+    }
+
+    #[test]
+    fn test_parse_inlines_link_macro() {
+        let inlines = parse_inlines("See link:https://docs.rs[Rust Docs] here");
+        assert_eq!(inlines.len(), 3);
+
+        if let Inline::Link(link) = &inlines[1] {
+            assert_eq!(link.url, "https://docs.rs");
+            if let Inline::Text(text) = &link.text[0] {
+                assert_eq!(text, "Rust Docs");
+            }
+        } else {
+            panic!("Expected Link inline");
+        }
+    }
+
+    #[test]
+    fn test_parse_inlines_link_macro_empty_text() {
+        let inlines = parse_inlines("Go to link:https://example.com[]");
+
+        if let Inline::Link(link) = &inlines[1] {
+            assert_eq!(link.url, "https://example.com");
+            // Empty text should use URL as display text
+            if let Inline::Text(text) = &link.text[0] {
+                assert_eq!(text, "https://example.com");
+            }
+        } else {
+            panic!("Expected Link inline");
+        }
+    }
+
+    #[test]
+    fn test_parse_inlines_bare_url() {
+        let inlines = parse_inlines("Check out https://github.com for code");
+        assert_eq!(inlines.len(), 3);
+
+        if let Inline::Link(link) = &inlines[1] {
+            assert_eq!(link.url, "https://github.com");
+            if let Inline::Text(text) = &link.text[0] {
+                assert_eq!(text, "https://github.com");
+            }
+        } else {
+            panic!("Expected Link inline");
+        }
+    }
+
+    #[test]
+    fn test_parse_inlines_http_url() {
+        let inlines = parse_inlines("Visit http://legacy.example.com[Legacy]");
+
+        if let Inline::Link(link) = &inlines[1] {
+            assert_eq!(link.url, "http://legacy.example.com");
+            if let Inline::Text(text) = &link.text[0] {
+                assert_eq!(text, "Legacy");
+            }
+        } else {
+            panic!("Expected Link inline");
+        }
+    }
+
+    #[test]
     fn test_parse_heading_levels() {
         // == should parse as level 1
         let doc = parse("== Level 1 Heading").unwrap();
         assert_eq!(doc.blocks.len(), 1);
         if let Block::Heading(h) = &doc.blocks[0] {
             assert_eq!(h.level, 1);
+            assert_eq!(h.anchor, Some("level-1-heading".to_string()));
         } else {
             panic!("Expected Heading block");
         }
@@ -976,6 +1136,7 @@ mod tests {
         let doc = parse("=== Level 2 Heading").unwrap();
         if let Block::Heading(h) = &doc.blocks[0] {
             assert_eq!(h.level, 2);
+            assert_eq!(h.anchor, Some("level-2-heading".to_string()));
         } else {
             panic!("Expected Heading block");
         }
@@ -984,8 +1145,32 @@ mod tests {
         let doc = parse("==== Level 3 Heading").unwrap();
         if let Block::Heading(h) = &doc.blocks[0] {
             assert_eq!(h.level, 3);
+            assert_eq!(h.anchor, Some("level-3-heading".to_string()));
         } else {
             panic!("Expected Heading block");
         }
+    }
+
+    #[test]
+    fn test_generate_heading_anchor_simple() {
+        assert_eq!(generate_heading_anchor("Introduction"), "introduction");
+        assert_eq!(
+            generate_heading_anchor("Getting Started"),
+            "getting-started"
+        );
+        assert_eq!(
+            generate_heading_anchor("Chapter 1: Overview"),
+            "chapter-1-overview"
+        );
+    }
+
+    #[test]
+    fn test_generate_heading_anchor_special_chars() {
+        assert_eq!(generate_heading_anchor("What's New?"), "what-s-new");
+        assert_eq!(
+            generate_heading_anchor("  Leading & Trailing  "),
+            "leading-trailing"
+        );
+        assert_eq!(generate_heading_anchor("API (v2.0)"), "api-v2-0");
     }
 }

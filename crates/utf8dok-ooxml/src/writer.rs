@@ -1244,9 +1244,26 @@ impl DocxWriter {
             .push_str(&format!("<w:pStyle w:val=\"{}\"/>\n", escape_xml(&style)));
         self.output.push_str("</w:pPr>\n");
 
-        // Generate runs for heading text
-        for inline in &heading.text {
-            self.generate_inline(inline);
+        // Generate bookmark for heading anchor (enables internal cross-references)
+        if let Some(anchor) = &heading.anchor {
+            let bookmark_name = self.resolve_anchor_name(anchor);
+            let bookmark_id = self.next_bookmark_id();
+            self.output.push_str(&format!(
+                "<w:bookmarkStart w:id=\"{}\" w:name=\"{}\"/>\n",
+                bookmark_id,
+                escape_xml(&bookmark_name)
+            ));
+            // Generate runs for heading text
+            for inline in &heading.text {
+                self.generate_inline(inline);
+            }
+            self.output
+                .push_str(&format!("<w:bookmarkEnd w:id=\"{}\"/>\n", bookmark_id));
+        } else {
+            // Generate runs for heading text (no bookmark)
+            for inline in &heading.text {
+                self.generate_inline(inline);
+            }
         }
 
         self.output.push_str("</w:p>\n");
