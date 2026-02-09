@@ -24,6 +24,7 @@ Thumbs.db
 
 # Coverage reports
 /coverage/
+tarpaulin-report.*
 
 # Documentation build
 /docs/_site/
@@ -51,3 +52,4 @@ demo/analysis/
 demo/roundtrip_test/
 demo/open_template/
 *.pdf
+/personal/
