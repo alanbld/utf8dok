@@ -1,9 +1,9 @@
 # UTF8DOK Roadmap Schedule
 
 > This file tracks the 90-day roadmap for post-PPTX development.
-> **Last Updated:** 2026-01-01
+> **Last Updated:** 2026-06-19
 
-## Current Phase: 25 - PDF Engine (Week 1)
+## Current Phase: 25 - PDF Engine (crate scaffolded; Typst backend chosen)
 
 ## Completed Phases
 
@@ -17,16 +17,16 @@
 
 ## In Progress
 
-### Phase 25: PDF Engine - Week 1
+### Phase 25: PDF Engine
 **Goal:** Evaluate PDF backends and create utf8dok-pdf crate
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Evaluate Typst vs printpdf | ⬜ Pending | Compare approaches |
-| Create utf8dok-pdf crate | ⬜ Pending | Workspace addition |
-| Define PdfRenderer trait | ⬜ Pending | Abstract render interface |
-| Basic document rendering | ⬜ Pending | Headings, paragraphs |
+| Evaluate Typst vs printpdf | ✅ Done | Typst chosen (`typst-as-lib` + `typst-pdf`) |
+| Create utf8dok-pdf crate | ✅ Done | Workspace member; `Transpiler` + `Compiler` |
+| Basic document rendering | 🔶 Partial | AST→Typst transpiler covers headings, paragraphs, lists, tables |
 | Font handling | ⬜ Pending | Embed or system fonts |
+| Wire `utf8dok render --format pdf` | ⬜ Pending | CLI integration (Checkpoint 3) |
 
 ### Phase 24: Data Engine - Complete ✅
 

@@ -1,7 +1,30 @@
 # ADR-003: Parser Technology Selection
 
 ## Status
-Accepted
+**Superseded** (2026-06-19) — the pest decision below was never implemented.
+
+## Amendment (2026-06-19): pest abandoned in favor of a hand-written state machine
+
+The pest-based approach described in this ADR was **not implemented**. The
+shipping parser in `crates/utf8dok-core/src/parser.rs` is a **hand-written
+line-based state machine** (`ParserState` enum + `process_line`), with
+regex-based inline parsing (`parse_inlines_with_attrs`). There is no
+`grammar.pest` file and no pest API usage anywhere in the codebase; the `pest`
+and `pest_derive` dependencies have been removed as dead.
+
+### Why the change
+- AsciiDoc's block structure is fundamentally line-oriented, which maps cleanly
+  onto a per-line state machine and avoids the impedance mismatch of feeding a
+  whole-document PEG grammar.
+- Context-sensitive features (header vs. body, `ifdef`/`ifndef` preprocessing,
+  `a|` AsciiDoc-in-cell, attribute substitution) are simpler to express as
+  imperative state transitions than as PEG semantic actions.
+- Targeting Eclipse AsciiDoc TCK compliance favors incremental, testable
+  line-level handling over a monolithic grammar.
+
+The original pest rationale is retained below for historical context.
+
+---
 
 ## Context
 AsciiDoc is a complex markup language with:

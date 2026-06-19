@@ -52,7 +52,8 @@ utf8dok/
 │   ├── utf8dok-wasm/      # WebAssembly bindings
 │   ├── utf8dok-ooxml/     # OOXML (.docx/.dotx) reading/writing
 │   ├── utf8dok-pptx/      # PowerPoint generation (Dual-Nature)
-│   ├── utf8dok-data/      # Data sources (Excel/XLSX) [In Progress]
+│   ├── utf8dok-data/      # Data sources (Excel/XLSX, CSV) via calamine
+│   ├── utf8dok-pdf/       # PDF generation via Typst backend
 │   ├── utf8dok-diagrams/  # Diagram rendering (Kroki, Mermaid, native)
 │   ├── utf8dok-validate/  # Document validation engine
 │   ├── utf8dok-plugins/   # Rhai plugin system
@@ -82,10 +83,14 @@ utf8dok-cli, utf8dok-wasm, utf8dok-lsp (interfaces)
 
 ### Key Technologies
 
-- **pest** (PEG parser generator) for AsciiDoc parsing - see ADR-003
+- **Hand-written line-based state machine** for AsciiDoc parsing
+  (`crates/utf8dok-core/src/parser.rs`), with regex-based inline parsing.
+  Note: pest was originally selected in ADR-003 but never implemented — ADR-003
+  is superseded.
 - **tower-lsp** for Language Server Protocol
 - **rhai** for plugin scripting
-- MSRV: Rust 1.70.0
+- **calamine** for Excel/XLSX, **Typst** for PDF generation
+- Edition: 2021 (no `rust-version`/MSRV is currently enforced in Cargo)
 
 ## Core Workflows
 
@@ -169,16 +174,21 @@ The project aims to pass the Eclipse AsciiDoc TCK. Development follows a TCK-fir
 - Phase 20: Workspace Intelligence
 - Phase 22: PPTX Generation Crate (`utf8dok-pptx`)
 - Phase 23: Presentation Bridge (Dual-Nature Documents)
+- **Phase 24: Data Engine** (`utf8dok-data`) - Excel/XLSX + CSV via calamine,
+  wired into core (`include::file.xlsx[range=A1:C10]`)
 - OOXML template injection with cover page support
 - Round-trip editing (embedded source in DOCX)
 
 ### In Progress
-- **Phase 24: Data Engine** (`utf8dok-data`) - Excel/XLSX integration
+- **Phase 25: PDF Engine** (`utf8dok-pdf`) - crate scaffolded with a Typst
+  backend (`Transpiler` + `Compiler`); wiring `utf8dok render --format pdf`
+- Parser feature track toward Eclipse AsciiDoc TCK (links, anchors,
+  ifdef/preprocessor, page breaks, attribute substitution, `a|` cells)
 
 ### Upcoming (90-Day Roadmap)
-- Month 1: Data Engine - `include::file.xlsx[range=A1:C10]`
-- Month 2: Publishing Engine - Confluence/SharePoint integration
-- Month 3: PDF Engine - Native PDF generation
+- PDF Engine completion: `utf8dok render --format pdf` (Checkpoint 3)
+- Publishing Engine - Confluence/SharePoint integration
+- DOCX Polish - cover images, table styling, diagram embedding
 
 ### Key CLI Commands
 ```bash
@@ -267,16 +277,22 @@ cargo test --workspace
 | 24 | writer.rs | +27 (block gen, inlines, lists, tables) | `232467d` |
 | 25 | styles.rs | +30 (StyleMap, StyleSheet, from_stylesheet) | `e94e3ff` |
 
-**Current Status (after Sprint 25):**
-- Total workspace tests: ~1,540
-- `utf8dok-ooxml` tests: 634
+**Current Status (verified 2026-06-19):**
+- Total workspace tests: ~1,366 (`#[test]` attributes across all crates)
+- `utf8dok-ooxml` tests: 748
 - `styles.rs`: 64 tests / 1854 lines (~28 lines/test)
 
-**Next: Sprint 26 - document.rs or conversion.rs**
+> Note: after Sprint 25 the work shifted from the `test(ooxml)` unit-test
+> cadence to a feature track (URL links, heading anchors, quality-metrics
+> integration tests, and parser hardening). The numbered "Sprint 26" was never
+> started. If resuming the unit-test cadence, the priority targets below stand.
 
-Priority files for coverage:
-- `writer.rs`: 99 tests / 4783 lines (~48 lines/test)
+**Next (if resuming the ooxml unit-test cadence): writer.rs**
+
+Priority files for coverage (highest lines/test first):
+- `writer.rs`: 99 tests / 4800 lines (~48 lines/test)
 - `document.rs`: 71 tests / 2818 lines (~39 lines/test)
+- `extract.rs`: 86 tests / 3258 lines (~37 lines/test)
 - `conversion.rs`: 44 tests / 1487 lines (~33 lines/test)
 
 To continue, run:
