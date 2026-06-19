@@ -33,8 +33,8 @@ use anyhow::Result;
 use regex::Regex;
 use std::collections::HashMap;
 use utf8dok_ast::{
-    Block, Document, DocumentMeta, FormatType, Heading, Image, Inline, Link, List, ListItem,
-    ListType, LiteralBlock, Paragraph, Table, TableCell, TableRow,
+    Block, BreakType, Document, DocumentMeta, FormatType, Heading, Image, Inline, Link, List,
+    ListItem, ListType, LiteralBlock, Paragraph, Table, TableCell, TableRow,
 };
 
 use crate::include::{resolve_data_include, IncludeDirective};
@@ -76,6 +76,8 @@ enum ParserState {
         rows: Vec<Vec<TableCell>>,
         current_row: Vec<TableCell>,
         col_count: Option<usize>,
+        /// Lines being accumulated for an `a|` (AsciiDoc-in-cell) cell
+        asciidoc_cell_lines: Option<Vec<String>>,
     },
     /// Building a literal block (delimited by ----)
     Literal(Vec<String>),
@@ -91,12 +93,18 @@ struct Parser {
     state: ParserState,
     /// Whether we've parsed the document header (title + attributes)
     header_done: bool,
+    /// Whether we've seen the document title (= Title)
+    title_seen: bool,
+    /// Whether we've seen the author line (immediately after title)
+    author_seen: bool,
     /// Pending block attributes (e.g., [source,rust], [mermaid])
     pending_attributes: Vec<String>,
     /// Parser configuration
     config: ParserConfig,
     /// Warnings accumulated during parsing
     warnings: Vec<String>,
+    /// Depth counter for skipping false ifdef/ifndef blocks
+    skip_depth: u32,
 }
 
 impl Parser {
@@ -110,9 +118,12 @@ impl Parser {
             blocks: Vec::new(),
             state: ParserState::Root,
             header_done: false,
+            title_seen: false,
+            author_seen: false,
             pending_attributes: Vec::new(),
             config,
             warnings: Vec::new(),
+            skip_depth: 0,
         }
     }
 
@@ -137,29 +148,104 @@ impl Parser {
 
     /// Process a single line
     fn process_line(&mut self, line: &str) {
+        // Preprocessor: ifdef/ifndef/endif handling (must be checked first)
+        if let Some(rest) = line.strip_prefix("ifdef::") {
+            if let Some(attr) = rest.strip_suffix("[]") {
+                let defined = self.metadata.attributes.contains_key(attr);
+                if !defined {
+                    self.skip_depth += 1;
+                }
+                return;
+            }
+        }
+        if let Some(rest) = line.strip_prefix("ifndef::") {
+            if let Some(attr) = rest.strip_suffix("[]") {
+                let defined = self.metadata.attributes.contains_key(attr);
+                if defined {
+                    self.skip_depth += 1;
+                }
+                return;
+            }
+        }
+        if line.starts_with("endif::") {
+            if self.skip_depth > 0 {
+                self.skip_depth -= 1;
+            }
+            return;
+        }
+        // Skip all content inside a false conditional
+        if self.skip_depth > 0 {
+            return;
+        }
+
         // Check for document title (level 0 heading)
         if !self.header_done && line.starts_with("= ") && !line.starts_with("== ") {
             self.flush_state();
             let title = line[2..].trim().to_string();
             self.metadata.title = Some(title);
+            self.title_seen = true;
             return;
         }
 
         // Check for document attributes (only in header)
-        if !self.header_done && line.starts_with(':') && line.contains(": ") {
-            if let Some((key, value)) = self.parse_attribute(line) {
-                self.metadata.attributes.insert(key, value);
-                return;
+        if !self.header_done && line.starts_with(':') {
+            // Boolean attribute like :sectnums: (starts and ends with :)
+            if line.ends_with(':') && line.len() > 2 {
+                let key = line[1..line.len() - 1].trim().to_string();
+                if !key.is_empty() {
+                    self.metadata.attributes.insert(key, String::new());
+                    return;
+                }
             }
+            // Key-value attribute like :doctype: book
+            if line.contains(": ") {
+                if let Some((key, value)) = self.parse_attribute(line) {
+                    self.metadata.attributes.insert(key, value);
+                    return;
+                }
+            }
+        }
+
+        // In header: parse author line (immediately after title, not starting with : or =)
+        // Must be non-empty and appear before any blank line or attribute.
+        // If we hit a blank line or attribute first, there is no author line and the
+        // condition simply falls through to be handled by the subsequent checks.
+        if !self.header_done
+            && self.title_seen
+            && !self.author_seen
+            && !line.trim().is_empty()
+            && !line.starts_with(':')
+            && !line.starts_with('=')
+        {
+            // Author line: "Name <email>" or "Name; Name2 <email2>"
+            self.author_seen = true;
+            let authors = Self::parse_author_line(line);
+            if !authors.is_empty() {
+                self.metadata.authors = authors;
+            }
+            return;
+        }
+
+        // In header: parse revision line (immediately after author, not starting with : or =)
+        if !self.header_done
+            && self.author_seen
+            && self.metadata.revision.is_none()
+            && !line.trim().is_empty()
+            && !line.starts_with(':')
+            && !line.starts_with('=')
+        {
+            // Revision line: "v1.0, 2025-02-09" or similar
+            self.metadata.revision = Some(line.trim().to_string());
+            return;
         }
 
         // Skip block-level attribute lines (appear after headings, not content)
         // These are metadata like :slide-layout:, :slide-bullets:, etc.
-        if line.starts_with(':') && line.ends_with(':') {
-            // Boolean attribute like :toc:
+        if self.header_done && line.starts_with(':') && line.ends_with(':') {
+            // Boolean attribute like :toc: outside header — skip silently
             return;
         }
-        if line.starts_with(':') && line.contains(": ") {
+        if self.header_done && line.starts_with(':') && line.contains(": ") {
             // Key-value attribute like :slide-layout: Title
             // Skip known block attributes that shouldn't be rendered
             if let Some((key, _)) = self.parse_attribute(line) {
@@ -176,8 +262,14 @@ impl Parser {
                 rows,
                 current_row,
                 col_count: _,
+                asciidoc_cell_lines,
             } = &mut self.state
             {
+                // Flush any pending a| cell before treating blank line as row separator
+                if let Some(lines) = asciidoc_cell_lines.take() {
+                    let cell = Self::parse_asciidoc_cell(&lines);
+                    current_row.push(cell);
+                }
                 if !current_row.is_empty() {
                     // Push current row to rows and start a new row
                     rows.push(std::mem::take(current_row));
@@ -185,7 +277,16 @@ impl Parser {
                 return;
             }
             self.flush_state();
-            self.header_done = true;
+            // Don't set header_done on blank lines if we haven't seen any body content yet
+            // (blank lines within the header are separators, e.g., after ifdef blocks)
+            if self.title_seen {
+                self.header_done = true;
+            }
+            return;
+        }
+
+        // Skip single-line comments (// ...) — valid anywhere in AsciiDoc
+        if line.starts_with("//") && !line.starts_with("///") {
             return;
         }
 
@@ -206,6 +307,7 @@ impl Parser {
                         rows: Vec::new(),
                         current_row: Vec::new(),
                         col_count: None,
+                        asciidoc_cell_lines: None,
                     };
                 }
             }
@@ -217,8 +319,41 @@ impl Parser {
             rows,
             current_row,
             col_count,
+            asciidoc_cell_lines,
         } = &mut self.state
         {
+            // Check for a| (AsciiDoc-in-cell) start
+            if line == "a|" || line.starts_with("a| ") {
+                // Flush any previous a| cell
+                if let Some(lines) = asciidoc_cell_lines.take() {
+                    let cell = Self::parse_asciidoc_cell(&lines);
+                    current_row.push(cell);
+                }
+                // Start new a| accumulation
+                let initial = if line == "a|" {
+                    Vec::new()
+                } else {
+                    vec![line[2..].trim().to_string()]
+                };
+                *asciidoc_cell_lines = Some(initial);
+                return;
+            }
+
+            // If we're accumulating a| content, check for terminators
+            if asciidoc_cell_lines.is_some() {
+                // A new | cell or a| starts → flush the accumulated cell
+                if line.starts_with('|') || line == "a|" || line.starts_with("a| ") {
+                    let lines = asciidoc_cell_lines.take().unwrap();
+                    let cell = Self::parse_asciidoc_cell(&lines);
+                    current_row.push(cell);
+                    // Fall through to handle the current line as a normal cell
+                } else {
+                    // Accumulate content for the a| cell
+                    asciidoc_cell_lines.as_mut().unwrap().push(line.to_string());
+                    return;
+                }
+            }
+
             if let Some(cell_content) = line.strip_prefix('|') {
                 // Split by | to handle multiple cells on one line: | A | B | C
                 let cell_parts: Vec<&str> = cell_content.split('|').collect();
@@ -230,7 +365,8 @@ impl Parser {
                 if cell_parts.len() == 1 {
                     // Single cell - content may be empty (for empty cells like "| ")
                     let content = cell_content.trim();
-                    let inlines = parse_inlines(content);
+                    let inlines =
+                        parse_inlines_with_attrs(content, Some(&self.metadata.attributes));
                     line_cells.push(TableCell {
                         content: vec![Block::Paragraph(Paragraph {
                             inlines,
@@ -245,7 +381,8 @@ impl Parser {
                     // Multiple cells on this line: | A | B | C
                     for cell_text in cell_parts {
                         let trimmed = cell_text.trim();
-                        let inlines = parse_inlines(trimmed);
+                        let inlines =
+                            parse_inlines_with_attrs(trimmed, Some(&self.metadata.attributes));
                         line_cells.push(TableCell {
                             content: vec![Block::Paragraph(Paragraph {
                                 inlines,
@@ -305,6 +442,13 @@ impl Parser {
             // Don't flush state - attributes accumulate
             let attr_content = &line[1..line.len() - 1];
             self.pending_attributes.push(attr_content.to_string());
+            return;
+        }
+
+        // Check for page break (<<<)
+        if line.trim() == "<<<" {
+            self.flush_state();
+            self.blocks.push(Block::Break(BreakType::Page));
             return;
         }
 
@@ -377,6 +521,57 @@ impl Parser {
             "language",
         ];
         block_attrs.contains(&key.to_lowercase().as_str())
+    }
+
+    /// Parse an AsciiDoc author line into a list of author names.
+    /// Supports: "Name <email>", "Name; Name2 <email2>", or plain "Name"
+    fn parse_author_line(line: &str) -> Vec<String> {
+        let mut authors = Vec::new();
+        for part in line.split(';') {
+            let part = part.trim();
+            if part.is_empty() {
+                continue;
+            }
+            // Strip email if present: "Name <email>" → "Name"
+            let name = if let Some(angle_pos) = part.find('<') {
+                part[..angle_pos].trim()
+            } else {
+                part.trim()
+            };
+            if !name.is_empty() {
+                authors.push(name.to_string());
+            }
+        }
+        authors
+    }
+
+    /// Parse accumulated lines as AsciiDoc content for an `a|` table cell.
+    /// Uses a fresh Parser instance to recursively parse the cell content.
+    fn parse_asciidoc_cell(lines: &[String]) -> TableCell {
+        let cell_source = lines.join("\n");
+        // Parse the cell content as a mini-document
+        let parser = Parser::new();
+        let doc = parser.parse(&cell_source).unwrap_or_else(|_| Document {
+            metadata: DocumentMeta::default(),
+            blocks: vec![],
+            intent: None,
+        });
+        let content = if doc.blocks.is_empty() {
+            // Ensure at least one paragraph (OOXML requires it)
+            vec![Block::Paragraph(Paragraph {
+                inlines: vec![],
+                style_id: None,
+                attributes: HashMap::new(),
+            })]
+        } else {
+            doc.blocks
+        };
+        TableCell {
+            content,
+            colspan: 1,
+            rowspan: 1,
+            align: None,
+        }
     }
 
     /// Parse an attribute line like `:key: value`
@@ -561,7 +756,7 @@ impl Parser {
 
     /// Handle a list item
     fn handle_list_item(&mut self, list_type: ListType, level: usize, content: String) {
-        let inlines = parse_inlines(&content);
+        let inlines = parse_inlines_with_attrs(&content, Some(&self.metadata.attributes));
         let item = ListItem {
             content: vec![Block::Paragraph(Paragraph {
                 inlines,
@@ -609,7 +804,7 @@ impl Parser {
             ParserState::Paragraph(lines) => {
                 if !lines.is_empty() {
                     let text = lines.join(" ");
-                    let inlines = parse_inlines(&text);
+                    let inlines = parse_inlines_with_attrs(&text, Some(&self.metadata.attributes));
                     self.blocks.push(Block::Paragraph(Paragraph {
                         inlines,
                         style_id: None,
@@ -628,9 +823,15 @@ impl Parser {
             }
             ParserState::Table {
                 mut rows,
-                current_row,
+                mut current_row,
                 col_count: _,
+                asciidoc_cell_lines,
             } => {
+                // Flush any pending a| cell
+                if let Some(lines) = asciidoc_cell_lines {
+                    let cell = Self::parse_asciidoc_cell(&lines);
+                    current_row.push(cell);
+                }
                 // Push any remaining current_row to rows
                 if !current_row.is_empty() {
                     rows.push(current_row);
@@ -756,8 +957,14 @@ fn generate_heading_anchor(text: &str) -> String {
     result
 }
 
-/// Parse inline formatting in text
+/// Parse inline formatting in text (without attribute substitution, used in tests)
+#[cfg(test)]
 fn parse_inlines(text: &str) -> Vec<Inline> {
+    parse_inlines_with_attrs(text, None)
+}
+
+/// Parse inline formatting in text, with optional attribute substitution
+fn parse_inlines_with_attrs(text: &str, attrs: Option<&HashMap<String, String>>) -> Vec<Inline> {
     // Regex patterns for inline formatting
     // Order matters: we process left-to-right
     let bold_re = Regex::new(r"\*([^*]+)\*").unwrap();
@@ -769,6 +976,8 @@ fn parse_inlines(text: &str) -> Vec<Inline> {
     let anchor_re = Regex::new(r"\[\[([^\]]+)\]\]").unwrap();
     // URL with text: https://url[text] or http://url[text]
     let url_with_text_re = Regex::new(r"(https?://[^\s\[]+)\[([^\]]+)\]").unwrap();
+    // Attribute reference: {attribute-name}
+    let attr_re = Regex::new(r"\{([a-zA-Z0-9_-]+)\}").unwrap();
     // Link macro: link:url[text]
     let link_macro_re = Regex::new(r"link:([^\[]+)\[([^\]]*)\]").unwrap();
     // Bare URL: https://url or http://url (ends at whitespace or end of string)
@@ -788,6 +997,12 @@ fn parse_inlines(text: &str) -> Vec<Inline> {
         let url_with_text_match = url_with_text_re.find(remaining);
         let link_macro_match = link_macro_re.find(remaining);
         let bare_url_match = bare_url_re.find(remaining);
+        // Only search for attribute refs if we have an attributes map
+        let attr_match = if attrs.is_some() {
+            attr_re.find(remaining)
+        } else {
+            None
+        };
 
         // Determine which match comes first
         let earliest = [
@@ -799,6 +1014,7 @@ fn parse_inlines(text: &str) -> Vec<Inline> {
             url_with_text_match.map(|m| (m.start(), m.end(), "url_text")),
             link_macro_match.map(|m| (m.start(), m.end(), "link_macro")),
             bare_url_match.map(|m| (m.start(), m.end(), "bare_url")),
+            attr_match.map(|m| (m.start(), m.end(), "attr")),
         ]
         .into_iter()
         .flatten()
@@ -818,17 +1034,33 @@ fn parse_inlines(text: &str) -> Vec<Inline> {
                 let inline = match format_type {
                     "bold" => {
                         let content = &matched[1..matched.len() - 1]; // Remove * markers
-                        Inline::Format(
-                            FormatType::Bold,
-                            Box::new(Inline::Text(content.to_string())),
-                        )
+                        let inner = parse_inlines_with_attrs(content, attrs);
+                        if inner.len() == 1 {
+                            Inline::Format(
+                                FormatType::Bold,
+                                Box::new(inner.into_iter().next().unwrap()),
+                            )
+                        } else {
+                            Inline::Format(
+                                FormatType::Bold,
+                                Box::new(Inline::Text(content.to_string())),
+                            )
+                        }
                     }
                     "italic" => {
                         let content = &matched[1..matched.len() - 1]; // Remove _ markers
-                        Inline::Format(
-                            FormatType::Italic,
-                            Box::new(Inline::Text(content.to_string())),
-                        )
+                        let inner = parse_inlines_with_attrs(content, attrs);
+                        if inner.len() == 1 {
+                            Inline::Format(
+                                FormatType::Italic,
+                                Box::new(inner.into_iter().next().unwrap()),
+                            )
+                        } else {
+                            Inline::Format(
+                                FormatType::Italic,
+                                Box::new(Inline::Text(content.to_string())),
+                            )
+                        }
                     }
                     "mono" => {
                         let content = &matched[1..matched.len() - 1]; // Remove ` markers
@@ -906,6 +1138,20 @@ fn parse_inlines(text: &str) -> Vec<Inline> {
                             url: matched.to_string(),
                             text: vec![Inline::Text(matched.to_string())],
                         })
+                    }
+                    "attr" => {
+                        // Attribute reference: {name} → resolved value or literal
+                        if let Some(caps) = attr_re.captures(matched) {
+                            let name = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+                            if let Some(value) = attrs.and_then(|a| a.get(name)) {
+                                Inline::Text(value.clone())
+                            } else {
+                                // Unresolved attribute — emit literal
+                                Inline::Text(matched.to_string())
+                            }
+                        } else {
+                            Inline::Text(matched.to_string())
+                        }
                     }
                     _ => unreachable!(),
                 };
@@ -1172,5 +1418,422 @@ mod tests {
             "leading-trailing"
         );
         assert_eq!(generate_heading_anchor("API (v2.0)"), "api-v2-0");
+    }
+
+    #[test]
+    fn test_parse_page_break() {
+        let doc = parse("Before\n\n<<<\n\nAfter").unwrap();
+        assert_eq!(doc.blocks.len(), 3);
+        assert!(matches!(doc.blocks[0], Block::Paragraph(_)));
+        assert!(matches!(doc.blocks[1], Block::Break(BreakType::Page)));
+        assert!(matches!(doc.blocks[2], Block::Paragraph(_)));
+    }
+
+    #[test]
+    fn test_parse_page_break_multiple() {
+        let doc = parse("Page 1\n\n<<<\n\nPage 2\n\n<<<\n\nPage 3").unwrap();
+        assert_eq!(doc.blocks.len(), 5);
+        assert!(matches!(doc.blocks[1], Block::Break(BreakType::Page)));
+        assert!(matches!(doc.blocks[3], Block::Break(BreakType::Page)));
+    }
+
+    #[test]
+    fn test_parse_page_break_at_start() {
+        let doc = parse("<<<\n\nContent").unwrap();
+        assert_eq!(doc.blocks.len(), 2);
+        assert!(matches!(doc.blocks[0], Block::Break(BreakType::Page)));
+    }
+
+    #[test]
+    fn test_parse_document_header_full() {
+        let input = "= My Document\nAlan Baldassarre <alan@example.com>\nv1.0, 2025-02-09\n:doctype: book\n:toc: left\n:sectnums:\n:doc-title: Custom Title\n\n== Introduction\n\nSome text.";
+        let doc = parse(input).unwrap();
+
+        // Title parsed
+        assert_eq!(doc.metadata.title, Some("My Document".to_string()));
+        // Author parsed
+        assert_eq!(doc.metadata.authors, vec!["Alan Baldassarre".to_string()]);
+        // Revision parsed
+        assert_eq!(doc.metadata.revision, Some("v1.0, 2025-02-09".to_string()));
+        // Key-value attributes parsed
+        assert_eq!(
+            doc.metadata.attributes.get("doctype"),
+            Some(&"book".to_string())
+        );
+        assert_eq!(
+            doc.metadata.attributes.get("toc"),
+            Some(&"left".to_string())
+        );
+        assert_eq!(
+            doc.metadata.attributes.get("doc-title"),
+            Some(&"Custom Title".to_string())
+        );
+        // Boolean attribute parsed
+        assert_eq!(
+            doc.metadata.attributes.get("sectnums"),
+            Some(&String::new())
+        );
+        // No header content leaked into blocks
+        assert_eq!(doc.blocks.len(), 2); // Heading + Paragraph
+        assert!(matches!(doc.blocks[0], Block::Heading(_)));
+    }
+
+    #[test]
+    fn test_parse_header_no_author() {
+        // Title followed directly by blank line (no author/revision)
+        let input = "= Report\n\nSome content.";
+        let doc = parse(input).unwrap();
+        assert_eq!(doc.metadata.title, Some("Report".to_string()));
+        assert!(doc.metadata.authors.is_empty());
+        assert!(doc.metadata.revision.is_none());
+        assert_eq!(doc.blocks.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_header_author_no_revision() {
+        let input = "= Report\nJohn Doe <john@example.com>\n:doctype: article\n\nContent.";
+        let doc = parse(input).unwrap();
+        assert_eq!(doc.metadata.title, Some("Report".to_string()));
+        assert_eq!(doc.metadata.authors, vec!["John Doe".to_string()]);
+        assert!(doc.metadata.revision.is_none());
+        assert_eq!(
+            doc.metadata.attributes.get("doctype"),
+            Some(&"article".to_string())
+        );
+        assert_eq!(doc.blocks.len(), 1); // just the paragraph
+    }
+
+    #[test]
+    fn test_parse_header_multiple_authors() {
+        let input = "= Report\nAlice <a@x.com>; Bob <b@x.com>\nv2.0\n\nContent.";
+        let doc = parse(input).unwrap();
+        assert_eq!(doc.metadata.authors.len(), 2);
+        assert_eq!(doc.metadata.authors[0], "Alice");
+        assert_eq!(doc.metadata.authors[1], "Bob");
+        assert_eq!(doc.metadata.revision, Some("v2.0".to_string()));
+    }
+
+    #[test]
+    fn test_parse_header_boolean_attributes() {
+        let input = "= Doc\n:sectnums:\n:icons:\n:experimental:\n\nContent.";
+        let doc = parse(input).unwrap();
+        assert!(doc.metadata.attributes.contains_key("sectnums"));
+        assert!(doc.metadata.attributes.contains_key("icons"));
+        assert!(doc.metadata.attributes.contains_key("experimental"));
+        // Boolean attrs should have empty string values
+        assert_eq!(
+            doc.metadata.attributes.get("sectnums"),
+            Some(&String::new())
+        );
+    }
+
+    #[test]
+    fn test_ifdef_false_skips_content() {
+        let input =
+            "= Doc\n\nVisible.\n\nifdef::backend-pdf[]\nHidden text.\nendif::[]\n\nAlso visible.";
+        let doc = parse(input).unwrap();
+        // "Hidden text." should not appear in any block
+        let all_text: String = doc
+            .blocks
+            .iter()
+            .filter_map(|b| {
+                if let Block::Paragraph(p) = b {
+                    Some(
+                        p.inlines
+                            .iter()
+                            .filter_map(|i| {
+                                if let Inline::Text(t) = i {
+                                    Some(t.as_str())
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<String>(),
+                    )
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(all_text.contains("Visible."));
+        assert!(all_text.contains("Also visible."));
+        assert!(!all_text.contains("Hidden"));
+    }
+
+    #[test]
+    fn test_ifdef_true_includes_content() {
+        let input = "= Doc\n:my-attr:\n\nifdef::my-attr[]\nIncluded text.\nendif::[]\n\nOther.";
+        let doc = parse(input).unwrap();
+        let all_text: String = doc
+            .blocks
+            .iter()
+            .filter_map(|b| {
+                if let Block::Paragraph(p) = b {
+                    Some(
+                        p.inlines
+                            .iter()
+                            .filter_map(|i| {
+                                if let Inline::Text(t) = i {
+                                    Some(t.as_str())
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<String>(),
+                    )
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(all_text.contains("Included text."));
+        assert!(all_text.contains("Other."));
+    }
+
+    #[test]
+    fn test_ifndef_false_includes_content() {
+        // ifndef with a DEFINED attr → skip content
+        let input = "= Doc\n:my-attr:\n\nifndef::my-attr[]\nSkipped.\nendif::[]\n\nVisible.";
+        let doc = parse(input).unwrap();
+        let all_text: String = doc
+            .blocks
+            .iter()
+            .filter_map(|b| {
+                if let Block::Paragraph(p) = b {
+                    Some(
+                        p.inlines
+                            .iter()
+                            .filter_map(|i| {
+                                if let Inline::Text(t) = i {
+                                    Some(t.as_str())
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<String>(),
+                    )
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(!all_text.contains("Skipped"));
+        assert!(all_text.contains("Visible."));
+    }
+
+    #[test]
+    fn test_comment_lines_skipped() {
+        let input = "= Doc\n:doc-title: My Title\n// This is a comment\n:doc-status: DRAFT\n\nStatus is {doc-status}, title is {doc-title}.";
+        let doc = parse(input).unwrap();
+        // Both attributes should be captured (comment shouldn't break header)
+        assert_eq!(
+            doc.metadata.attributes.get("doc-title").unwrap(),
+            "My Title"
+        );
+        assert_eq!(doc.metadata.attributes.get("doc-status").unwrap(), "DRAFT");
+        // Comment should not appear in blocks
+        let all_text: String = doc
+            .blocks
+            .iter()
+            .filter_map(|b| {
+                if let Block::Paragraph(p) = b {
+                    Some(
+                        p.inlines
+                            .iter()
+                            .filter_map(|i| {
+                                if let Inline::Text(t) = i {
+                                    Some(t.as_str())
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<String>(),
+                    )
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(!all_text.contains("comment"));
+        assert!(all_text.contains("DRAFT"));
+        assert!(all_text.contains("My Title"));
+    }
+
+    #[test]
+    fn test_attribute_substitution_in_paragraph() {
+        let input = "= Doc\n:doc-title: My Custom Title\n\nThe title is {doc-title}.";
+        let doc = parse(input).unwrap();
+        if let Block::Paragraph(p) = &doc.blocks[0] {
+            let text: String = p
+                .inlines
+                .iter()
+                .filter_map(|i| {
+                    if let Inline::Text(t) = i {
+                        Some(t.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            assert!(text.contains("My Custom Title"), "Got: {}", text);
+            assert!(
+                !text.contains("{doc-title}"),
+                "Literal {{doc-title}} should be resolved"
+            );
+        } else {
+            panic!("Expected paragraph");
+        }
+    }
+
+    #[test]
+    fn test_attribute_substitution_inside_bold() {
+        let input = "= Doc\n:doc-status: DRAFT\n\n| Status | *{doc-status}*";
+        let doc = parse(input).unwrap();
+        // Find all text recursively in the document
+        fn collect_text(inline: &Inline) -> String {
+            match inline {
+                Inline::Text(t) => t.clone(),
+                Inline::Format(_, inner) => collect_text(inner),
+                _ => String::new(),
+            }
+        }
+        let all_text: String = doc
+            .blocks
+            .iter()
+            .flat_map(|b| match b {
+                Block::Table(t) => t
+                    .rows
+                    .iter()
+                    .flat_map(|r| {
+                        r.cells.iter().flat_map(|c| {
+                            c.content.iter().filter_map(|b| {
+                                if let Block::Paragraph(p) = b {
+                                    Some(p.inlines.iter().map(collect_text).collect::<String>())
+                                } else {
+                                    None
+                                }
+                            })
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+                Block::Paragraph(p) => vec![p.inlines.iter().map(collect_text).collect()],
+                _ => vec![],
+            })
+            .collect();
+        assert!(all_text.contains("DRAFT"), "Got: {}", all_text);
+        assert!(
+            !all_text.contains("{doc-status}"),
+            "Attribute inside bold not resolved, got: {}",
+            all_text
+        );
+    }
+
+    #[test]
+    fn test_attribute_substitution_undefined() {
+        let input = "= Doc\n\nValue is {undefined-attr}.";
+        let doc = parse(input).unwrap();
+        if let Block::Paragraph(p) = &doc.blocks[0] {
+            let text: String = p
+                .inlines
+                .iter()
+                .filter_map(|i| {
+                    if let Inline::Text(t) = i {
+                        Some(t.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            assert!(
+                text.contains("{undefined-attr}"),
+                "Undefined attrs should be literal"
+            );
+        } else {
+            panic!("Expected paragraph");
+        }
+    }
+
+    #[test]
+    fn test_attribute_substitution_in_table() {
+        let input = "= Doc\n:org: Engineering S.p.A.\n\n|===\n| Company | {org}\n|===";
+        let doc = parse(input).unwrap();
+        if let Block::Table(t) = &doc.blocks[0] {
+            let cell = &t.rows[0].cells[1];
+            if let Block::Paragraph(p) = &cell.content[0] {
+                let text: String = p
+                    .inlines
+                    .iter()
+                    .filter_map(|i| {
+                        if let Inline::Text(t) = i {
+                            Some(t.as_str())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                assert!(text.contains("Engineering S.p.A."), "Got: {}", text);
+            }
+        } else {
+            panic!("Expected table");
+        }
+    }
+
+    #[test]
+    fn test_asciidoc_cell_bullet_list() {
+        let input = "|===\n| *Label*\na|\n* Item 1\n* Item 2\n* Item 3\n\n| *Other*\n|===";
+        let doc = parse(input).unwrap();
+        assert_eq!(doc.blocks.len(), 1);
+        if let Block::Table(t) = &doc.blocks[0] {
+            // Should have 1 row with 2 cells
+            assert!(!t.rows.is_empty(), "Table should have rows");
+            let row = &t.rows[0];
+            assert_eq!(row.cells.len(), 2, "Row should have 2 cells");
+
+            // Second cell (a| cell) should contain a List block
+            let a_cell = &row.cells[1];
+            let has_list = a_cell.content.iter().any(|b| matches!(b, Block::List(_)));
+            assert!(
+                has_list,
+                "a| cell should contain a List block, got: {:?}",
+                a_cell
+                    .content
+                    .iter()
+                    .map(|b| std::mem::discriminant(b))
+                    .collect::<Vec<_>>()
+            );
+        } else {
+            panic!("Expected table");
+        }
+    }
+
+    #[test]
+    fn test_asciidoc_cell_inline_content() {
+        // a| with content on the same line
+        let input = "|===\n| Field\na| Some *bold* text\n|===";
+        let doc = parse(input).unwrap();
+        if let Block::Table(t) = &doc.blocks[0] {
+            let row = &t.rows[0];
+            assert_eq!(row.cells.len(), 2);
+            // The a| cell should have parsed content
+            assert!(!row.cells[1].content.is_empty());
+        } else {
+            panic!("Expected table");
+        }
+    }
+
+    #[test]
+    fn test_asciidoc_cell_at_table_end() {
+        // a| cell terminated by |=== (end of table)
+        let input = "|===\n| Label\na|\n* Item A\n* Item B\n|===";
+        let doc = parse(input).unwrap();
+        if let Block::Table(t) = &doc.blocks[0] {
+            let row = &t.rows[0];
+            assert_eq!(row.cells.len(), 2);
+            let a_cell = &row.cells[1];
+            let has_list = a_cell.content.iter().any(|b| matches!(b, Block::List(_)));
+            assert!(has_list, "a| cell terminated by |=== should contain list");
+        } else {
+            panic!("Expected table");
+        }
     }
 }
