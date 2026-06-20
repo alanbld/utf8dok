@@ -1,0 +1,157 @@
+//! Eclipse AsciiDoc ASG (Abstract Semantic Graph) emitter.
+//!
+//! This module is the foundation of utf8dok's Eclipse AsciiDoc TCK adapter
+//! (see ADR-004). The TCK validates a processor by comparing the JSON-encoded
+//! ASG it produces against expected fixtures, so the node types here are shaped
+//! to serialize to the *exact* ASG JSON form, e.g.:
+//!
+//! ```json
+//! {
+//!   "name": "document", "type": "block",
+//!   "blocks": [
+//!     { "name": "paragraph", "type": "block",
+//!       "inlines": [ { "name": "text", "type": "string", "value": "hi",
+//!                      "location": [{"line":1,"col":1},{"line":1,"col":2}] } ],
+//!       "location": [{"line":1,"col":1},{"line":1,"col":2}] }
+//!   ],
+//!   "location": [{"line":1,"col":1},{"line":1,"col":2}]
+//! }
+//! ```
+//!
+//! It is deliberately **separate** from the OOXML-oriented [`crate::parser`]:
+//! that parser discards source positions (it joins paragraph lines with `" "`),
+//! which the ASG cannot tolerate — every ASG node carries a `location`. Rather
+//! than retrofit positions and a section subtree onto the DOCX pipeline, the ASG
+//! adapter has its own minimal, location-aware parser (see [`parse`]). The two
+//! may converge later; for now isolation keeps the DOCX path stable.
+//!
+//! Scope is grown fixture-by-fixture against the vendored TCK suite (see
+//! `tests/tck/`). The current tier covers: `document`, `paragraph`, and `text`
+//! (no header, sections, lists, or inline markup yet).
+
+mod parse;
+
+pub use parse::{parse_document, parse_inlines};
+
+use serde::Serialize;
+
+/// A 1-based source position (`{ "line": L, "col": C }`).
+///
+/// `col` counts Unicode scalar values, 1-based, and for the end of a span
+/// points at the **last** character (inclusive), matching the ASG fixtures
+/// (e.g. the 9-char `"body only"` ends at `col 9`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Location {
+    pub line: usize,
+    pub col: usize,
+}
+
+impl Location {
+    pub fn new(line: usize, col: usize) -> Self {
+        Self { line, col }
+    }
+}
+
+/// A source span: `[start, end]`, both inclusive. Serializes as a 2-element
+/// JSON array exactly as the ASG schema expects.
+pub type Span = [Location; 2];
+
+/// A `text` node: `{ "name": "text", "type": "string", "value", "location" }`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Text {
+    name: &'static str,
+    #[serde(rename = "type")]
+    node_type: &'static str,
+    pub value: String,
+    pub location: Span,
+}
+
+impl Text {
+    pub fn new(value: impl Into<String>, location: Span) -> Self {
+        Self {
+            name: "text",
+            node_type: "string",
+            value: value.into(),
+            location,
+        }
+    }
+}
+
+/// An inline node. Serialized untagged so the JSON is the inner node's fields
+/// directly (the `name`/`type` fields are the discriminator, per the ASG).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(untagged)]
+pub enum Inline {
+    Text(Text),
+}
+
+impl Inline {
+    /// The node's source span.
+    pub fn location(&self) -> Span {
+        match self {
+            Inline::Text(t) => t.location,
+        }
+    }
+}
+
+/// A `paragraph` node: `{ "name", "type": "block", "inlines", "location" }`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Paragraph {
+    name: &'static str,
+    #[serde(rename = "type")]
+    node_type: &'static str,
+    pub inlines: Vec<Inline>,
+    pub location: Span,
+}
+
+impl Paragraph {
+    pub fn new(inlines: Vec<Inline>, location: Span) -> Self {
+        Self {
+            name: "paragraph",
+            node_type: "block",
+            inlines,
+            location,
+        }
+    }
+}
+
+/// A block node. Serialized untagged (see [`Inline`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(untagged)]
+pub enum Block {
+    Paragraph(Paragraph),
+}
+
+impl Block {
+    /// The node's source span.
+    pub fn location(&self) -> Span {
+        match self {
+            Block::Paragraph(p) => p.location,
+        }
+    }
+}
+
+/// The root `document` node.
+///
+/// In this tier (no header) it serializes as
+/// `{ "name": "document", "type": "block", "blocks": [...], "location": [...] }`.
+/// `header` and `attributes` are added in a later tier.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Document {
+    name: &'static str,
+    #[serde(rename = "type")]
+    node_type: &'static str,
+    pub blocks: Vec<Block>,
+    pub location: Span,
+}
+
+impl Document {
+    pub fn new(blocks: Vec<Block>, location: Span) -> Self {
+        Self {
+            name: "document",
+            node_type: "block",
+            blocks,
+            location,
+        }
+    }
+}

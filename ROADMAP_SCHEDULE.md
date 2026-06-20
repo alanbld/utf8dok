@@ -17,6 +17,20 @@
 
 ## In Progress
 
+### TCK Compliance: ASG Adapter (started 2026-06-20)
+**Goal:** Pass the Eclipse AsciiDoc TCK by emitting the ASG node model (ADR-004).
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Location-aware ASG module | ✅ Done | `crates/utf8dok-core/src/asg/` (separate from OOXML parser) |
+| TCK adapter CLI (`utf8dok asg`) | ✅ Done | stdin envelope → stdout ASG JSON (official contract) |
+| Fixture-driven conformance test | ✅ Done | `tests/tck.rs` vs vendored EPL-2.0 fixtures |
+| Trivial tier (document/paragraph/text) | ✅ Done | 6/13 vendored fixtures green |
+| Header tier (title + attributes) | ⬜ Pending | structured `header`, span through attr entries |
+| Section tier (subtree + level) | ⬜ Pending | recursive `section` blocks |
+| List / listing / sidebar tiers | ⬜ Pending | `list`/`listItem`, delimited blocks |
+| Inline markup (`strong` span) | ⬜ Pending | `variant`/`form` discriminators |
+
 ### Phase 25: PDF Engine
 **Goal:** Evaluate PDF backends and create utf8dok-pdf crate
 

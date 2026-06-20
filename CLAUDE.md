@@ -164,6 +164,22 @@ The project aims to pass the Eclipse AsciiDoc TCK. Development follows a TCK-fir
 2. Validate against official TCK test cases
 3. Report any specification ambiguities back to Eclipse WG
 
+**Status (started 2026-06-20):** A dedicated, location-aware ASG adapter lives in
+`crates/utf8dok-core/src/asg/` — separate from the OOXML `parser` (which discards
+source positions). It emits the Eclipse ASG node model (`document`/`paragraph`/
+`text`, every node with a `location`).
+
+- **Adapter CLI**: `utf8dok asg` reads the TCK request envelope
+  `{ "contents", "path", "type": "block"|"inline" }` from stdin and writes ASG
+  JSON to stdout — the official adapter contract (`ASCIIDOC_TCK_ADAPTER`).
+- **Conformance tests**: `crates/utf8dok-core/tests/tck.rs` deep-compares emitted
+  ASG against vendored upstream fixtures under `tests/tck/` (EPL-2.0, see
+  `ATTRIBUTION.md`). Grow coverage by vendoring more `-input.adoc`/`-output.json`
+  pairs (preserve the `block/`/`inline/` prefix — it selects comparison mode).
+- **Current tier**: 6/13 vendored fixtures (document body + paragraphs + plain
+  text). Next tiers: header (title+attributes), sections (subtree+level), lists,
+  listing/sidebar blocks, inline `strong` span.
+
 ## Current Implementation Status
 
 > **See `ROADMAP_SCHEDULE.md` for detailed 90-day roadmap and checkpoint tracking.**

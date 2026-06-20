@@ -6,6 +6,7 @@
 //!
 //! - [`parser`] - Parse AsciiDoc text into AST
 //! - [`generator`] - Generate AsciiDoc text from AST
+//! - [`asg`] - Emit the Eclipse AsciiDoc ASG (TCK adapter, see ADR-004)
 //!
 //! # Example
 //!
@@ -33,6 +34,7 @@
 //! assert!(asciidoc.contains("World"));
 //! ```
 
+pub mod asg;
 pub mod diagnostics;
 pub mod dual_nature;
 pub mod generator;

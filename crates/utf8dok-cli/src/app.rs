@@ -221,6 +221,13 @@ enum Commands {
         #[arg(long)]
         data_only: bool,
     },
+
+    /// Eclipse AsciiDoc TCK adapter: read an ASG request envelope from stdin,
+    /// emit the ASG as JSON to stdout (see ADR-004).
+    ///
+    /// stdin: `{ "contents": "<asciidoc>", "path": "...", "type": "block"|"inline" }`
+    /// stdout: the document ASG (block mode) or inline-node array (inline mode).
+    Asg,
 }
 
 /// Run the CLI application
@@ -295,8 +302,45 @@ pub fn run_cli() -> Result<()> {
         } => {
             list_includes_command(&input, format, data_only)?;
         }
+        Commands::Asg => {
+            asg_command()?;
+        }
     }
 
+    Ok(())
+}
+
+/// TCK adapter command: stdin envelope -> stdout ASG JSON.
+///
+/// The envelope is `{ "contents": "...", "path": "...", "type": "block"|"inline" }`.
+/// `type` defaults to block mode; `path` is accepted but unused.
+fn asg_command() -> Result<()> {
+    use std::io::Read;
+
+    let mut raw = String::new();
+    std::io::stdin()
+        .read_to_string(&mut raw)
+        .context("failed to read ASG request from stdin")?;
+
+    let envelope: serde_json::Value = serde_json::from_str(raw.trim()).context(
+        "failed to parse ASG request envelope (expected JSON with a \"contents\" field)",
+    )?;
+
+    let contents = envelope
+        .get("contents")
+        .and_then(|v| v.as_str())
+        .context("ASG request envelope is missing a string \"contents\" field")?;
+    let req_type = envelope.get("type").and_then(|v| v.as_str());
+
+    let json = if req_type == Some("inline") {
+        let inlines = utf8dok_core::asg::parse_inlines(contents);
+        serde_json::to_string(&inlines)?
+    } else {
+        let document = utf8dok_core::asg::parse_document(contents);
+        serde_json::to_string(&document)?
+    };
+
+    println!("{json}");
     Ok(())
 }
 
