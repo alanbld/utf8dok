@@ -28,7 +28,8 @@
 | Trivial tier (document/paragraph/text) | ✅ Done | 6/13 vendored fixtures green |
 | Header tier (title + attributes) | ✅ Done | structured `header`, span through attr entries — 8/13 green |
 | Section tier (subtree + level) | ✅ Done | recursive `section` blocks, `level`, span through last child — 9/13 green |
-| List / listing / sidebar tiers | ⬜ Pending | `list`/`listItem`, delimited blocks |
+| List tier (unordered) | ✅ Done | `list`/`listItem` with `variant`/`marker`/`principal` — 10/13 green |
+| Listing / sidebar tiers | ⬜ Pending | `----` listing, `****` sidebar (depends on lists) |
 | Inline markup (`strong` span) | ⬜ Pending | `variant`/`form` discriminators |
 
 ### Phase 25: PDF Engine

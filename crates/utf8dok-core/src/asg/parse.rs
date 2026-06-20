@@ -17,7 +17,7 @@
 
 use std::collections::BTreeMap;
 
-use super::{Block, Document, Header, Inline, Location, Paragraph, Section, Text};
+use super::{Block, Document, Header, Inline, List, ListItem, Location, Paragraph, Section, Text};
 
 /// Parse `source` into a `document` ASG node (block mode).
 pub fn parse_document(source: &str) -> Document {
@@ -134,6 +134,20 @@ fn parse_blocks_range(lines: &[&str], start: usize, end: usize) -> Vec<Block> {
             let children = parse_blocks_range(lines, i + 1, j);
             blocks.push(make_section(lines, i, level, children));
             i = j;
+        } else if let Some(marker) = unordered_marker(line) {
+            flush_paragraph(&mut blocks, &mut current);
+            // Consume contiguous items sharing this marker into one list.
+            let mut items = Vec::new();
+            while i < end {
+                match unordered_marker(lines[i]) {
+                    Some(m) if m == marker => {
+                        items.push(make_list_item(lines[i], i, m));
+                        i += 1;
+                    }
+                    _ => break,
+                }
+            }
+            blocks.push(make_list(marker, items));
         } else if line.trim().is_empty() {
             flush_paragraph(&mut blocks, &mut current);
             i += 1;
@@ -214,21 +228,61 @@ fn section_level(line: &str) -> Option<usize> {
 
 /// Parse the title text of a heading line (`=`+ Title) into a `text` node.
 ///
-/// The title begins after the `=` marker run and its following space(s); its
-/// column span counts characters, so `= Document Title` on line 1 yields
-/// `[{1,3},{1,16}]` and `== Section Title` yields `[{1,4},{1,16}]`.
+/// The title begins after the `=` marker run; its column span counts
+/// characters, so `= Document Title` on line 1 yields `[{1,3},{1,16}]` and
+/// `== Section Title` yields `[{1,4},{1,16}]`.
 fn heading_title(line: &str, line_no: usize) -> Text {
     let marker_len = line.chars().take_while(|c| *c == '=').count();
-    let after_marker = &line[marker_len..];
-    let leading_spaces = after_marker.chars().take_while(|c| *c == ' ').count();
-    let title = after_marker.trim();
+    marked_text(line, line_no, marker_len)
+}
 
-    // Column of the first title character: marker chars + leading spaces, +1.
+/// If `line` is an unordered list item (`*`+ followed by a space), return its
+/// marker (the run of `*`). Requires the trailing space so inline `*bold*`
+/// text is not mistaken for a list.
+fn unordered_marker(line: &str) -> Option<&str> {
+    let stars = line.chars().take_while(|c| *c == '*').count();
+    if stars >= 1 && line[stars..].starts_with(' ') {
+        Some(&line[..stars])
+    } else {
+        None
+    }
+}
+
+/// Build a `listItem` from one item line. The principal content follows the
+/// marker; the item spans from the marker (col 1) through the principal's end.
+fn make_list_item(line: &str, idx: usize, marker: &str) -> ListItem {
+    let line_no = idx + 1;
+    let principal = marked_text(line, line_no, marker.chars().count());
+    let location = [Location::new(line_no, 1), principal.location[1]];
+    ListItem::new(marker, vec![Inline::Text(principal)], location)
+}
+
+/// Build an unordered `list` from its items. The list spans from its first item
+/// to its last.
+fn make_list(marker: &str, items: Vec<ListItem>) -> Block {
+    let start = items
+        .first()
+        .map_or(Location::new(1, 1), |it| it.location[0]);
+    let end = items
+        .last()
+        .map_or(Location::new(1, 1), |it| it.location[1]);
+    Block::List(List::new("unordered", marker, items, [start, end]))
+}
+
+/// Build a `text` node from the content of `line` after a leading marker of
+/// `marker_len` characters plus its following spaces, on `line_no`. Shared by
+/// heading titles and list-item principals.
+fn marked_text(line: &str, line_no: usize, marker_len: usize) -> Text {
+    let after_marker: String = line.chars().skip(marker_len).collect();
+    let leading_spaces = after_marker.chars().take_while(|c| *c == ' ').count();
+    let text = after_marker.trim();
+
+    // Column of the first content character: marker chars + leading spaces, +1.
     let start_col = marker_len + leading_spaces + 1;
-    let len = char_count(title);
+    let len = char_count(text);
     let end_col = start_col + len.saturating_sub(1);
     Text::new(
-        title,
+        text,
         [
             Location::new(line_no, start_col),
             Location::new(line_no, end_col),
@@ -412,6 +466,45 @@ mod tests {
         assert_eq!(p.location, [loc(3, 1), loc(3, 9)]);
         // Document span equals the section span.
         assert_eq!(doc.location, [loc(1, 1), loc(3, 9)]);
+    }
+
+    #[test]
+    fn unordered_list_single_item() {
+        let doc = parse_document("* water");
+        assert_eq!(doc.blocks.len(), 1);
+        let Block::List(list) = &doc.blocks[0] else {
+            panic!("expected list");
+        };
+        assert_eq!(list.variant, "unordered");
+        assert_eq!(list.marker, "*");
+        assert_eq!(list.location, [loc(1, 1), loc(1, 7)]);
+        assert_eq!(list.items.len(), 1);
+        let item = &list.items[0];
+        assert_eq!(item.marker, "*");
+        // Item spans from the marker (col 1) through the principal end (col 7).
+        assert_eq!(item.location, [loc(1, 1), loc(1, 7)]);
+        let Inline::Text(t) = &item.principal[0];
+        assert_eq!(t.value, "water");
+        assert_eq!(t.location, [loc(1, 3), loc(1, 7)]);
+    }
+
+    #[test]
+    fn unordered_list_multiple_items_in_one_list() {
+        let doc = parse_document("* one\n* two");
+        assert_eq!(doc.blocks.len(), 1);
+        let Block::List(list) = &doc.blocks[0] else {
+            panic!("expected list");
+        };
+        assert_eq!(list.items.len(), 2);
+        // List spans first item start to last item end ("two" ends at col 5).
+        assert_eq!(list.location, [loc(1, 1), loc(2, 5)]);
+    }
+
+    #[test]
+    fn inline_star_text_is_not_a_list() {
+        // `*bold*` (no space after the marker) is a paragraph, not a list.
+        let doc = parse_document("*bold*");
+        assert!(matches!(doc.blocks[0], Block::Paragraph(_)));
     }
 
     #[test]

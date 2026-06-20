@@ -146,12 +146,70 @@ impl Section {
     }
 }
 
+/// A `listItem` node: `{ "name": "listItem", "type": "block", "marker",
+/// "principal", "location" }`. `principal` is the item's inline content; the
+/// item spans from its marker through the end of that content.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ListItem {
+    name: &'static str,
+    #[serde(rename = "type")]
+    node_type: &'static str,
+    pub marker: String,
+    pub principal: Vec<Inline>,
+    pub location: Span,
+}
+
+impl ListItem {
+    pub fn new(marker: impl Into<String>, principal: Vec<Inline>, location: Span) -> Self {
+        Self {
+            name: "listItem",
+            node_type: "block",
+            marker: marker.into(),
+            principal,
+            location,
+        }
+    }
+}
+
+/// A `list` node: `{ "name": "list", "type": "block", "variant", "marker",
+/// "items", "location" }`. `variant` is e.g. `"unordered"`; the list spans from
+/// its first item to its last.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct List {
+    name: &'static str,
+    #[serde(rename = "type")]
+    node_type: &'static str,
+    pub variant: &'static str,
+    pub marker: String,
+    pub items: Vec<ListItem>,
+    pub location: Span,
+}
+
+impl List {
+    pub fn new(
+        variant: &'static str,
+        marker: impl Into<String>,
+        items: Vec<ListItem>,
+        location: Span,
+    ) -> Self {
+        Self {
+            name: "list",
+            node_type: "block",
+            variant,
+            marker: marker.into(),
+            items,
+            location,
+        }
+    }
+}
+
 /// A block node. Serialized untagged (see [`Inline`]).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
 pub enum Block {
     Paragraph(Paragraph),
     Section(Section),
+    List(List),
 }
 
 impl Block {
@@ -160,6 +218,7 @@ impl Block {
         match self {
             Block::Paragraph(p) => p.location,
             Block::Section(s) => s.location,
+            Block::List(l) => l.location,
         }
     }
 }
