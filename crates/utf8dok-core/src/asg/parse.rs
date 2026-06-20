@@ -7,6 +7,11 @@
 //!   from [`crate::parser`], which joins with a space for DOCX output).
 //! - **header** — a leading `= Title` line, optionally followed by contiguous
 //!   `:name: value` / `:name:` attribute entries.
+//! - **sections** — `==`+ headings nesting recursively.
+//! - **unordered lists** — contiguous `*` items.
+//! - **delimited blocks** — `----` listing (verbatim) and `****` sidebar
+//!   (recursively-parsed body).
+//! - **inline markup** (inline mode only) — constrained strong spans `*…*`.
 //!
 //! Location rules (recursive, derived from the TCK fixtures):
 //! - A `text` leaf spans `[{first_line, 1}, {last_line, char_count}]`.
@@ -16,8 +21,12 @@
 //!   attribute entry (or the end of the title if there are none).
 
 use std::collections::BTreeMap;
+use std::ops::Range;
 
-use super::{Block, Document, Header, Inline, List, ListItem, Location, Paragraph, Section, Text};
+use super::{
+    Block, Document, Header, Inline, InlineSpan, List, ListItem, Listing, Location, Paragraph,
+    Section, Sidebar, Text,
+};
 
 /// Parse `source` into a `document` ASG node (block mode).
 pub fn parse_document(source: &str) -> Document {
@@ -50,20 +59,18 @@ pub fn parse_document(source: &str) -> Document {
     }
 }
 
-/// Parse `source` and return the inline nodes of its first block (inline mode).
+/// Parse `source` as inline content and return its inline nodes (inline mode).
 ///
 /// The TCK's `inline/*` tests assert against a bare array of inline nodes rather
-/// than a wrapping document, so the adapter projects out the first block's
-/// inlines here. Inline mode never has a document header.
+/// than a wrapping document, so inline mode parses markup directly. The current
+/// tier handles a single line with optional constrained strong spans (`*…*`).
+///
+/// Note: block-level paragraphs still emit a single `text` inline (see
+/// [`make_text`]); applying markup parsing inside multi-line paragraphs is a
+/// later tier.
 pub fn parse_inlines(source: &str) -> Vec<Inline> {
-    let lines: Vec<&str> = source.split('\n').map(strip_cr).collect();
-    match parse_blocks_range(&lines, 0, lines.len())
-        .into_iter()
-        .next()
-    {
-        Some(Block::Paragraph(p)) => p.inlines,
-        _ => Vec::new(),
-    }
+    let line = strip_cr(source.split('\n').next().unwrap_or(""));
+    parse_inline_markup(line, 1, 1)
 }
 
 /// A document header peeled off the front of the source.
@@ -121,7 +128,22 @@ fn parse_blocks_range(lines: &[&str], start: usize, end: usize) -> Vec<Block> {
     let mut i = start;
     while i < end {
         let line = lines[i];
-        if let Some(level) = section_level(line) {
+        if let Some(delim_char) = block_delimiter(line) {
+            flush_paragraph(&mut blocks, &mut current);
+            // Find the matching closing delimiter (an identical line).
+            let mut close = i + 1;
+            while close < end && lines[close] != line {
+                close += 1;
+            }
+            let closed = close < end;
+            let content = i + 1..close;
+            let block = match delim_char {
+                '-' => make_listing(lines, content, line, i, closed.then_some(close)),
+                _ => make_sidebar(lines, content, line, i, closed.then_some(close)),
+            };
+            blocks.push(block);
+            i = if closed { close + 1 } else { end };
+        } else if let Some(level) = section_level(line) {
             flush_paragraph(&mut blocks, &mut current);
             // Find where this section's body ends.
             let mut j = i + 1;
@@ -269,6 +291,78 @@ fn make_list(marker: &str, items: Vec<ListItem>) -> Block {
     Block::List(List::new("unordered", marker, items, [start, end]))
 }
 
+/// If `line` is a delimited-block fence (4+ identical `-` or `*`), return that
+/// character. `-` opens a listing, `*` a sidebar.
+fn block_delimiter(line: &str) -> Option<char> {
+    let first = line.chars().next()?;
+    if (first == '-' || first == '*')
+        && line.chars().count() >= 4
+        && line.chars().all(|c| c == first)
+    {
+        Some(first)
+    } else {
+        None
+    }
+}
+
+/// The span of a delimited block: from its opening fence (col 1) through the
+/// closing fence (or, when unterminated, the end of its content).
+fn delimited_span(
+    delimiter: &str,
+    open_idx: usize,
+    close_idx: Option<usize>,
+    content_end: Location,
+) -> [Location; 2] {
+    let start = Location::new(open_idx + 1, 1);
+    let end = match close_idx {
+        Some(c) => Location::new(c + 1, char_count(delimiter)),
+        None => content_end,
+    };
+    [start, end]
+}
+
+/// Build a `listing` block: verbatim content between the fences as one `text`
+/// inline.
+fn make_listing(
+    lines: &[&str],
+    content: Range<usize>,
+    delimiter: &str,
+    open_idx: usize,
+    close_idx: Option<usize>,
+) -> Block {
+    let content_lines: Vec<(usize, &str)> = content.map(|k| (k + 1, lines[k])).collect();
+    let inlines = if content_lines.is_empty() {
+        Vec::new()
+    } else {
+        vec![Inline::Text(make_text(&content_lines))]
+    };
+    let content_end = inlines
+        .last()
+        .map_or(Location::new(open_idx + 1, char_count(delimiter)), |inl| {
+            inl.location()[1]
+        });
+    let location = delimited_span(delimiter, open_idx, close_idx, content_end);
+    Block::Listing(Listing::new(delimiter, inlines, location))
+}
+
+/// Build a `sidebar` block: its body is parsed recursively into child blocks.
+fn make_sidebar(
+    lines: &[&str],
+    content: Range<usize>,
+    delimiter: &str,
+    open_idx: usize,
+    close_idx: Option<usize>,
+) -> Block {
+    let children = parse_blocks_range(lines, content.start, content.end);
+    let content_end = children
+        .last()
+        .map_or(Location::new(open_idx + 1, char_count(delimiter)), |b| {
+            b.location()[1]
+        });
+    let location = delimited_span(delimiter, open_idx, close_idx, content_end);
+    Block::Sidebar(Sidebar::new(delimiter, children, location))
+}
+
 /// Build a `text` node from the content of `line` after a leading marker of
 /// `marker_len` characters plus its following spaces, on `line_no`. Shared by
 /// heading titles and list-item principals.
@@ -303,6 +397,92 @@ fn parse_attribute_entry(line: &str) -> Option<(String, String)> {
     Some((name.to_string(), value))
 }
 
+/// Parse inline markup in a single logical line into inline nodes, tracking
+/// columns. `start_col` is the column of `text`'s first character. Currently
+/// handles constrained strong spans (`*…*`) and plain text runs.
+fn parse_inline_markup(text: &str, line_no: usize, start_col: usize) -> Vec<Inline> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut inlines = Vec::new();
+    let mut run_start = 0;
+    let mut i = 0;
+
+    while i < chars.len() {
+        if chars[i] == '*' && is_constrained_open(&chars, i) {
+            if let Some(close) = find_constrained_close(&chars, i + 1) {
+                flush_text_run(&mut inlines, &chars, run_start, i, line_no, start_col);
+                let inner: String = chars[i + 1..close].iter().collect();
+                let inner_inlines = parse_inline_markup(&inner, line_no, start_col + i + 1);
+                let location = [
+                    Location::new(line_no, start_col + i),
+                    Location::new(line_no, start_col + close),
+                ];
+                inlines.push(Inline::Span(InlineSpan::strong_constrained(
+                    inner_inlines,
+                    location,
+                )));
+                i = close + 1;
+                run_start = i;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    flush_text_run(
+        &mut inlines,
+        &chars,
+        run_start,
+        chars.len(),
+        line_no,
+        start_col,
+    );
+    inlines
+}
+
+/// Emit a `text` node for the plain run `chars[from..to)`, if non-empty.
+fn flush_text_run(
+    inlines: &mut Vec<Inline>,
+    chars: &[char],
+    from: usize,
+    to: usize,
+    line_no: usize,
+    start_col: usize,
+) {
+    if from >= to {
+        return;
+    }
+    let value: String = chars[from..to].iter().collect();
+    let location = [
+        Location::new(line_no, start_col + from),
+        Location::new(line_no, start_col + to - 1),
+    ];
+    inlines.push(Inline::Text(Text::new(value, location)));
+}
+
+/// A constrained marker opens when it is at the start or follows whitespace, and
+/// the next character is not whitespace (AsciiDoc constrained-formatting rule).
+fn is_constrained_open(chars: &[char], i: usize) -> bool {
+    let prev_ok = i == 0 || chars[i - 1].is_whitespace();
+    let next_ok = chars.get(i + 1).is_some_and(|c| !c.is_whitespace());
+    prev_ok && next_ok
+}
+
+/// Find the matching constrained closing `*`: preceded by a non-space and
+/// followed by end-of-line or a non-word character.
+fn find_constrained_close(chars: &[char], from: usize) -> Option<usize> {
+    let mut j = from;
+    while j < chars.len() {
+        if chars[j] == '*' {
+            let prev_ok = j > from && !chars[j - 1].is_whitespace();
+            let next_ok = chars.get(j + 1).is_none_or(|c| !c.is_alphanumeric());
+            if prev_ok && next_ok {
+                return Some(j);
+            }
+        }
+        j += 1;
+    }
+    None
+}
+
 /// Strip a trailing `\r` so CRLF input is tolerated.
 fn strip_cr(line: &str) -> &str {
     line.strip_suffix('\r').unwrap_or(line)
@@ -333,7 +513,9 @@ mod tests {
         };
         assert_eq!(p.location, [loc(1, 1), loc(1, 9)]);
         assert_eq!(p.inlines.len(), 1);
-        let Inline::Text(t) = &p.inlines[0];
+        let Inline::Text(t) = &p.inlines[0] else {
+            panic!("expected text");
+        };
         assert_eq!(t.value, "body only");
         assert_eq!(t.location, [loc(1, 1), loc(1, 9)]);
         assert_eq!(doc.location, [loc(1, 1), loc(1, 9)]);
@@ -345,7 +527,9 @@ mod tests {
         let Block::Paragraph(p) = &doc.blocks[0] else {
             panic!("expected paragraph");
         };
-        let Inline::Text(t) = &p.inlines[0];
+        let Inline::Text(t) = &p.inlines[0] else {
+            panic!("expected text");
+        };
         assert_eq!(t.value, "first line\nsecond longer line");
         // "second longer line" is 18 chars.
         assert_eq!(t.location, [loc(1, 1), loc(2, 18)]);
@@ -378,7 +562,9 @@ mod tests {
     fn parse_inlines_returns_bare_text_nodes() {
         let inlines = parse_inlines("hello");
         assert_eq!(inlines.len(), 1);
-        let Inline::Text(t) = &inlines[0];
+        let Inline::Text(t) = &inlines[0] else {
+            panic!("expected text");
+        };
         assert_eq!(t.value, "hello");
         assert_eq!(t.location, [loc(1, 1), loc(1, 5)]);
     }
@@ -387,7 +573,9 @@ mod tests {
     fn column_counts_characters_not_bytes() {
         // "café" is 4 chars but 5 bytes; end col must be 4.
         let inlines = parse_inlines("café");
-        let Inline::Text(t) = &inlines[0];
+        let Inline::Text(t) = &inlines[0] else {
+            panic!("expected text");
+        };
         assert_eq!(t.location, [loc(1, 1), loc(1, 4)]);
     }
 
@@ -403,7 +591,9 @@ mod tests {
         let doc = parse_document("= Document Title\n\nbody");
         let header = doc.header.as_ref().expect("header present");
         // Title text starts after "= " at col 3, "Document Title" is 14 chars.
-        let Inline::Text(t) = &header.title[0];
+        let Inline::Text(t) = &header.title[0] else {
+            panic!("expected text");
+        };
         assert_eq!(t.value, "Document Title");
         assert_eq!(t.location, [loc(1, 3), loc(1, 16)]);
         // No attribute entries -> header span ends at the title.
@@ -454,7 +644,9 @@ mod tests {
         };
         assert_eq!(s.level, 1);
         // Title starts after "== " at col 4; "Section Title" is 13 chars.
-        let Inline::Text(t) = &s.title[0];
+        let Inline::Text(t) = &s.title[0] else {
+            panic!("expected text");
+        };
         assert_eq!(t.value, "Section Title");
         assert_eq!(t.location, [loc(1, 4), loc(1, 16)]);
         // Section spans its heading through the end of its last child block.
@@ -483,7 +675,9 @@ mod tests {
         assert_eq!(item.marker, "*");
         // Item spans from the marker (col 1) through the principal end (col 7).
         assert_eq!(item.location, [loc(1, 1), loc(1, 7)]);
-        let Inline::Text(t) = &item.principal[0];
+        let Inline::Text(t) = &item.principal[0] else {
+            panic!("expected text");
+        };
         assert_eq!(t.value, "water");
         assert_eq!(t.location, [loc(1, 3), loc(1, 7)]);
     }
@@ -498,6 +692,76 @@ mod tests {
         assert_eq!(list.items.len(), 2);
         // List spans first item start to last item end ("two" ends at col 5).
         assert_eq!(list.location, [loc(1, 1), loc(2, 5)]);
+    }
+
+    #[test]
+    fn listing_block_holds_verbatim_text() {
+        let doc = parse_document("----\ndef main\n  puts 'hi'\nend\n----");
+        assert_eq!(doc.blocks.len(), 1);
+        let Block::Listing(l) = &doc.blocks[0] else {
+            panic!("expected listing");
+        };
+        assert_eq!(l.delimiter, "----");
+        // Block spans both fence lines (closing "----" ends at col 4 on line 5).
+        assert_eq!(l.location, [loc(1, 1), loc(5, 4)]);
+        let Inline::Text(t) = &l.inlines[0] else {
+            panic!("expected text");
+        };
+        // Content is verbatim (leading spaces preserved) and spans the body.
+        assert_eq!(t.value, "def main\n  puts 'hi'\nend");
+        assert_eq!(t.location, [loc(2, 1), loc(4, 3)]);
+    }
+
+    #[test]
+    fn sidebar_block_parses_nested_blocks() {
+        let doc = parse_document("****\n* phone\n* keys\n****");
+        let Block::Sidebar(s) = &doc.blocks[0] else {
+            panic!("expected sidebar");
+        };
+        assert_eq!(s.delimiter, "****");
+        assert_eq!(s.location, [loc(1, 1), loc(4, 4)]);
+        // Body is recursively parsed: an unordered list of two items.
+        assert_eq!(s.blocks.len(), 1);
+        let Block::List(list) = &s.blocks[0] else {
+            panic!("expected nested list");
+        };
+        assert_eq!(list.items.len(), 2);
+        assert_eq!(list.location, [loc(2, 1), loc(3, 6)]);
+    }
+
+    #[test]
+    fn inline_constrained_strong_span() {
+        let inlines = parse_inlines("*s*");
+        assert_eq!(inlines.len(), 1);
+        let Inline::Span(span) = &inlines[0] else {
+            panic!("expected span");
+        };
+        assert_eq!(span.variant, "strong");
+        assert_eq!(span.form, "constrained");
+        assert_eq!(span.location, [loc(1, 1), loc(1, 3)]);
+        let Inline::Text(t) = &span.inlines[0] else {
+            panic!("expected text");
+        };
+        assert_eq!(t.value, "s");
+        assert_eq!(t.location, [loc(1, 2), loc(1, 2)]);
+    }
+
+    #[test]
+    fn inline_text_around_a_strong_span() {
+        // "a *b* c" -> text "a ", span "b", text " c".
+        let inlines = parse_inlines("a *b* c");
+        assert_eq!(inlines.len(), 3);
+        let Inline::Text(a) = &inlines[0] else {
+            panic!("expected leading text");
+        };
+        assert_eq!(a.value, "a ");
+        assert_eq!(a.location, [loc(1, 1), loc(1, 2)]);
+        assert!(matches!(inlines[1], Inline::Span(_)));
+        let Inline::Text(c) = &inlines[2] else {
+            panic!("expected trailing text");
+        };
+        assert_eq!(c.value, " c");
+        assert_eq!(c.location, [loc(1, 6), loc(1, 7)]);
     }
 
     #[test]

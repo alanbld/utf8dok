@@ -79,12 +79,41 @@ impl Text {
     }
 }
 
+/// An inline `span` node: `{ "name": "span", "type": "inline", "variant",
+/// "form", "inlines", "location" }`. E.g. a constrained strong span `*x*` has
+/// `variant: "strong"`, `form: "constrained"`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct InlineSpan {
+    name: &'static str,
+    #[serde(rename = "type")]
+    node_type: &'static str,
+    pub variant: &'static str,
+    pub form: &'static str,
+    pub inlines: Vec<Inline>,
+    pub location: Span,
+}
+
+impl InlineSpan {
+    /// A constrained strong span (`*text*`).
+    pub fn strong_constrained(inlines: Vec<Inline>, location: Span) -> Self {
+        Self {
+            name: "span",
+            node_type: "inline",
+            variant: "strong",
+            form: "constrained",
+            inlines,
+            location,
+        }
+    }
+}
+
 /// An inline node. Serialized untagged so the JSON is the inner node's fields
 /// directly (the `name`/`type` fields are the discriminator, per the ASG).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
 pub enum Inline {
     Text(Text),
+    Span(InlineSpan),
 }
 
 impl Inline {
@@ -92,6 +121,7 @@ impl Inline {
     pub fn location(&self) -> Span {
         match self {
             Inline::Text(t) => t.location,
+            Inline::Span(s) => s.location,
         }
     }
 }
@@ -203,6 +233,61 @@ impl List {
     }
 }
 
+/// A `listing` node: `{ "name": "listing", "type": "block", "form":
+/// "delimited", "delimiter", "inlines", "location" }`. Content is verbatim
+/// (a single `text` inline); the block spans both delimiter lines.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Listing {
+    name: &'static str,
+    #[serde(rename = "type")]
+    node_type: &'static str,
+    form: &'static str,
+    pub delimiter: String,
+    pub inlines: Vec<Inline>,
+    pub location: Span,
+}
+
+impl Listing {
+    pub fn new(delimiter: impl Into<String>, inlines: Vec<Inline>, location: Span) -> Self {
+        Self {
+            name: "listing",
+            node_type: "block",
+            form: "delimited",
+            delimiter: delimiter.into(),
+            inlines,
+            location,
+        }
+    }
+}
+
+/// A `sidebar` node: `{ "name": "sidebar", "type": "block", "form":
+/// "delimited", "delimiter", "blocks", "location" }`. Unlike a listing, the body
+/// is parsed recursively into child blocks; the block spans both delimiters.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Sidebar {
+    name: &'static str,
+    #[serde(rename = "type")]
+    node_type: &'static str,
+    form: &'static str,
+    pub delimiter: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub blocks: Vec<Block>,
+    pub location: Span,
+}
+
+impl Sidebar {
+    pub fn new(delimiter: impl Into<String>, blocks: Vec<Block>, location: Span) -> Self {
+        Self {
+            name: "sidebar",
+            node_type: "block",
+            form: "delimited",
+            delimiter: delimiter.into(),
+            blocks,
+            location,
+        }
+    }
+}
+
 /// A block node. Serialized untagged (see [`Inline`]).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
@@ -210,6 +295,8 @@ pub enum Block {
     Paragraph(Paragraph),
     Section(Section),
     List(List),
+    Listing(Listing),
+    Sidebar(Sidebar),
 }
 
 impl Block {
@@ -219,6 +306,8 @@ impl Block {
             Block::Paragraph(p) => p.location,
             Block::Section(s) => s.location,
             Block::List(l) => l.location,
+            Block::Listing(l) => l.location,
+            Block::Sidebar(s) => s.location,
         }
     }
 }

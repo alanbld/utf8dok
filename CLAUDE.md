@@ -176,10 +176,16 @@ source positions). It emits the Eclipse ASG node model (`document`/`paragraph`/
   ASG against vendored upstream fixtures under `tests/tck/` (EPL-2.0, see
   `ATTRIBUTION.md`). Grow coverage by vendoring more `-input.adoc`/`-output.json`
   pairs (preserve the `block/`/`inline/` prefix — it selects comparison mode).
-- **Current coverage**: 10/13 vendored fixtures — document body, paragraphs,
-  plain text, header tier, section tier (recursive `section`+`level`), and the
-  **list tier** (unordered `list`/`listItem` with `variant`/`marker`/`principal`).
-  Next tiers: listing (`----`) and sidebar (`****`) blocks, inline `strong` span.
+- **Current coverage**: **13/13 vendored fixtures green** — documents,
+  paragraphs, plain text, header (title+attributes), recursive sections
+  (`level`), unordered lists, `----` listing + `****` sidebar delimited blocks,
+  and inline constrained `strong` spans (`*…*`). The full vendored TCK subset
+  passes via both the Rust harness and the real `utf8dok asg` binary.
+- **Beyond the vendored subset**: the upstream TCK has many more tests; vendor
+  more `-input.adoc`/`-output.json` pairs to expand coverage. Known gaps: ordered
+  lists, nested/`-` list markers, list continuations, admonitions, tables,
+  block-level inline markup (paragraphs currently emit a single `text` node),
+  and other inline forms (emphasis, code, links).
 
 ## Current Implementation Status
 

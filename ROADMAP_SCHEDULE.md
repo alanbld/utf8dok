@@ -29,8 +29,9 @@
 | Header tier (title + attributes) | ✅ Done | structured `header`, span through attr entries — 8/13 green |
 | Section tier (subtree + level) | ✅ Done | recursive `section` blocks, `level`, span through last child — 9/13 green |
 | List tier (unordered) | ✅ Done | `list`/`listItem` with `variant`/`marker`/`principal` — 10/13 green |
-| Listing / sidebar tiers | ⬜ Pending | `----` listing, `****` sidebar (depends on lists) |
-| Inline markup (`strong` span) | ⬜ Pending | `variant`/`form` discriminators |
+| Listing / sidebar tiers | ✅ Done | `----` listing (verbatim), `****` sidebar (recursive) — 12/13 green |
+| Inline markup (`strong` span) | ✅ Done | constrained `*…*` span with `variant`/`form` — **13/13 vendored fixtures green** |
+| Expand beyond vendored subset | ⬜ Pending | ordered lists, admonitions, tables, more inline forms |
 
 ### Phase 25: PDF Engine
 **Goal:** Evaluate PDF backends and create utf8dok-pdf crate
