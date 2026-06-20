@@ -27,7 +27,7 @@
 | Fixture-driven conformance test | ✅ Done | `tests/tck.rs` vs vendored EPL-2.0 fixtures |
 | Trivial tier (document/paragraph/text) | ✅ Done | 6/13 vendored fixtures green |
 | Header tier (title + attributes) | ✅ Done | structured `header`, span through attr entries — 8/13 green |
-| Section tier (subtree + level) | ⬜ Pending | recursive `section` blocks |
+| Section tier (subtree + level) | ✅ Done | recursive `section` blocks, `level`, span through last child — 9/13 green |
 | List / listing / sidebar tiers | ⬜ Pending | `list`/`listItem`, delimited blocks |
 | Inline markup (`strong` span) | ⬜ Pending | `variant`/`form` discriminators |
 

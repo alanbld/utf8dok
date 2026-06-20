@@ -117,11 +117,41 @@ impl Paragraph {
     }
 }
 
+/// A `section` node: `{ "name": "section", "type": "block", "title", "level",
+/// "location", "blocks" }`. `level` is the heading depth (`==` → 1, `===` → 2);
+/// the section spans from its heading marker through the end of its last child
+/// block. `blocks` is omitted when the section has no body.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Section {
+    name: &'static str,
+    #[serde(rename = "type")]
+    node_type: &'static str,
+    pub title: Vec<Inline>,
+    pub level: usize,
+    pub location: Span,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub blocks: Vec<Block>,
+}
+
+impl Section {
+    pub fn new(title: Vec<Inline>, level: usize, location: Span, blocks: Vec<Block>) -> Self {
+        Self {
+            name: "section",
+            node_type: "block",
+            title,
+            level,
+            location,
+            blocks,
+        }
+    }
+}
+
 /// A block node. Serialized untagged (see [`Inline`]).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
 pub enum Block {
     Paragraph(Paragraph),
+    Section(Section),
 }
 
 impl Block {
@@ -129,6 +159,7 @@ impl Block {
     pub fn location(&self) -> Span {
         match self {
             Block::Paragraph(p) => p.location,
+            Block::Section(s) => s.location,
         }
     }
 }

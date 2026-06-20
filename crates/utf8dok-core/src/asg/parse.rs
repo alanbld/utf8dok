@@ -17,7 +17,7 @@
 
 use std::collections::BTreeMap;
 
-use super::{Block, Document, Header, Inline, Location, Paragraph, Text};
+use super::{Block, Document, Header, Inline, Location, Paragraph, Section, Text};
 
 /// Parse `source` into a `document` ASG node (block mode).
 pub fn parse_document(source: &str) -> Document {
@@ -26,7 +26,7 @@ pub fn parse_document(source: &str) -> Document {
     // Try to peel off a document header (`= Title` + attribute entries).
     let parsed_header = parse_header(&lines);
     let body_start = parsed_header.as_ref().map_or(0, |h| h.next_line_index);
-    let blocks = parse_blocks_from(&lines, body_start);
+    let blocks = parse_blocks_range(&lines, body_start, lines.len());
 
     // Document span: start at the header (or first block), end at the last block
     // (or the header when there is no body).
@@ -57,9 +57,12 @@ pub fn parse_document(source: &str) -> Document {
 /// inlines here. Inline mode never has a document header.
 pub fn parse_inlines(source: &str) -> Vec<Inline> {
     let lines: Vec<&str> = source.split('\n').map(strip_cr).collect();
-    match parse_blocks_from(&lines, 0).into_iter().next() {
+    match parse_blocks_range(&lines, 0, lines.len())
+        .into_iter()
+        .next()
+    {
         Some(Block::Paragraph(p)) => p.inlines,
-        None => Vec::new(),
+        _ => Vec::new(),
     }
 }
 
@@ -79,7 +82,7 @@ fn parse_header(lines: &[&str]) -> Option<ParsedHeader> {
         return None;
     }
 
-    let title = parse_title(first);
+    let title = heading_title(first, 1);
     // Header span ends at the title unless attribute entries extend it.
     let mut header_end = title.location[1];
     let title_inlines = vec![Inline::Text(title)];
@@ -105,23 +108,61 @@ fn parse_header(lines: &[&str]) -> Option<ParsedHeader> {
     })
 }
 
-/// Group lines `[start..]` into paragraph blocks, separated by blank lines.
-fn parse_blocks_from(lines: &[&str], start: usize) -> Vec<Block> {
+/// Parse lines `[start..end)` into blocks (paragraphs and nested sections).
+///
+/// A section heading opens a section whose body runs until the next heading of
+/// the same or higher rank (i.e. `level <= this level`), or the end of the
+/// range; that body is parsed recursively so sub-sections nest.
+fn parse_blocks_range(lines: &[&str], start: usize, end: usize) -> Vec<Block> {
     let mut blocks = Vec::new();
     // Lines accumulated for the paragraph currently being built: (line_no, text).
     let mut current: Vec<(usize, &str)> = Vec::new();
 
-    for (idx, line) in lines.iter().enumerate().skip(start) {
-        let line_no = idx + 1;
-        if line.trim().is_empty() {
+    let mut i = start;
+    while i < end {
+        let line = lines[i];
+        if let Some(level) = section_level(line) {
             flush_paragraph(&mut blocks, &mut current);
+            // Find where this section's body ends.
+            let mut j = i + 1;
+            while j < end {
+                if matches!(section_level(lines[j]), Some(other) if other <= level) {
+                    break;
+                }
+                j += 1;
+            }
+            let children = parse_blocks_range(lines, i + 1, j);
+            blocks.push(make_section(lines, i, level, children));
+            i = j;
+        } else if line.trim().is_empty() {
+            flush_paragraph(&mut blocks, &mut current);
+            i += 1;
         } else {
-            current.push((line_no, line));
+            current.push((i + 1, line));
+            i += 1;
         }
     }
     flush_paragraph(&mut blocks, &mut current);
 
     blocks
+}
+
+/// Build a `section` block from its heading line and already-parsed children.
+fn make_section(lines: &[&str], heading_idx: usize, level: usize, children: Vec<Block>) -> Block {
+    let line_no = heading_idx + 1;
+    let title = heading_title(lines[heading_idx], line_no);
+    let start = Location::new(line_no, 1);
+    // The section spans through its last child block; with no body it ends at
+    // the title.
+    let end = children
+        .last()
+        .map_or(title.location[1], |b| b.location()[1]);
+    Block::Section(Section::new(
+        vec![Inline::Text(title)],
+        level,
+        [start, end],
+        children,
+    ))
 }
 
 fn flush_paragraph(blocks: &mut Vec<Block>, current: &mut Vec<(usize, &str)>) {
@@ -160,23 +201,38 @@ fn is_doc_title(line: &str) -> bool {
     line.starts_with("= ")
 }
 
-/// Parse the title text of a `= Title` line into a `text` node (line 1).
+/// If `line` is a section heading (`==`+ followed by a space), return its level
+/// (`==` → 1, `===` → 2, …). A single `=` is the document title, not a section.
+fn section_level(line: &str) -> Option<usize> {
+    let equals = line.chars().take_while(|c| *c == '=').count();
+    if equals >= 2 && line[equals..].starts_with(' ') {
+        Some(equals - 1)
+    } else {
+        None
+    }
+}
+
+/// Parse the title text of a heading line (`=`+ Title) into a `text` node.
 ///
-/// The title begins after the `=` marker and its following space(s); its column
-/// span counts characters, so `= Document Title` yields `[{1,3},{1,16}]`.
-fn parse_title(line: &str) -> Text {
-    // The leading marker is a single '=' (1 char); skip it, then leading spaces.
-    let after_marker = &line[1..];
+/// The title begins after the `=` marker run and its following space(s); its
+/// column span counts characters, so `= Document Title` on line 1 yields
+/// `[{1,3},{1,16}]` and `== Section Title` yields `[{1,4},{1,16}]`.
+fn heading_title(line: &str, line_no: usize) -> Text {
+    let marker_len = line.chars().take_while(|c| *c == '=').count();
+    let after_marker = &line[marker_len..];
     let leading_spaces = after_marker.chars().take_while(|c| *c == ' ').count();
     let title = after_marker.trim();
 
-    // Column of the first title character: 1 (the '=') + leading spaces, +1.
-    let start_col = 1 + leading_spaces + 1;
+    // Column of the first title character: marker chars + leading spaces, +1.
+    let start_col = marker_len + leading_spaces + 1;
     let len = char_count(title);
     let end_col = start_col + len.saturating_sub(1);
     Text::new(
         title,
-        [Location::new(1, start_col), Location::new(1, end_col)],
+        [
+            Location::new(line_no, start_col),
+            Location::new(line_no, end_col),
+        ],
     )
 }
 
@@ -218,7 +274,9 @@ mod tests {
         assert!(doc.header.is_none());
         assert!(doc.attributes.is_none());
         assert_eq!(doc.blocks.len(), 1);
-        let Block::Paragraph(p) = &doc.blocks[0];
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("expected paragraph");
+        };
         assert_eq!(p.location, [loc(1, 1), loc(1, 9)]);
         assert_eq!(p.inlines.len(), 1);
         let Inline::Text(t) = &p.inlines[0];
@@ -230,7 +288,9 @@ mod tests {
     #[test]
     fn multiple_lines_join_with_newline_and_span_to_last_line() {
         let doc = parse_document("first line\nsecond longer line");
-        let Block::Paragraph(p) = &doc.blocks[0];
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("expected paragraph");
+        };
         let Inline::Text(t) = &p.inlines[0];
         assert_eq!(t.value, "first line\nsecond longer line");
         // "second longer line" is 18 chars.
@@ -242,7 +302,9 @@ mod tests {
     fn blank_line_separates_sibling_paragraphs() {
         let doc = parse_document("one\n\nthree");
         assert_eq!(doc.blocks.len(), 2);
-        let Block::Paragraph(p2) = &doc.blocks[1];
+        let Block::Paragraph(p2) = &doc.blocks[1] else {
+            panic!("expected paragraph");
+        };
         assert_eq!(p2.location, [loc(3, 1), loc(3, 5)]);
         // Document spans from first paragraph start to last paragraph end.
         assert_eq!(doc.location, [loc(1, 1), loc(3, 5)]);
@@ -252,7 +314,9 @@ mod tests {
     fn multiple_blank_lines_preserve_line_numbers() {
         let doc = parse_document("one\n\n\nfour para");
         assert_eq!(doc.blocks.len(), 2);
-        let Block::Paragraph(p2) = &doc.blocks[1];
+        let Block::Paragraph(p2) = &doc.blocks[1] else {
+            panic!("expected paragraph");
+        };
         assert_eq!(p2.location, [loc(4, 1), loc(4, 9)]);
     }
 
@@ -294,7 +358,9 @@ mod tests {
         assert_eq!(doc.attributes.as_ref().unwrap().len(), 0);
         // Body paragraph on line 3.
         assert_eq!(doc.blocks.len(), 1);
-        let Block::Paragraph(p) = &doc.blocks[0];
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("expected paragraph");
+        };
         assert_eq!(p.location, [loc(3, 1), loc(3, 4)]);
         // Document spans header start to body end.
         assert_eq!(doc.location, [loc(1, 1), loc(3, 4)]);
@@ -317,10 +383,50 @@ mod tests {
 
     #[test]
     fn section_marker_is_not_a_document_title() {
-        // `== Section` must not be treated as a level-0 document title.
+        // `== Section` is a section, not a level-0 document title/header.
         let doc = parse_document("== Section");
         assert!(doc.header.is_none());
         assert_eq!(doc.blocks.len(), 1);
+        assert!(matches!(doc.blocks[0], Block::Section(_)));
+    }
+
+    #[test]
+    fn section_holds_title_level_and_child_blocks() {
+        let doc = parse_document("== Section Title\n\nparagraph");
+        assert!(doc.header.is_none());
+        assert_eq!(doc.blocks.len(), 1);
+        let Block::Section(s) = &doc.blocks[0] else {
+            panic!("expected section");
+        };
+        assert_eq!(s.level, 1);
+        // Title starts after "== " at col 4; "Section Title" is 13 chars.
+        let Inline::Text(t) = &s.title[0];
+        assert_eq!(t.value, "Section Title");
+        assert_eq!(t.location, [loc(1, 4), loc(1, 16)]);
+        // Section spans its heading through the end of its last child block.
+        assert_eq!(s.location, [loc(1, 1), loc(3, 9)]);
+        assert_eq!(s.blocks.len(), 1);
+        let Block::Paragraph(p) = &s.blocks[0] else {
+            panic!("expected paragraph");
+        };
+        assert_eq!(p.location, [loc(3, 1), loc(3, 9)]);
+        // Document span equals the section span.
+        assert_eq!(doc.location, [loc(1, 1), loc(3, 9)]);
+    }
+
+    #[test]
+    fn nested_section_increments_level_and_nests() {
+        let doc = parse_document("== Parent\n\n=== Child\n\nbody");
+        let Block::Section(parent) = &doc.blocks[0] else {
+            panic!("expected parent section");
+        };
+        assert_eq!(parent.level, 1);
+        assert_eq!(parent.blocks.len(), 1);
+        let Block::Section(child) = &parent.blocks[0] else {
+            panic!("expected nested child section");
+        };
+        assert_eq!(child.level, 2);
+        assert_eq!(child.blocks.len(), 1);
     }
 
     #[test]
