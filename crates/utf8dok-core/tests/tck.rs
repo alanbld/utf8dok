@@ -1,27 +1,50 @@
 //! Eclipse AsciiDoc TCK conformance tests.
 //!
-//! Data-driven against the vendored TCK fixtures under `tests/tck/` (see
-//! `tests/tck/ATTRIBUTION.md`). For each `*-input.adoc` we parse the source via
-//! the ASG adapter and deep-compare the emitted JSON against the expected
-//! `*-output.json`.
+//! Two layers of checking, data-driven over fixtures:
 //!
-//! This mirrors the official TCK harness contract:
-//! - fixtures under `block/` are compared as a full `document` ASG;
-//! - fixtures under `inline/` are compared as a bare array of inline nodes;
-//! - the input has a single trailing newline stripped before parsing (the TCK's
-//!   default test-loader behaviour).
+//! 1. **Deep-equal** — parse each `*-input.adoc` via the ASG adapter and compare
+//!    the emitted JSON against the expected `*-output.json`.
+//! 2. **Schema validation** — validate every emitted block-mode (document) ASG
+//!    against the authoritative ASG JSON Schema (`tests/schema/asg-schema.json`).
 //!
-//! Add coverage by vendoring more upstream pairs into `tests/tck/`; this test
-//! discovers them automatically.
+//! Fixture roots:
+//! - `tests/tck/` — the official Eclipse AsciiDoc TCK fixtures (EPL-2.0, vendored
+//!   verbatim; see `tests/tck/ATTRIBUTION.md`).
+//! - `tests/tck-local/` — utf8dok-authored, **non-official** fixtures for
+//!   constructs the official suite does not yet cover (e.g. block-level inline
+//!   markup); see `tests/tck-local/README.md`.
+//!
+//! This mirrors the official TCK harness contract: `block/` fixtures compare as a
+//! full `document`; `inline/` fixtures compare as a bare array of inline nodes;
+//! the input has a single trailing newline stripped before parsing.
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use serde_json::Value;
 use utf8dok_core::asg;
 
-fn tck_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/tck")
+fn tests_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests")
+}
+
+/// The official and local fixture roots.
+fn fixture_roots() -> Vec<PathBuf> {
+    let base = tests_dir();
+    vec![base.join("tck"), base.join("tck-local")]
+}
+
+/// The compiled ASG schema validator, loaded once.
+fn schema_validator() -> &'static jsonschema::Validator {
+    static VALIDATOR: OnceLock<jsonschema::Validator> = OnceLock::new();
+    VALIDATOR.get_or_init(|| {
+        let path = tests_dir().join("schema/asg-schema.json");
+        let schema: Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read ASG schema"))
+                .expect("parse ASG schema");
+        jsonschema::validator_for(&schema).expect("compile ASG schema")
+    })
 }
 
 /// Recursively collect every `*-input.adoc` fixture under `dir`.
@@ -44,10 +67,13 @@ fn strip_trailing_newline(s: &str) -> String {
     s.strip_suffix('\n').unwrap_or(s).to_string()
 }
 
+fn is_inline(input_path: &Path) -> bool {
+    input_path.components().any(|c| c.as_os_str() == "inline")
+}
+
 /// Parse `input` into the ASG JSON the TCK expects for this fixture's mode.
 fn actual_asg(input_path: &Path, input: &str) -> Value {
-    let is_inline = input_path.components().any(|c| c.as_os_str() == "inline");
-    if is_inline {
+    if is_inline(input_path) {
         serde_json::to_value(asg::parse_inlines(input)).unwrap()
     } else {
         serde_json::to_value(asg::parse_document(input)).unwrap()
@@ -56,22 +82,20 @@ fn actual_asg(input_path: &Path, input: &str) -> Value {
 
 #[test]
 fn tck_fixtures_match_expected_asg() {
-    let base = tck_dir();
+    let roots = fixture_roots();
     let mut inputs = Vec::new();
-    collect_inputs(&base, &mut inputs);
+    for root in &roots {
+        collect_inputs(root, &mut inputs);
+    }
     inputs.sort();
 
-    assert!(
-        !inputs.is_empty(),
-        "no TCK fixtures found under {}",
-        base.display()
-    );
+    assert!(!inputs.is_empty(), "no TCK fixtures found");
 
     let mut failures = Vec::new();
     let total = inputs.len();
 
     for input_path in &inputs {
-        let rel = input_path.strip_prefix(&base).unwrap_or(input_path);
+        let label = label_for(input_path, &roots);
         let output_path = PathBuf::from(
             input_path
                 .to_string_lossy()
@@ -80,18 +104,30 @@ fn tck_fixtures_match_expected_asg() {
 
         let raw_input = fs::read_to_string(input_path).expect("read input fixture");
         let input = strip_trailing_newline(&raw_input);
-        let expected_str = fs::read_to_string(&output_path).expect("read expected output");
-        let expected: Value = serde_json::from_str(&expected_str).expect("parse expected JSON");
+        let expected: Value =
+            serde_json::from_str(&fs::read_to_string(&output_path).expect("read expected output"))
+                .expect("parse expected JSON");
 
         let actual = actual_asg(input_path, &input);
 
         if actual != expected {
             failures.push(format!(
-                "  {}\n    expected: {}\n    actual:   {}",
-                rel.display(),
-                expected,
-                actual
+                "  [deep-equal] {label}\n    expected: {expected}\n    actual:   {actual}"
             ));
+            continue;
+        }
+
+        // Schema-validate block-mode (document) outputs against the authoritative
+        // ASG schema. Inline-mode outputs are bare arrays the document schema does
+        // not describe, so they are covered by deep-equal only.
+        if !is_inline(input_path) {
+            let errors: Vec<String> = schema_validator()
+                .iter_errors(&actual)
+                .map(|e| format!("{e} (at {})", e.instance_path))
+                .collect();
+            if !errors.is_empty() {
+                failures.push(format!("  [schema] {label}\n    {}", errors.join("\n    ")));
+            }
         }
     }
 
@@ -103,4 +139,15 @@ fn tck_fixtures_match_expected_asg() {
             failures.join("\n")
         );
     }
+}
+
+/// A short label like `tck/block/paragraph/single-line` for diagnostics.
+fn label_for(input_path: &Path, roots: &[PathBuf]) -> String {
+    for root in roots {
+        if let Ok(rel) = input_path.strip_prefix(root) {
+            let root_name = root.file_name().unwrap().to_string_lossy();
+            return format!("{root_name}/{}", rel.display());
+        }
+    }
+    input_path.display().to_string()
 }

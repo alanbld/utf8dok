@@ -70,7 +70,12 @@ pub fn parse_document(source: &str) -> Document {
 /// later tier.
 pub fn parse_inlines(source: &str) -> Vec<Inline> {
     let line = strip_cr(source.split('\n').next().unwrap_or(""));
-    parse_inline_markup(line, 1, 1)
+    let positioned: Vec<(char, Location)> = line
+        .chars()
+        .enumerate()
+        .map(|(ci, ch)| (ch, Location::new(1, ci + 1)))
+        .collect();
+    parse_inline_markup(&positioned)
 }
 
 /// A document header peeled off the front of the source.
@@ -205,17 +210,44 @@ fn flush_paragraph(blocks: &mut Vec<Block>, current: &mut Vec<(usize, &str)>) {
     if current.is_empty() {
         return;
     }
-    let text = make_text(current);
-    // A single-text paragraph spans exactly its text inline.
-    let location = text.location;
-    blocks.push(Block::Paragraph(Paragraph::new(
-        vec![Inline::Text(text)],
-        location,
-    )));
+    // Parse inline markup across the paragraph's lines. Markup-free text still
+    // collapses to a single `text` node (possibly spanning lines via `\n`).
+    let inlines = parse_block_inlines(current);
+    let location = inline_span(&inlines, current);
+    blocks.push(Block::Paragraph(Paragraph::new(inlines, location)));
     current.clear();
 }
 
-/// Build the `text` node for an accumulated run of paragraph lines.
+/// The span covering a run of inlines: first inline's start to last's end.
+fn inline_span(inlines: &[Inline], lines: &[(usize, &str)]) -> [Location; 2] {
+    match (inlines.first(), inlines.last()) {
+        (Some(first), Some(last)) => [first.location()[0], last.location()[1]],
+        _ => {
+            let (line_no, _) = lines[0];
+            [Location::new(line_no, 1), Location::new(line_no, 1)]
+        }
+    }
+}
+
+/// Parse a paragraph's accumulated lines into inline nodes, joining the lines
+/// with `\n` and tracking each character's source `(line, col)`.
+fn parse_block_inlines(lines: &[(usize, &str)]) -> Vec<Inline> {
+    let mut positioned: Vec<(char, Location)> = Vec::new();
+    for (idx, (line_no, content)) in lines.iter().enumerate() {
+        if idx > 0 {
+            // Newline join between source lines; its position is interior to a
+            // text run (never a run's start/end for the cases we handle).
+            let (prev_line, prev_content) = lines[idx - 1];
+            positioned.push(('\n', Location::new(prev_line, char_count(prev_content) + 1)));
+        }
+        for (ci, ch) in content.chars().enumerate() {
+            positioned.push((ch, Location::new(*line_no, ci + 1)));
+        }
+    }
+    parse_inline_markup(&positioned)
+}
+
+/// Build a verbatim `text` node for a run of lines (used by listing blocks).
 fn make_text(lines: &[(usize, &str)]) -> Text {
     let value = lines
         .iter()
@@ -397,25 +429,20 @@ fn parse_attribute_entry(line: &str) -> Option<(String, String)> {
     Some((name.to_string(), value))
 }
 
-/// Parse inline markup in a single logical line into inline nodes, tracking
-/// columns. `start_col` is the column of `text`'s first character. Currently
-/// handles constrained strong spans (`*…*`) and plain text runs.
-fn parse_inline_markup(text: &str, line_no: usize, start_col: usize) -> Vec<Inline> {
-    let chars: Vec<char> = text.chars().collect();
+/// Parse inline markup over a positioned-character sequence (each char carries
+/// its source `(line, col)`). Handles constrained strong spans (`*…*`) and plain
+/// text runs; a run may span a `\n` join, yielding one multi-line `text` node.
+fn parse_inline_markup(chars: &[(char, Location)]) -> Vec<Inline> {
     let mut inlines = Vec::new();
     let mut run_start = 0;
     let mut i = 0;
 
     while i < chars.len() {
-        if chars[i] == '*' && is_constrained_open(&chars, i) {
-            if let Some(close) = find_constrained_close(&chars, i + 1) {
-                flush_text_run(&mut inlines, &chars, run_start, i, line_no, start_col);
-                let inner: String = chars[i + 1..close].iter().collect();
-                let inner_inlines = parse_inline_markup(&inner, line_no, start_col + i + 1);
-                let location = [
-                    Location::new(line_no, start_col + i),
-                    Location::new(line_no, start_col + close),
-                ];
+        if chars[i].0 == '*' && is_constrained_open(chars, i) {
+            if let Some(close) = find_constrained_close(chars, i + 1) {
+                flush_text_run(&mut inlines, chars, run_start, i);
+                let inner_inlines = parse_inline_markup(&chars[i + 1..close]);
+                let location = [chars[i].1, chars[close].1];
                 inlines.push(Inline::Span(InlineSpan::strong_constrained(
                     inner_inlines,
                     location,
@@ -427,53 +454,36 @@ fn parse_inline_markup(text: &str, line_no: usize, start_col: usize) -> Vec<Inli
         }
         i += 1;
     }
-    flush_text_run(
-        &mut inlines,
-        &chars,
-        run_start,
-        chars.len(),
-        line_no,
-        start_col,
-    );
+    flush_text_run(&mut inlines, chars, run_start, chars.len());
     inlines
 }
 
 /// Emit a `text` node for the plain run `chars[from..to)`, if non-empty.
-fn flush_text_run(
-    inlines: &mut Vec<Inline>,
-    chars: &[char],
-    from: usize,
-    to: usize,
-    line_no: usize,
-    start_col: usize,
-) {
+fn flush_text_run(inlines: &mut Vec<Inline>, chars: &[(char, Location)], from: usize, to: usize) {
     if from >= to {
         return;
     }
-    let value: String = chars[from..to].iter().collect();
-    let location = [
-        Location::new(line_no, start_col + from),
-        Location::new(line_no, start_col + to - 1),
-    ];
+    let value: String = chars[from..to].iter().map(|(c, _)| *c).collect();
+    let location = [chars[from].1, chars[to - 1].1];
     inlines.push(Inline::Text(Text::new(value, location)));
 }
 
 /// A constrained marker opens when it is at the start or follows whitespace, and
 /// the next character is not whitespace (AsciiDoc constrained-formatting rule).
-fn is_constrained_open(chars: &[char], i: usize) -> bool {
-    let prev_ok = i == 0 || chars[i - 1].is_whitespace();
-    let next_ok = chars.get(i + 1).is_some_and(|c| !c.is_whitespace());
+fn is_constrained_open(chars: &[(char, Location)], i: usize) -> bool {
+    let prev_ok = i == 0 || chars[i - 1].0.is_whitespace();
+    let next_ok = chars.get(i + 1).is_some_and(|(c, _)| !c.is_whitespace());
     prev_ok && next_ok
 }
 
 /// Find the matching constrained closing `*`: preceded by a non-space and
 /// followed by end-of-line or a non-word character.
-fn find_constrained_close(chars: &[char], from: usize) -> Option<usize> {
+fn find_constrained_close(chars: &[(char, Location)], from: usize) -> Option<usize> {
     let mut j = from;
     while j < chars.len() {
-        if chars[j] == '*' {
-            let prev_ok = j > from && !chars[j - 1].is_whitespace();
-            let next_ok = chars.get(j + 1).is_none_or(|c| !c.is_alphanumeric());
+        if chars[j].0 == '*' {
+            let prev_ok = j > from && !chars[j - 1].0.is_whitespace();
+            let next_ok = chars.get(j + 1).is_none_or(|(c, _)| !c.is_alphanumeric());
             if prev_ok && next_ok {
                 return Some(j);
             }
@@ -762,6 +772,63 @@ mod tests {
         };
         assert_eq!(c.value, " c");
         assert_eq!(c.location, [loc(1, 6), loc(1, 7)]);
+    }
+
+    #[test]
+    fn block_paragraph_parses_inline_markup() {
+        // A paragraph now parses markup: "a *b* c" -> text, span, text.
+        let doc = parse_document("a *b* c");
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("expected paragraph");
+        };
+        assert_eq!(p.inlines.len(), 3);
+        assert!(matches!(p.inlines[1], Inline::Span(_)));
+        assert_eq!(p.location, [loc(1, 1), loc(1, 7)]);
+        let Inline::Span(span) = &p.inlines[1] else {
+            panic!("expected span");
+        };
+        assert_eq!(span.variant, "strong");
+        assert_eq!(span.location, [loc(1, 3), loc(1, 5)]);
+    }
+
+    #[test]
+    fn block_markup_span_across_a_line_break() {
+        // A span on the second line of a multi-line paragraph keeps its line.
+        let doc = parse_document("intro line\nthen *bold* here");
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("expected paragraph");
+        };
+        // text "intro line\nthen ", span "bold" (line 2), text " here".
+        let Inline::Span(span) = p
+            .inlines
+            .iter()
+            .find(|i| matches!(i, Inline::Span(_)))
+            .expect("a span")
+        else {
+            unreachable!()
+        };
+        assert_eq!(span.location, [loc(2, 6), loc(2, 11)]);
+        // Leading text run spans the line break as a single node.
+        let Inline::Text(head) = &p.inlines[0] else {
+            panic!("expected leading text");
+        };
+        assert_eq!(head.value, "intro line\nthen ");
+        assert_eq!(head.location, [loc(1, 1), loc(2, 5)]);
+    }
+
+    #[test]
+    fn markup_free_multiline_paragraph_stays_one_text_node() {
+        // Regression: no markup -> still a single text node spanning lines.
+        let doc = parse_document("one two\nthree four");
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!("expected paragraph");
+        };
+        assert_eq!(p.inlines.len(), 1);
+        let Inline::Text(t) = &p.inlines[0] else {
+            panic!("expected text");
+        };
+        assert_eq!(t.value, "one two\nthree four");
+        assert_eq!(t.location, [loc(1, 1), loc(2, 10)]);
     }
 
     #[test]

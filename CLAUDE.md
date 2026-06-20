@@ -172,20 +172,28 @@ source positions). It emits the Eclipse ASG node model (`document`/`paragraph`/
 - **Adapter CLI**: `utf8dok asg` reads the TCK request envelope
   `{ "contents", "path", "type": "block"|"inline" }` from stdin and writes ASG
   JSON to stdout — the official adapter contract (`ASCIIDOC_TCK_ADAPTER`).
-- **Conformance tests**: `crates/utf8dok-core/tests/tck.rs` deep-compares emitted
-  ASG against vendored upstream fixtures under `tests/tck/` (EPL-2.0, see
-  `ATTRIBUTION.md`). Grow coverage by vendoring more `-input.adoc`/`-output.json`
-  pairs (preserve the `block/`/`inline/` prefix — it selects comparison mode).
-- **Current coverage**: **13/13 vendored fixtures green** — documents,
+- **Conformance tests**: `crates/utf8dok-core/tests/tck.rs` does two things per
+  fixture: (1) deep-compares emitted ASG against the expected `-output.json`, and
+  (2) validates every block-mode document against the authoritative ASG JSON
+  Schema (`tests/schema/asg-schema.json`, EPL-2.0). Fixture roots:
+  - `tests/tck/` — the **official** Eclipse AsciiDoc TCK fixtures (EPL-2.0,
+    vendored verbatim; the full upstream suite at the pinned commit).
+  - `tests/tck-local/` — **utf8dok-authored, non-official** fixtures for
+    constructs the official suite doesn't cover (see its `README.md`).
+  Grow coverage by adding `-input.adoc`/`-output.json` pairs (preserve the
+  `block/`/`inline/` prefix — it selects comparison mode).
+- **Current coverage**: **13/13 official + 2 local fixtures green** — documents,
   paragraphs, plain text, header (title+attributes), recursive sections
   (`level`), unordered lists, `----` listing + `****` sidebar delimited blocks,
-  and inline constrained `strong` spans (`*…*`). The full vendored TCK subset
-  passes via both the Rust harness and the real `utf8dok asg` binary.
-- **Beyond the vendored subset**: the upstream TCK has many more tests; vendor
-  more `-input.adoc`/`-output.json` pairs to expand coverage. Known gaps: ordered
-  lists, nested/`-` list markers, list continuations, admonitions, tables,
-  block-level inline markup (paragraphs currently emit a single `text` node),
-  and other inline forms (emphasis, code, links).
+  inline constrained `strong` spans, and **block-level inline markup** (paragraphs
+  parse markup; a markup-free run still collapses to one `text` node, even across
+  lines). All pass via both the Rust harness and the real `utf8dok asg` binary,
+  and every emitted document is schema-valid.
+- **Beyond the vendored subset**: the official TCK has only these 13 fixtures at
+  the pinned commit (fully vendored). Known parser gaps to grow next: ordered
+  lists, nested/`-` list markers, list continuations, admonitions, tables, markup
+  in titles/list principals, and other inline forms (emphasis `_`, code `` ` ``,
+  links).
 
 ## Current Implementation Status
 

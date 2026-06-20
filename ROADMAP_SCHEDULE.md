@@ -31,7 +31,10 @@
 | List tier (unordered) | ✅ Done | `list`/`listItem` with `variant`/`marker`/`principal` — 10/13 green |
 | Listing / sidebar tiers | ✅ Done | `----` listing (verbatim), `****` sidebar (recursive) — 12/13 green |
 | Inline markup (`strong` span) | ✅ Done | constrained `*…*` span with `variant`/`form` — **13/13 vendored fixtures green** |
-| Expand beyond vendored subset | ⬜ Pending | ordered lists, admonitions, tables, more inline forms |
+| Block-level inline markup | ✅ Done | paragraphs parse markup (positioned-char parser); markup-free run stays one `text` node |
+| Schema validation | ✅ Done | every block-mode doc validated vs authoritative `asg-schema.json` (EPL-2.0) |
+| Local (non-official) fixtures | ✅ Done | `tests/tck-local/` for block-level markup (clearly labeled non-official) |
+| Expand parser | ⬜ Pending | ordered lists, admonitions, tables, markup in titles/principals, more inline forms |
 
 ### Phase 25: PDF Engine
 **Goal:** Evaluate PDF backends and create utf8dok-pdf crate
