@@ -176,9 +176,10 @@ source positions). It emits the Eclipse ASG node model (`document`/`paragraph`/
   ASG against vendored upstream fixtures under `tests/tck/` (EPL-2.0, see
   `ATTRIBUTION.md`). Grow coverage by vendoring more `-input.adoc`/`-output.json`
   pairs (preserve the `block/`/`inline/` prefix — it selects comparison mode).
-- **Current tier**: 6/13 vendored fixtures (document body + paragraphs + plain
-  text). Next tiers: header (title+attributes), sections (subtree+level), lists,
-  listing/sidebar blocks, inline `strong` span.
+- **Current coverage**: 8/13 vendored fixtures — document body, paragraphs,
+  plain text, and the **header tier** (title inlines, `attributes` object,
+  header span through attribute entries). Next tiers: sections (subtree+level),
+  lists, listing/sidebar blocks, inline `strong` span.
 
 ## Current Implementation Status
 

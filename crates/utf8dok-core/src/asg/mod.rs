@@ -33,6 +33,8 @@ mod parse;
 
 pub use parse::{parse_document, parse_inlines};
 
+use std::collections::BTreeMap;
+
 use serde::Serialize;
 
 /// A 1-based source position (`{ "line": L, "col": C }`).
@@ -131,25 +133,71 @@ impl Block {
     }
 }
 
+/// A document `header`: the title inlines plus a span covering the title line
+/// through the last attribute-entry line. Note a header is *not* itself a node
+/// (it carries no `name`/`type`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Header {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub title: Vec<Inline>,
+    pub location: Span,
+}
+
+impl Header {
+    pub fn new(title: Vec<Inline>, location: Span) -> Self {
+        Self { title, location }
+    }
+}
+
 /// The root `document` node.
 ///
-/// In this tier (no header) it serializes as
+/// Without a header it serializes as
 /// `{ "name": "document", "type": "block", "blocks": [...], "location": [...] }`.
-/// `header` and `attributes` are added in a later tier.
+/// With a `= Title` header it also carries `attributes` (present even when
+/// empty, i.e. `{}`) and a `header` object. `blocks` is omitted when empty
+/// (e.g. a header-only document), matching the TCK fixtures.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Document {
     name: &'static str,
     #[serde(rename = "type")]
     node_type: &'static str,
+    /// Present iff the document has a header (then `{}` when no attribute
+    /// entries), absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attributes: Option<BTreeMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub header: Option<Header>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub blocks: Vec<Block>,
     pub location: Span,
 }
 
 impl Document {
+    /// A header-less document (e.g. body-only input).
     pub fn new(blocks: Vec<Block>, location: Span) -> Self {
         Self {
             name: "document",
             node_type: "block",
+            attributes: None,
+            header: None,
+            blocks,
+            location,
+        }
+    }
+
+    /// A document with a `= Title` header. `attributes` is always serialized
+    /// (as `{}` when empty) once a header is present.
+    pub fn with_header(
+        header: Header,
+        attributes: BTreeMap<String, String>,
+        blocks: Vec<Block>,
+        location: Span,
+    ) -> Self {
+        Self {
+            name: "document",
+            node_type: "block",
+            attributes: Some(attributes),
+            header: Some(header),
             blocks,
             location,
         }

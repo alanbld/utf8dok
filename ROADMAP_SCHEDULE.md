@@ -26,7 +26,7 @@
 | TCK adapter CLI (`utf8dok asg`) | ✅ Done | stdin envelope → stdout ASG JSON (official contract) |
 | Fixture-driven conformance test | ✅ Done | `tests/tck.rs` vs vendored EPL-2.0 fixtures |
 | Trivial tier (document/paragraph/text) | ✅ Done | 6/13 vendored fixtures green |
-| Header tier (title + attributes) | ⬜ Pending | structured `header`, span through attr entries |
+| Header tier (title + attributes) | ✅ Done | structured `header`, span through attr entries — 8/13 green |
 | Section tier (subtree + level) | ⬜ Pending | recursive `section` blocks |
 | List / listing / sidebar tiers | ⬜ Pending | `list`/`listItem`, delimited blocks |
 | Inline markup (`strong` span) | ⬜ Pending | `variant`/`form` discriminators |
